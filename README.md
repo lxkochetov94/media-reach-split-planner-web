@@ -15,3 +15,6 @@ Web **0.39**
 
 ## Deployment
 The intended production host is Netlify. Once continuous deployment is connected to the `main` branch, every commit to `main` should publish automatically.
+
+
+Deployment status: Netlify continuous deployment enabled and verified on 2026-09-03.
