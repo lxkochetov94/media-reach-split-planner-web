@@ -3,7 +3,7 @@
 Client-side Media Reach Planner.
 
 ## Current version
-Web **0.39**
+Web **0.40**
 
 ## Architecture
 - Static site only
