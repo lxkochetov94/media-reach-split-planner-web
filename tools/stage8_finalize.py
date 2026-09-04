@@ -47,7 +47,6 @@ if '_MULTI_REACH_CACHE = {}' not in web:
 
 meta_start = web.index('def multi_reach_metadata(')
 calc_start = web.index('def calculate_multi_reach(', meta_start)
-# calculate_multi_reach is the last Stage-8 function before load_splits/export helpers.
 next_candidates = [x for x in [web.find('\ndef load_splits', calc_start), web.find('\ndef export_', calc_start)] if x != -1]
 if not next_candidates:
     raise SystemExit('multi reach function end not found')
@@ -212,7 +211,6 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
 web = web[:meta_start] + replacement + web[func_end:]
 assets['web_api.py'] = enc(web)
 
-# Correct UI semantics: Universe cannot reconcile genuinely different target audiences.
 src = src.replace(
     'Для разных/неопределённых ЦА нужен отдельный Universe, чтобы показать Grand Reach %.',
     'Нужен только при одинаковой ЦА, если Universe линеек различается. Разные ЦА не объединяются в Grand Reach.'
@@ -221,3 +219,4 @@ src = src.replace(
 src = src[:m.start()] + 'window.MRP_ASSETS=' + json.dumps(assets,separators=(',',':'),ensure_ascii=False) + ';</script>' + src[m.end():]
 PATH.write_text(src,encoding='utf-8')
 print('stage8 finalizer applied')
+# trigger
