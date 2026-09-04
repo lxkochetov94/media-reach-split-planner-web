@@ -1,0 +1,48 @@
+name: Stage 10 source snapshot
+
+on:
+  push:
+    branches:
+      - stage-1-data-structure
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch main
+        run: git fetch origin main:refs/remotes/origin/main
+      - name: Extract embedded Python cores
+        shell: python
+        run: |
+          import base64, gzip, json, pathlib, re, subprocess
+
+          def assets_from_text(text):
+              m = re.search(r'window\.MRP_ASSETS=(\{.*?\});\s*</script>', text, re.S)
+              if not m:
+                  raise RuntimeError("MRP_ASSETS not found")
+              return json.loads(m.group(1))
+
+          current = pathlib.Path("index.html").read_text(encoding="utf-8")
+          old = subprocess.check_output(
+              ["git", "show", "origin/main:index.html"], text=True, encoding="utf-8"
+          )
+          for label, text in (("new", current), ("old", old)):
+              out = pathlib.Path("stage10_source") / label
+              out.mkdir(parents=True, exist_ok=True)
+              assets = assets_from_text(text)
+              for name in ("engine.py", "splits.py", "web_api.py", "xlsx_reader.py", "audiences.json"):
+                  raw = gzip.decompress(base64.b64decode(assets[name]))
+                  (out / name).write_bytes(raw)
+          print("source snapshot ready")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage10-source
+          path: stage10_source/
+          if-no-files-found: error
+          retention-days: 1
