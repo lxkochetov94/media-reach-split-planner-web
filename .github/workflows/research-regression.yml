@@ -1,0 +1,29 @@
+name: Research model regression source
+
+on:
+  push:
+    branches: ["research-cost-model"]
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract embedded sources
+        shell: python
+        run: |
+          import base64,gzip,json,re,pathlib
+          text=pathlib.Path("index.html").read_text(encoding="utf-8")
+          m=re.search(r'window\.MRP_ASSETS=(\{.*?\});\s*</script>',text,re.S)
+          assets=json.loads(m.group(1))
+          out=pathlib.Path("core"); out.mkdir()
+          for name in ("engine.py","web_api.py","splits.py","xlsx_reader.py","audiences.json"):
+              (out/name).write_bytes(gzip.decompress(base64.b64decode(assets[name])))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: research-core
+          path: core/
+          retention-days: 1
