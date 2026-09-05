@@ -2432,15 +2432,22 @@ def combine_reach_union(
     """
     Combine already-unique Reach sets on one audience universe without arithmetic summing.
 
-    Old logic used SUM(Reach) * coefficient. With several flights this can exceed the
-    audience universe (for example 3 x ~60% * 0.85 > 100%). Reach is a union, not an
-    additive metric.
+    The union of audiences has two hard set-theory bounds:
+      * it can never be smaller than the largest component Reach;
+      * it can never reach/exceed the Universe in this planning model.
 
-    We first calculate the bounded union probability:
-        P(union) = 1 - PRODUCT(1 - P_i)
-    and only then apply the selected conservative intersection coefficient.
-    This preserves the existing meaning of the coefficient as a discount for additional
-    overlap while making >100% mathematically impossible by construction.
+    The previous SUM(Reach) * coefficient violated the upper bound. Multiplying an
+    already-bounded independent union by the coefficient also violates the lower bound
+    (e.g. 80% + 10% with coefficient 0.85 could become <80%).
+
+    We therefore use a bounded incremental-union model:
+      independent = 1 - PRODUCT(1 - P_i)
+      floor       = MAX(P_i)                     # complete overlap
+      combined    = floor + coefficient * (independent - floor)
+
+    coefficient=0 means complete overlap (no incremental Reach beyond the largest set);
+    coefficient=1 means the independence baseline. A single Reach set is preserved
+    exactly for every coefficient. The result is order-invariant and bounded by design.
     """
     items = [r for r in reach_sets if r]
     if not items or universe <= 0:
@@ -2460,10 +2467,13 @@ def combine_reach_union(
             _strict_reach_probability(float(v), float(universe), f"Reach @{freq}+")
             for v in vals
         ]
-        union_prob = 1.0 - math.prod(1.0 - p for p in probs)
-        combined_prob = union_prob * coef
+        floor_prob = max(probs)
+        independent_prob = 1.0 - math.prod(1.0 - p for p in probs)
+        combined_prob = floor_prob + coef * (independent_prob - floor_prob)
         people = combined_prob * float(universe)
 
+        if combined_prob < floor_prob - 1e-12:
+            raise ValueError(f"Объединенный Reach @{freq}+ оказался ниже крупнейшего составляющего Reach.")
         if combined_prob >= 1.0:
             raise ValueError(f"Объединенный Reach @{freq}+ достиг или превысил 100%.")
         if previous is not None:
