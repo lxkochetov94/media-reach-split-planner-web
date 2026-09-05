@@ -2,7 +2,7 @@ name: Rebuild embedded planner core
 
 on:
   push:
-    branches: ["main", "audit-hardening-0.52"]
+    branches: ["main"]
     paths:
       - ".debug_sources/engine.py"
       - ".debug_sources/web_api.py"
