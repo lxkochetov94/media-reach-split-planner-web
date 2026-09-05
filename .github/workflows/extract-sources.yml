@@ -1,0 +1,40 @@
+name: Extract embedded planner sources
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/extract-sources.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract embedded Python sources
+        run: |
+          python - <<'PY'
+          import base64, gzip, json, re
+          from pathlib import Path
+          html = Path("index.html").read_text(encoding="utf-8")
+          m = re.search(r'window\.MRP_ASSETS=(\{.*?\});</script>', html, flags=re.S)
+          if not m:
+              raise SystemExit("MRP_ASSETS not found")
+          assets = json.loads(m.group(1))
+          out = Path(".debug_sources")
+          out.mkdir(exist_ok=True)
+          for name in ("engine.py", "web_api.py", "xlsx_reader.py"):
+              data = gzip.decompress(base64.b64decode(assets[name]))
+              (out / name).write_bytes(data)
+          PY
+      - name: Commit extracted sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .debug_sources
+          git diff --cached --quiet && exit 0
+          git commit -m "Extract embedded planner sources for reach debugging"
+          git push
