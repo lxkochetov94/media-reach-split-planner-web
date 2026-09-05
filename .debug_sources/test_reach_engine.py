@@ -28,8 +28,10 @@ class ReachEngineAuditTests(unittest.TestCase):
              "target_3p": 3_000_000.0, "target_pct_3p": 0.30},
         ]
         out = combine_reach_union(parts, self.U, coefficient=0.85, frequencies=(1, 3))
-        expected_1p = (1 - (1 - 0.60) ** 3) * 0.85
-        expected_3p = (1 - (1 - 0.30) ** 3) * 0.85
+        independent_1p = 1 - (1 - 0.60) ** 3
+        independent_3p = 1 - (1 - 0.30) ** 3
+        expected_1p = 0.60 + 0.85 * (independent_1p - 0.60)
+        expected_3p = 0.30 + 0.85 * (independent_3p - 0.30)
         self.assertAlmostEqual(out["target_pct_1p"], expected_1p, places=12)
         self.assertAlmostEqual(out["target_pct_3p"], expected_3p, places=12)
         self.assertLess(out["target_pct_1p"], 1.0)
@@ -49,11 +51,20 @@ class ReachEngineAuditTests(unittest.TestCase):
         self.assertAlmostEqual(out["target_1p"], 4_000_000.0, places=6)
         self.assertAlmostEqual(out["target_3p"], 1_500_000.0, places=6)
 
-    def test_zero_coefficient_is_valid_zero_reach(self):
-        src = {"target_1p": 4_000_000.0, "target_3p": 1_500_000.0}
-        out = combine_reach_union([src], self.U, coefficient=0.0, frequencies=(1, 3))
-        self.assertEqual(out["target_1p"], 0.0)
-        self.assertEqual(out["target_3p"], 0.0)
+    def test_zero_coefficient_means_complete_overlap_not_zero_reach(self):
+        a = {"target_1p": 4_000_000.0, "target_3p": 1_500_000.0}
+        b = {"target_1p": 2_000_000.0, "target_3p": 500_000.0}
+        out = combine_reach_union([a, b], self.U, coefficient=0.0, frequencies=(1, 3))
+        self.assertEqual(out["target_1p"], 4_000_000.0)
+        self.assertEqual(out["target_3p"], 1_500_000.0)
+
+    def test_union_never_falls_below_largest_component(self):
+        a = {"target_1p": 8_000_000.0, "target_3p": 3_000_000.0}
+        b = {"target_1p": 1_000_000.0, "target_3p": 400_000.0}
+        out = combine_reach_union([a, b], self.U, coefficient=0.85, frequencies=(1, 3))
+        self.assertGreaterEqual(out["target_1p"], a["target_1p"])
+        self.assertGreaterEqual(out["target_3p"], a["target_3p"])
+        self.assertLess(out["target_pct_1p"], 1.0)
 
     def test_invalid_union_coefficient_is_rejected_not_clipped(self):
         src = {"target_1p": 4_000_000.0}
