@@ -560,8 +560,13 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
             if vals:
                 grand['raw_reach_sum'][key]=sum(vals)
 
-        if len(reach_lines)==1:
-            grand['reach']=dict(reach_lines[0]['subtotal'].get('reach') or {})
+        if len(reach_lines)==1 and grand_u is not None and grand_u > 0:
+            grand['reach']=combine_reach_union(
+                [(reach_lines[0]['subtotal'].get('reach') or {})],
+                float(grand_u),
+                coefficient=1.0,
+                frequencies=sorted(freqs),
+            )
         elif grand_u is not None and grand_u > 0:
             grand['reach']=combine_reach_union(
                 [(x['subtotal'].get('reach') or {}) for x in reach_lines],
