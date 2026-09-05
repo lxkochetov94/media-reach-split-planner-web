@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Media Reach Planner Web 0.45</title><style>:root{--ink:#263746;--muted:#6b7782;--line:#dce4ea;--bg:#f4f7f9;--panel:#fff;--blue:#1f4e78;--blue2:#314a60;--green:#2e7d32;--warn:#a15c00;--red:#b23b3b;--shadow:0 12px 30px rgba(38,55,70,.08)}
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Media Reach Planner Web 0.46</title><style>:root{--ink:#263746;--muted:#6b7782;--line:#dce4ea;--bg:#f4f7f9;--panel:#fff;--blue:#1f4e78;--blue2:#314a60;--green:#2e7d32;--warn:#a15c00;--red:#b23b3b;--shadow:0 12px 30px rgba(38,55,70,.08)}
 *{box-sizing:border-box}html,body{margin:0;font-family:Segoe UI,Arial,sans-serif;color:var(--ink);background:var(--bg)}body{min-height:100vh}.hidden{display:none!important}
 header{position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 10px rgba(38,55,70,.05)}.topbar{max-width:1600px;margin:auto;padding:14px 22px;display:flex;align-items:center;gap:18px}.brand{font-weight:800;font-size:18px;white-space:nowrap}.brand small{display:block;font-weight:500;font-size:11px;color:var(--muted)}.file-name{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.logout{color:var(--muted);text-decoration:none;font-size:13px}.tabs{max-width:1600px;margin:auto;padding:0 22px;display:flex;gap:4px;overflow:auto}.tab-btn{border:0;background:transparent;padding:11px 14px;font-weight:650;color:#60717d;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
 main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.tab.active{display:block}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.grow{flex:1}.btn{border:1px solid #bfcdd8;background:#fff;color:var(--ink);border-radius:8px;padding:9px 13px;font-weight:650;cursor:pointer}.btn:hover{background:#f7fafc}.btn.primary{background:var(--blue);color:#fff;border-color:var(--blue)}.btn.small{padding:6px 10px;font-size:12px}.status{font-size:13px;color:var(--muted)}.status.ok{color:var(--green)}.status.warn{color:var(--warn)}.status.err{color:var(--red)}
@@ -25,7 +25,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
 .multi-plan-list{display:grid;gap:10px;margin-top:10px}.multi-plan-box{border:1px solid var(--line);border-radius:9px;padding:10px;background:#fbfcfd}.multi-plan-head{display:grid;grid-template-columns:minmax(180px,1fr) 180px;gap:10px;align-items:center}.multi-plan-title{font-weight:800;color:var(--blue)}.multi-reach-subtotal td{font-weight:800;background:#eef5fa}.multi-reach-grand td{font-weight:900;background:var(--blue2);color:#fff}.multi-reach-flight td:first-child{padding-left:28px;color:#60717d}.multi-reach-note{margin-top:8px;font-size:11px;color:#60717d}
 @media(max-width:900px){main{padding:0 10px}.topbar,.tabs{padding-left:10px;padding-right:10px}.controls{grid-template-columns:repeat(2,minmax(120px,1fr))}.intersection-grid,.factor-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}.metric-cards{grid-template-columns:repeat(2,minmax(140px,1fr))}}
 </style><script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script></head>
-<body><header><div class="topbar"><div class="brand">Media Reach Planner<small>Web Portable · ядро 0.45</small></div><div id="fileName" class="file-name">Файл не выбран</div><div id="coreStatus" class="status"><span class="spinner"></span>Загрузка ядра…</div><span class="status">Локальная web-версия</span></div><nav class="tabs"><button class="tab-btn active" data-tab="reach">Охваты и KPI</button><button class="tab-btn" data-tab="flow">Флоучарт</button><button class="tab-btn" data-tab="splits">Сплиты</button><button class="tab-btn" data-tab="details">Подробнее</button></nav></header>
+<body><header><div class="topbar"><div class="brand">Media Reach Planner<small>Web Portable · ядро 0.46</small></div><div id="fileName" class="file-name">Файл не выбран</div><div id="coreStatus" class="status"><span class="spinner"></span>Загрузка ядра…</div><span class="status">Локальная web-версия</span></div><nav class="tabs"><button class="tab-btn active" data-tab="reach">Охваты и KPI</button><button class="tab-btn" data-tab="flow">Флоучарт</button><button class="tab-btn" data-tab="splits">Сплиты</button><button class="tab-btn" data-tab="details">Подробнее</button></nav></header>
 <main>
 <section id="tab-reach" class="tab active"><div class="card"><div id="dropzone" class="dropzone"><strong>Перетащите медиаплан сюда</strong><span>или нажмите, чтобы выбрать .xlsx / .xlsm</span><input id="fileInput" type="file" accept=".xlsx,.xlsm" hidden></div></div>
 <div id="multiReachControls" class="card hidden">
@@ -131,7 +131,7 @@ async function initCore(){
     try{pyodide.FS.mkdir('/app')}catch(e){}
     const files=['engine.py','xlsx_reader.py','splits.py','web_api.py','audiences.json'];
     for(const name of files){const txt=await embeddedText(name);pyodide.FS.writeFile('/app/'+name,txt,{encoding:'utf8'});}
-    pyodide.runPython("import sys; sys.path.insert(0,'/app'); import web_api");
+    pyodide.runPython("import sys, re; sys.path.insert(0,'/app'); import web_api; web_api.re = re");
     coreReady=true;setStatus('coreStatus','✓ Ядро готово','ok');
   }catch(e){console.error(e);setStatus('coreStatus','Ошибка ядра: '+esc(e.message),'err')}
 }
@@ -277,12 +277,23 @@ async function recalcMultiReach(){
   if(!currentFile||!multiReachMeta)return;
   const plans=selectedMultiReachPlans();
   if(!plans.length){multiReachSeq++;multiReachData=null;$('multiReachTable').innerHTML='';$('multiReachNote').textContent='';renderFlow();setStatus('multiReachStatus','Выберите хотя бы одну линейку.');return}
-  const seq=++multiReachSeq;setStatus('multiReachStatus','<span class="spinner"></span>Считаю линейки независимо…');
-  const q=multiReachParams();
-  const data=await pyCall('web_api.calculate_multi_reach(p,q)',{p:currentFile.path,q:JSON.stringify(q)});
-  if(seq!==multiReachSeq)return;
-  multiReachData=data;renderMultiReach();renderFlow();
-  setStatus('multiReachStatus',`✓ ${data.lines.length} линейк(и/а) · стабильный расчёт каждой линейки сохранён`,'ok');
+  const seq=++multiReachSeq;
+  setStatus('multiReachStatus','<span class="spinner"></span>Считаю линейки независимо…');
+  try{
+    const q=multiReachParams();
+    const data=await pyCall('web_api.calculate_multi_reach(p,q)',{p:currentFile.path,q:JSON.stringify(q)});
+    if(seq!==multiReachSeq)return;
+    multiReachData=data;renderMultiReach();renderFlow();
+    setStatus('multiReachStatus',`✓ ${data.lines.length} линейк(и/а) · каждая линейка рассчитана отдельно`,'ok');
+  }catch(e){
+    if(seq!==multiReachSeq)return;
+    console.error(e);
+    setStatus('multiReachStatus','Ошибка мультипланового расчёта: '+esc(e.message),'err');
+    const warn=$('multiReachWarning');
+    warn.textContent='Расчёт не завершён. Проверьте параметры и повторите. Предыдущий успешный результат, если он был, оставлен на экране.';
+    warn.classList.remove('hidden');
+    throw e;
+  }
 }
 function _multiPerf(summary){return (summary?.performance||[]).map(x=>`${esc(x[0])}: ${num(x[1],0)}`).join(' · ')||'—'}
 function _multiReachCells(summary,eff){
@@ -319,7 +330,7 @@ $('grandUniverse').addEventListener('change',()=>{
   if(!$('grandUniverse').value.trim()){grandUniverseManual=false;syncGrandUniverseAuto(true)}else grandUniverseManual=true;
   if(multiReachMeta)recalcMultiReach().catch(console.error);
 });
-$('grandUniverseAuto').onclick=()=>{grandUniverseManual=false;syncGrandUniverseAuto(true);if(multiReachMeta)recalcMultiReach().catch(console.error)};
+$('grandUniverseAuto').onclick=async()=>{const b=$('grandUniverseAuto');grandUniverseManual=false;syncGrandUniverseAuto(true);b.disabled=true;try{if(multiReachMeta)await recalcMultiReach()}catch(e){}finally{b.disabled=false}};
 
 function showGroupPicker(groups){
   const list=$('groupList');list.innerHTML='';$('groupPickerStatus').textContent='';
@@ -460,7 +471,7 @@ function renderMultiFlow(){
   for(const line of d.lines){
     h+=`<div class="multi-flow-line-head"><div class="multi-flow-label">${esc(line.label)}</div><div class="multi-flow-kpi">${esc(_flowSummaryText(line.subtotal))}</div></div>`;
     for(const f of (line.flights||[])){
-      h+=`<div class="multi-flow-flight-head"><div class="multi-flow-label"></div><div class="multi-flow-kpi">${esc(_flowSummaryText(f.summary))}</div></div>`;
+      h+=`<div class="multi-flow-flight-head"><div class="multi-flow-label">↳ ${esc(f.label||f.id||'Флайт')}</div><div class="multi-flow-kpi">${esc(_flowSummaryText(f.summary))}</div></div>`;
       const channels=f.channels||[];
       if(!channels.length){
         h+='<div class="multi-flow-empty">В выбранном флайте нет отображаемых каналов.</div>';
