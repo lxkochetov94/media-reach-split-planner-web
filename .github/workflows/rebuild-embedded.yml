@@ -24,6 +24,7 @@ concurrency:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -93,4 +94,19 @@ jobs:
           git add index.html
           git diff --cached --quiet && exit 0
           git commit -m "Rebuild embedded planner core"
-          git push
+
+          # A UI-only commit can land while this short rebuild is running. Retry a
+          # fast-forward/rebase instead of failing the deployment on a harmless race.
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            git fetch origin "$GITHUB_REF_NAME"
+            if ! git rebase "origin/$GITHUB_REF_NAME"; then
+              git rebase --abort || true
+              echo "Concurrent change conflicts with rebuilt index.html; refusing to overwrite it."
+              exit 1
+            fi
+          done
+          echo "Could not push rebuilt core after 3 attempts."
+          exit 1
