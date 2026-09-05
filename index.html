@@ -339,14 +339,14 @@ function renderDetailsTable(){
 }
 
 function daysInMonth(y,m){return new Date(y,m,0).getDate()}function xForDate(s,end=false){const d=new Date(s+'T00:00:00'),m=d.getMonth(),day=d.getDate(),dim=daysInMonth(d.getFullYear(),m+1);return ((m+(end?day:(day-1))/dim)/12)*1080}
-function barLabel(fid,ch){const k=calcData.flight_kpis?.[fid]?.[ch]||{},eff=Number($('effFreq').value);let bits=[compactMoney(k.budget)];if(k.reach?.target_pct_1p!=null){bits.push(reachPair(k.reach,1,true));if(eff>1&&k.reach?.[`target_pct_${eff}p`]!=null)bits.push(reachPair(k.reach,eff,true))}else if(k.performance?.length){bits.push(...k.performance.slice(0,1).map(x=>x[0]+' '+num(x[1],0)))}return bits.join(' · ')}
-function flowKpiSummary(c){const eff=Number($('effFreq').value);if(c.reach?.target_pct_1p!=null){let s=reachPair(c.reach,1,true);if(eff>1&&c.reach?.[`target_pct_${eff}p`]!=null)s+=' · '+reachPair(c.reach,eff,true);return s}if(c.performance?.length)return c.performance.slice(0,2).map(x=>x[0]+' '+num(x[1],0)).join(' · ');return '—'}
+function barLabel(fid,ch){const k=calcData.flight_kpis?.[fid]?.[ch]||{},eff=Number($('effFreq').value);let bits=[compactMoney(k.budget)];if(k.reach?.target_pct_1p!=null){bits.push(pct(k.reach.target_pct_1p)+' @1+');if(eff>1&&k.reach?.[`target_pct_${eff}p`]!=null)bits.push(pct(k.reach[`target_pct_${eff}p`])+' @'+eff+'+')}else if(k.performance?.length){bits.push(...k.performance.slice(0,1).map(x=>x[0]+' '+num(x[1],0)))}return bits.join(' · ')}
+function flowKpiSummary(c){const eff=Number($('effFreq').value);if(c.reach?.target_pct_1p!=null){let s=pct(c.reach.target_pct_1p)+' @1+';if(eff>1&&c.reach?.[`target_pct_${eff}p`]!=null)s+=' · '+pct(c.reach[`target_pct_${eff}p`])+' @'+eff+'+';return s}if(c.performance?.length)return c.performance.slice(0,2).map(x=>x[0]+' '+num(x[1],0)).join(' · ');return '—'}
 function _flowSummaryText(s){
   if(!s)return '—';
   const eff=Number($('effFreq').value),r=s.reach||{};
   if(r.target_pct_1p!=null){
-    let k=reachPair(r,1,true);
-    if(eff>1&&r[`target_pct_${eff}p`]!=null)k+=' · '+reachPair(r,eff,true);
+    let k=pct(r.target_pct_1p)+' @1+';
+    if(eff>1&&r[`target_pct_${eff}p`]!=null)k+=' · '+pct(r[`target_pct_${eff}p`])+' @'+eff+'+';
     return money(s.budget)+' · '+k;
   }
   const perf=(s.performance||[]).slice(0,2).map(x=>x[0]+' '+num(x[1],0)).join(' · ');
@@ -356,8 +356,8 @@ function _multiFlowBarLabel(f,ch,c){
   const eff=Number($('effFreq').value),r=c?.reach||{};
   let bits=[compactMoney(c?.budget||0)];
   if(r.target_pct_1p!=null){
-    bits.push(reachPair(r,1,true));
-    if(eff>1&&r[`target_pct_${eff}p`]!=null)bits.push(reachPair(r,eff,true));
+    bits.push(pct(r.target_pct_1p)+' @1+');
+    if(eff>1&&r[`target_pct_${eff}p`]!=null)bits.push(pct(r[`target_pct_${eff}p`])+' @'+eff+'+');
   }else if(c?.performance?.length)bits.push(c.performance[0][0]+' '+num(c.performance[0][1],0));
   return bits.join(' · ');
 }
