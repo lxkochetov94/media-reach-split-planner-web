@@ -66,6 +66,34 @@ class ReachEngineAuditTests(unittest.TestCase):
         self.assertGreaterEqual(out["target_3p"], a["target_3p"])
         self.assertLess(out["target_pct_1p"], 1.0)
 
+    def test_union_bounds_across_grid(self):
+        grids = [
+            [0.05, 0.10],
+            [0.20, 0.20],
+            [0.60, 0.60, 0.60],
+            [0.80, 0.10],
+            [0.35, 0.25, 0.15, 0.05],
+            [0.92, 0.03, 0.01],
+        ]
+        for probs in grids:
+            parts = [{"target_1p": p * self.U} for p in probs]
+            floor = max(probs)
+            independent = 1.0
+            for p in probs:
+                independent *= 1.0 - p
+            independent = 1.0 - independent
+
+            previous = None
+            for coef in (0.0, 0.25, 0.50, 0.85, 1.0):
+                out = combine_reach_union(parts, self.U, coefficient=coef, frequencies=(1,))
+                p = out["target_pct_1p"]
+                self.assertGreaterEqual(p + 1e-12, floor)
+                self.assertLessEqual(p, independent + 1e-12)
+                self.assertLess(p, 1.0)
+                if previous is not None:
+                    self.assertGreaterEqual(p + 1e-12, previous)
+                previous = p
+
     def test_invalid_union_coefficient_is_rejected_not_clipped(self):
         src = {"target_1p": 4_000_000.0}
         with self.assertRaises(ValueError):
