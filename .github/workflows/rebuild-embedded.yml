@@ -26,7 +26,7 @@ jobs:
       - name: Validate Python sources
         run: |
           python -m py_compile .debug_sources/engine.py .debug_sources/web_api.py .debug_sources/xlsx_reader.py .debug_sources/test_reach_engine.py
-          PYTHONPATH=.debug_sources python -m unittest -v .debug_sources/test_reach_engine.py
+          PYTHONPATH=.debug_sources python -m unittest -v test_reach_engine
 
       - name: Re-embed planner core into index.html
         run: |
