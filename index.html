@@ -160,8 +160,11 @@ function capReach(reach,universe){
   let prevPeople=hasU?u:Infinity,prevPct=1;
   for(let f=1;f<=6;f++){
     const ak=`target_${f}p`,pk=`target_pct_${f}p`;
-    let people=Number(reach[ak]),p=Number(reach[pk]);
-    if(Number.isFinite(people)){
+    const rawPeople=reach[ak],rawPct=reach[pk];
+    const hasPeople=rawPeople!==null&&rawPeople!==undefined&&rawPeople!==''&&Number.isFinite(Number(rawPeople));
+    const hasPct=rawPct!==null&&rawPct!==undefined&&rawPct!==''&&Number.isFinite(Number(rawPct));
+    let people=hasPeople?Number(rawPeople):NaN,p=hasPct?Number(rawPct):NaN;
+    if(hasPeople){
       people=Math.max(0,people);
       if(hasU)people=Math.min(people,u);
       people=Math.min(people,prevPeople);
@@ -169,10 +172,10 @@ function capReach(reach,universe){
       prevPeople=people;
       if(hasU){p=people/u;reach[pk]=Math.max(0,Math.min(1,p));prevPct=reach[pk];continue}
     }
-    if(Number.isFinite(p)){
+    if(hasPct){
       p=Math.max(0,Math.min(1,p,prevPct));
       reach[pk]=p;prevPct=p;
-      if(hasU&&!Number.isFinite(people)){reach[ak]=p*u;prevPeople=reach[ak]}
+      if(hasU&&!hasPeople){reach[ak]=p*u;prevPeople=reach[ak]}
     }
   }
 }
@@ -542,9 +545,8 @@ function renderMultiFlow(){
   }
   const g=d.grand_total||{};
   const grandText=_flowSummaryText(g);
-  h+=`<div class="flow-total"><span>TOTAL</span><span></span><span>${esc(grandText)}</span></div>`;
+  h+=`<div class="flow-total"><span>TOTAL</span><span></span><span>${esc(grandText)}</span></div></div>`;
   if(g.warning)h+=`<div class="flow-footnote">${esc(g.warning)}</div>`;
-  h+='</div>';
   $('flowWrap').innerHTML=h;
 }
 function renderFlow(){
