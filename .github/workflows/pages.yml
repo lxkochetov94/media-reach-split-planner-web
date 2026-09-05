@@ -1,4 +1,4 @@
-name: Deploy Web 0.45 to GitHub Pages
+name: Deploy Media Reach Planner to GitHub Pages
 
 on:
   push:
