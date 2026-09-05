@@ -2215,6 +2215,29 @@ class ReachParams:
         return float(value)
 
 
+def _unit_interval(value: float, name: str) -> float:
+    """Validate a coefficient that must be within [0, 1] without silently clipping it."""
+    v = float(value)
+    if not math.isfinite(v) or v < 0.0 or v > 1.0:
+        raise ValueError(f"{name} должен быть в диапазоне 0–1, получено {value!r}")
+    return v
+
+
+def _strict_reach_probability(people: float, universe: float, name: str) -> float:
+    """Convert Reach people to a strict probability and reject impossible source data."""
+    if not math.isfinite(float(people)) or float(people) < 0:
+        raise ValueError(f"{name}: Reach должен быть неотрицательным конечным числом.")
+    if not math.isfinite(float(universe)) or float(universe) <= 0:
+        raise ValueError(f"{name}: Universe должен быть положительным конечным числом.")
+    p = float(people) / float(universe)
+    if p >= 1.0:
+        raise ValueError(
+            f"{name}: Reach {float(people):.0f} чел. достиг или превысил Universe {float(universe):.0f}. "
+            "Такой результат физически невозможен; проверьте исходные данные/Universe."
+        )
+    return p
+
+
 def _zt_poisson_lambda(mean_frequency: float) -> float:
     """
     Solve lambda for a zero-truncated Poisson distribution:
@@ -2329,7 +2352,7 @@ def calculate_reach(
             freq,
         )
         coefficient = p.reachability(freq)
-        coefficient = 1.0 if coefficient is None else max(0.0, min(1.0, float(coefficient)))
+        coefficient = 1.0 if coefficient is None else _unit_interval(coefficient, f"Достижимость @{freq}+")
         value = (simple_tech / p.cookie_people) * coefficient
         # Monotonic guard: each higher threshold must be strictly below the previous one.
         value = min(value, previous * 0.999999)
@@ -2362,7 +2385,8 @@ def calculate_reach_from_target_1p(
     """
     if target_reach_1p is None or target_reach_1p < 0 or p.universe <= 0:
         return {}
-    target1 = min(float(target_reach_1p), float(p.universe) * 0.999999)
+    target1 = float(target_reach_1p)
+    _strict_reach_probability(target1, p.universe, "Источник Reach @1+")
     freqs = p.normalized_frequencies()
     targets: Dict[int, float] = {1: target1}
     previous = target1
@@ -2382,7 +2406,7 @@ def calculate_reach_from_target_1p(
         pn = _poisson_tail(lam, freq)
         ratio = pn / p1 if p1 > 0 else 0.0
         coef = p.reachability(freq)
-        coef = 1.0 if coef is None else max(0.0, min(1.0, float(coef)))
+        coef = 1.0 if coef is None else _unit_interval(coef, f"Достижимость @{freq}+")
         value = target1 * ratio * coef
         value = min(value, previous * 0.999999)
         targets[freq] = max(0.0, value)
@@ -2416,11 +2440,10 @@ def combine_reach_union(
     items = [r for r in reach_sets if r]
     if not items or universe <= 0:
         return {}
-    coef = max(0.0, min(1.0, float(coefficient)))
+    coef = _unit_interval(coefficient, "Коэффициент пересечения")
     freqs = tuple(int(x) for x in (frequencies or (1, 2, 3, 4, 5, 6)))
     out: Dict[str, float] = {}
-    previous = float(universe)
-    first_written = True
+    previous: Optional[float] = None
 
     for freq in sorted(set(freqs)):
         key = f"target_{freq}p"
@@ -2429,20 +2452,23 @@ def combine_reach_union(
             continue
 
         probs = [
-            max(0.0, min(0.999999, float(v) / float(universe)))
+            _strict_reach_probability(float(v), float(universe), f"Reach @{freq}+")
             for v in vals
         ]
         union_prob = 1.0 - math.prod(1.0 - p for p in probs)
-        combined_prob = max(0.0, min(0.999999, union_prob * coef))
+        combined_prob = union_prob * coef
         people = combined_prob * float(universe)
 
-        if not first_written:
-            people = min(people, previous * 0.999999)
-            combined_prob = people / float(universe)
+        if combined_prob >= 1.0:
+            raise ValueError(f"Объединенный Reach @{freq}+ достиг или превысил 100%.")
+        if previous is not None and people >= previous:
+            raise ValueError(
+                f"Объединенный Reach @{freq}+ не ниже охвата на меньшей частоте. "
+                "Проверьте входные frequency/reachability данные."
+            )
         out[key] = people
         out[f"target_pct_{freq}p"] = combined_prob
         previous = people
-        first_written = False
 
     return out
 
@@ -4016,7 +4042,10 @@ def intersection_breakdown(
         "channels": channel_auto,
         "period": period_auto,
     }
-    applied = {k: float(factor_overrides.get(k, v)) for k, v in auto_factors.items()}
+    applied = {
+        k: _unit_interval(factor_overrides.get(k, v), f"Коэффициент {k}")
+        for k, v in auto_factors.items()
+    }
     auto_product = math.prod(auto_factors.values())
     adjusted_product = math.prod(applied.values())
 
@@ -4025,7 +4054,7 @@ def intersection_breakdown(
     # many platforms/rows/channels that overlap. Web 0.39 incorrectly forced 1.00
     # for every single-flight plan, ignoring the user's 0.85 total coefficient.
     if manual_final is not None:
-        applied_product = float(manual_final)
+        applied_product = _unit_interval(manual_final, "Тотал коэффициент пересечения")
         mode = "manual"
     elif factor_overrides:
         applied_product = adjusted_product
