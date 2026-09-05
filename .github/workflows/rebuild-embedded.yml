@@ -7,7 +7,10 @@ on:
       - ".debug_sources/engine.py"
       - ".debug_sources/web_api.py"
       - ".debug_sources/xlsx_reader.py"
+      - ".debug_sources/splits.py"
       - ".debug_sources/test_reach_engine.py"
+      - ".debug_sources/test_web_api.py"
+      - ".debug_sources/test_splits_core.py"
       - ".github/workflows/rebuild-embedded.yml"
 
 permissions:
@@ -25,8 +28,18 @@ jobs:
 
       - name: Validate Python sources
         run: |
-          python -m py_compile .debug_sources/engine.py .debug_sources/web_api.py .debug_sources/xlsx_reader.py .debug_sources/test_reach_engine.py
-          PYTHONPATH=.debug_sources python -m unittest -v test_reach_engine
+          python -m py_compile \
+            .debug_sources/engine.py \
+            .debug_sources/web_api.py \
+            .debug_sources/xlsx_reader.py \
+            .debug_sources/splits.py \
+            .debug_sources/test_reach_engine.py \
+            .debug_sources/test_web_api.py \
+            .debug_sources/test_splits_core.py
+          PYTHONPATH=.debug_sources python -m unittest -v \
+            test_reach_engine \
+            test_web_api \
+            test_splits_core
 
       - name: Re-embed planner core into index.html
         run: |
@@ -42,7 +55,7 @@ jobs:
           assets = json.loads(m.group(1))
 
           src = Path(".debug_sources")
-          for name in ("engine.py", "web_api.py", "xlsx_reader.py"):
+          for name in ("engine.py", "web_api.py", "xlsx_reader.py", "splits.py"):
               raw = (src / name).read_bytes()
               assets[name] = base64.b64encode(gzip.compress(raw, compresslevel=9, mtime=0)).decode("ascii")
 
@@ -62,7 +75,7 @@ jobs:
           if not m:
               raise SystemExit("MRP_ASSETS not found after rebuild")
           assets = json.loads(m.group(1))
-          for name in ("engine.py", "web_api.py", "xlsx_reader.py"):
+          for name in ("engine.py", "web_api.py", "xlsx_reader.py", "splits.py"):
               embedded = gzip.decompress(base64.b64decode(assets[name]))
               source = (Path(".debug_sources") / name).read_bytes()
               if embedded != source:
