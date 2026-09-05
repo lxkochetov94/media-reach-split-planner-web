@@ -2954,9 +2954,10 @@ def _fallback_platform_overlap(platform_count: int) -> float:
 
 def _synthesize_missing_channel_totals(rows: List[Placement], flight: FlightInfo) -> List[Placement]:
     """
-    If a flight has no subtotal row for a channel, synthesize one.
-    Additive metrics are summed; technical reach is sum(Reach UU) × platform overlap:
-    1 platform=1.0, 2=0.9, 3+=0.8. Frequency = Impressions / Reach UU.
+    If a flight has no subtotal row for a channel, synthesize a structural subtotal.
+    Additive metrics are summed. Reach is intentionally NOT synthesized here: arithmetic
+    Reach UU aggregation is not a valid audience union. Downstream KPI summaries rebuild
+    missing channel Reach from detail-row reach sets via combine_reach_union().
     Existing explicit/unlabeled subtotals are NEVER overwritten.
     """
     out = list(rows)
@@ -2976,15 +2977,16 @@ def _synthesize_missing_channel_totals(rows: List[Placement], flight: FlightInfo
 
         budget_vals = [x.budget for x in children if x.budget is not None]
         imp_vals = [x.impressions for x in children if x.impressions is not None]
-        reach_vals = [x.tech_reach for x in children if x.tech_reach is not None]
         platforms = {_platform_key(x.platform) for x in children if _platform_key(x.platform)}
         platform_count = max(1, len(platforms))
         overlap = _fallback_platform_overlap(platform_count)
 
         budget = sum(budget_vals) if budget_vals else None
         impressions = sum(imp_vals) if imp_vals else None
-        tech_reach = (sum(reach_vals) * overlap) if reach_vals else None
-        frequency = (impressions / tech_reach) if impressions is not None and tech_reach not in (None, 0) else None
+        # Never create a fake technical Reach subtotal by SUM(Reach UU) × overlap.
+        # The bounded audience union is calculated from child reach sets after apply_reach().
+        tech_reach = None
+        frequency = None
 
         models = {x.buying_model for x in children if x.buying_model != "OTHER"}
         model = next(iter(models)) if len(models) == 1 else "OTHER"
@@ -3013,7 +3015,7 @@ def _synthesize_missing_channel_totals(rows: List[Placement], flight: FlightInfo
             target_kpi_value=kpi_value,
             is_total=True,
             synthetic_total=True,
-            raw_text=f"AUTO SUBTOTAL {channel}: {platform_count} platform(s), overlap={overlap:.2f}",
+            raw_text=f"AUTO SUBTOTAL {channel}: {platform_count} platform(s), reach_union_overlap={overlap:.2f}",
         ))
     return out
 
@@ -3678,7 +3680,7 @@ def parse_media_plan(
             if synthetic_channels:
                 warnings.append(
                     f"{label}: субтоталы рассчитаны автоматически для: {', '.join(dict.fromkeys(synthetic_channels))}. "
-                    "Бюджет/показы суммированы, Reach UU = сумма Reach UU × fallback коэффициент площадок."
+                    "Бюджет/показы суммированы; Reach канала рассчитывается отдельно как объединение аудиторий detail-строк."
                 )
             placements.extend(group_rows)
 
@@ -3770,7 +3772,7 @@ def parse_media_plan(
             if synthetic_channels:
                 warnings.append(
                     f"{label}: субтоталы рассчитаны автоматически для: {', '.join(dict.fromkeys(synthetic_channels))}. "
-                    "Бюджет/показы суммированы, Reach UU = сумма Reach UU × fallback коэффициент площадок."
+                    "Бюджет/показы суммированы; Reach канала рассчитывается отдельно как объединение аудиторий detail-строк."
                 )
             placements.extend(group_rows)
 
@@ -4330,8 +4332,8 @@ def flight_channel_kpi_summary(
     reach: Dict[str, float] = {}
     frequency: Optional[float] = None
 
-    # For reach-based buying use the explicit/synthesized channel subtotal.
-    # This avoids summing reach across placements.
+    # Explicit source subtotal is authoritative. If it is absent, rebuild channel Reach
+    # from physical reach-buying detail rows as a bounded union instead of summing Reach UU.
     if has_reach_model and subtotal is not None and subtotal.tech_reach is not None:
         frequency = subtotal.frequency
         if frequency is None and subtotal.impressions is not None and subtotal.tech_reach not in (None, 0):
@@ -4342,6 +4344,22 @@ def flight_channel_kpi_summary(
             impressions=subtotal.impressions,
             avg_frequency=frequency,
         )
+    elif has_reach_model:
+        reach_rows = [x for x in rows if _reach_allowed_for_row(plan, x) and x.reach]
+        if reach_rows:
+            platforms = {_platform_key(x.platform) for x in reach_rows if _platform_key(x.platform)}
+            overlap = _fallback_platform_overlap(max(1, len(platforms)))
+            reach = combine_reach_union(
+                [x.reach for x in reach_rows],
+                params.universe,
+                coefficient=overlap,
+                frequencies=params.normalized_frequencies(),
+            )
+            tech_vals = [float(x.tech_reach) for x in reach_rows if x.tech_reach is not None]
+            imp_vals = [float(x.impressions) for x in reach_rows if x.impressions is not None]
+            if tech_vals:
+                tech_total = sum(tech_vals)
+                frequency = (sum(imp_vals) / tech_total) if imp_vals and tech_total > 0 else None
 
     # Performance KPI is aggregated by actual buying model.
     perf_agg: Dict[str, float] = defaultdict(float)
@@ -4389,35 +4407,38 @@ def selected_channel_summary(
         impressions = sum(imp_vals) if imp_vals else None
 
         channel_flights = [fid for fid in selected if any(x.channel == channel for x in plan.detail_rows([fid]))]
-        reach_sources = []
+        flight_reach_sets: List[Dict[str, float]] = []
+        tech_parts: List[float] = []
         for fid in channel_flights:
+            fk = flight_channel_kpi_summary(plan, fid, channel, params)
+            fr = fk.get("reach") or {}
+            if fr.get("target_1p") is not None:
+                flight_reach_sets.append(fr)
+            # Technical Reach is retained only as a diagnostic denominator; it is never
+            # used for audience union.
             src = plan.channel_total(fid, channel)
-            if src and src.tech_reach is not None:
-                reach_sources.append(src.tech_reach)
-        tech_reach = None
-        reach: Dict[str, float] = {}
-        if reach_sources and len(reach_sources) == len(channel_flights):
-            if len(reach_sources) == 1:
-                tech_reach = reach_sources[0]
-                frequency = impressions / tech_reach if impressions is not None and tech_reach not in (None, 0) else None
-                reach = calculate_reach(
-                    tech_reach, params, impressions=impressions, avg_frequency=frequency
-                )
+            if src is not None and src.tech_reach is not None:
+                tech_parts.append(float(src.tech_reach))
             else:
-                source_sets = [
-                    calculate_reach(src, params)
-                    for src in reach_sources
-                ]
+                tech_parts.extend(
+                    float(x.tech_reach)
+                    for x in plan.detail_rows([fid])
+                    if x.channel == channel and _reach_allowed_for_row(plan, x) and x.tech_reach is not None
+                )
+
+        tech_reach = sum(tech_parts) if tech_parts else None
+        reach: Dict[str, float] = {}
+        if flight_reach_sets and len(flight_reach_sets) == len(channel_flights):
+            if len(flight_reach_sets) == 1:
+                reach = dict(flight_reach_sets[0])
+            else:
                 reach = combine_reach_union(
-                    source_sets,
+                    flight_reach_sets,
                     params.universe,
                     coefficient=intersection.applied_product,
                     frequencies=params.normalized_frequencies(),
                 )
-                tech_reach = sum(reach_sources)
-                frequency = impressions / tech_reach if impressions is not None and tech_reach > 0 else None
-        else:
-            frequency = None
+        frequency = impressions / tech_reach if impressions is not None and tech_reach not in (None, 0) else None
         out.append({
             "channel": channel,
             "budget": budget,
