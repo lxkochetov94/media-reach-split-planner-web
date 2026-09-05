@@ -2361,7 +2361,12 @@ def calculate_reach(
 
     corrected = {k: v / p.lag_visible_share for k, v in ms.items()}
     target = {k: v * p.target_affinity for k, v in corrected.items()}
-    pct = {k: v / p.universe for k, v in target.items()}
+
+    # Final Reach must be physically valid at the core level. Do not rely on the UI
+    # to catch or clip an impossible result: invalid source assumptions must fail loudly.
+    pct: Dict[int, float] = {}
+    for k, value in target.items():
+        pct[k] = _strict_reach_probability(value, p.universe, f"Расчетный Reach @{k}+")
 
     out: Dict[str, float] = {}
     for k in sorted(ms):
