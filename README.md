@@ -18,3 +18,8 @@ The intended production host is Netlify. Once continuous deployment is connected
 
 
 Deployment status: Netlify continuous deployment enabled and verified on 2026-09-03.
+
+
+## Web 0.51
+
+Reach aggregation is calculated as a bounded audience union across flights/lines instead of arithmetic Reach summing. The web UI validates the invariant Reach < 100% and does not silently cap invalid results.
