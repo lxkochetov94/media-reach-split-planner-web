@@ -559,9 +559,25 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
                 continue
             raw=sum(vals)
             grand['raw_reach_sum'][key]=raw
-            people=raw if len(reach_lines)==1 else raw*coef
-            if grand_u is not None:
-                people=min(people,grand_u)
+            if len(reach_lines)==1:
+                # One independently calculated line passes through unchanged.
+                people=vals[0]
+            elif grand_u is not None and grand_u > 0:
+                # Reach is a union on the common Grand Universe, never an arithmetic sum.
+                # Old SUM(lines)*coef could exceed 100% and then relied on a cap.
+                probs=[
+                    max(0.0,min(0.999999,float(v)/float(grand_u)))
+                    for v in vals
+                ]
+                union_prob=1.0
+                for p_i in probs:
+                    union_prob*=1.0-p_i
+                union_prob=1.0-union_prob
+                people=float(grand_u)*union_prob*coef
+            else:
+                # Without a common Grand Universe percentage union is undefined.
+                # Preserve people-only conservative overlap logic for compatible TA.
+                people=raw*coef
             grand['reach'][key]=people
             if grand_u and grand_u>0:
                 grand['reach'][f'target_pct_{freq}p']=people/grand_u
