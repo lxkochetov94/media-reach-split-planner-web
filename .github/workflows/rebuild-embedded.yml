@@ -2,15 +2,20 @@ name: Rebuild embedded planner core
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "audit-hardening-0.52"]
     paths:
       - ".debug_sources/engine.py"
       - ".debug_sources/web_api.py"
       - ".debug_sources/xlsx_reader.py"
+      - ".debug_sources/test_reach_engine.py"
       - ".github/workflows/rebuild-embedded.yml"
 
 permissions:
   contents: write
+
+concurrency:
+  group: "rebuild-embedded-${{ github.ref }}"
+  cancel-in-progress: true
 
 jobs:
   rebuild:
@@ -20,28 +25,8 @@ jobs:
 
       - name: Validate Python sources
         run: |
-          python -m py_compile .debug_sources/engine.py .debug_sources/web_api.py .debug_sources/xlsx_reader.py
-          python - <<'PY'
-          import sys
-          sys.path.insert(0, ".debug_sources")
-          import engine
-
-          U = 10_000_000.0
-          parts = [
-              {"target_1p": 6_000_000.0, "target_pct_1p": 0.60,
-               "target_3p": 3_000_000.0, "target_pct_3p": 0.30},
-              {"target_1p": 6_000_000.0, "target_pct_1p": 0.60,
-               "target_3p": 3_000_000.0, "target_pct_3p": 0.30},
-              {"target_1p": 6_000_000.0, "target_pct_1p": 0.60,
-               "target_3p": 3_000_000.0, "target_pct_3p": 0.30},
-          ]
-          out = engine.combine_reach_union(parts, U, coefficient=0.85, frequencies=(1,3))
-          assert 0 < out["target_pct_1p"] < 1.0, out
-          assert 0 < out["target_pct_3p"] < out["target_pct_1p"], out
-          expected = (1 - (1 - 0.60) ** 3) * 0.85
-          assert abs(out["target_pct_1p"] - expected) < 1e-9, (out, expected)
-          print("bounded union OK:", out)
-          PY
+          python -m py_compile .debug_sources/engine.py .debug_sources/web_api.py .debug_sources/xlsx_reader.py .debug_sources/test_reach_engine.py
+          PYTHONPATH=.debug_sources python -m unittest -v .debug_sources/test_reach_engine.py
 
       - name: Re-embed planner core into index.html
         run: |
@@ -66,11 +51,30 @@ jobs:
           p.write_text(html, encoding="utf-8")
           PY
 
+      - name: Verify embedded core matches sources
+        run: |
+          python - <<'PY'
+          import base64, gzip, json, re
+          from pathlib import Path
+
+          html = Path("index.html").read_text(encoding="utf-8")
+          m = re.search(r'window\.MRP_ASSETS=(\{.*?\});</script>', html, flags=re.S)
+          if not m:
+              raise SystemExit("MRP_ASSETS not found after rebuild")
+          assets = json.loads(m.group(1))
+          for name in ("engine.py", "web_api.py", "xlsx_reader.py"):
+              embedded = gzip.decompress(base64.b64decode(assets[name]))
+              source = (Path(".debug_sources") / name).read_bytes()
+              if embedded != source:
+                  raise SystemExit(f"Embedded {name} does not match source")
+          print("Embedded planner core matches canonical sources.")
+          PY
+
       - name: Commit rebuilt embedded core
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
           git diff --cached --quiet && exit 0
-          git commit -m "Rebuild embedded planner core after reach fix"
+          git commit -m "Rebuild embedded planner core"
           git push
