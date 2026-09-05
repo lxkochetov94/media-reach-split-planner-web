@@ -64,7 +64,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
   </div>
   <div class="section-title">Пересечение охватов</div>
   <div class="intersection-grid">
-    <div class="field"><label>Тотал коэффициент (0–1)</label><input id="manualIntersection" type="number" min="0" max="1" step="0.01" value="0.85"><div class="hint">Можно задать вручную. При изменении детальных параметров пересчитается автоматически.</div></div>
+    <div class="field"><label>Тотал коэффициент (0–1)</label><input id="manualIntersection" type="number" min="0" max="1" step="0.01" value="0.85"><div class="hint">0 = полное пересечение (итог не ниже крупнейшего Reach); 1 = независимое объединение. Значение задаёт долю дополнительного охвата между этими границами.</div></div>
     <div class="field"><label>Размер ЦА</label><select id="audienceSize"><option value="Большая" selected>Большая</option><option value="Маленькая">Маленькая</option><option value="Очень маленькая">Очень маленькая</option></select></div>
     <div class="field"><label>Сложность ЦА</label><select id="complexity"><option>Простая</option><option>Сложная</option></select></div>
     <div class="field"><label>Количество площадок</label><input id="platformCount" type="number" min="1" step="1"></div>
@@ -373,7 +373,7 @@ function renderMultiReach(){
   }
   const warn=$('multiReachWarning');if(g.warning){warn.textContent=g.warning;warn.classList.remove('hidden')}else warn.classList.add('hidden');
   const raw=g.raw_reach_sum?.target_1p,combined=g.reach?.target_1p;
-  $('multiReachNote').textContent=raw!=null&&d.lines.length>1?`Контроль: арифметическая сумма Reach @1+ до дедупликации = ${num(raw,0)} чел. — это только диагностическая величина и не используется как итог. Grand Total = ${num(combined,0)} чел. рассчитан как объединение аудиторий на Grand Universe ${num(g.universe,0)} с коэффициентом пересечения ${Number(g.line_intersection_coefficient??0).toFixed(2)}.`:'';
+  $('multiReachNote').textContent=raw!=null&&d.lines.length>1?`Контроль: арифметическая сумма Reach @1+ до дедупликации = ${num(raw,0)} чел. — это только диагностическая величина. Grand Total = ${num(combined,0)} чел. рассчитан на Grand Universe ${num(g.universe,0)} между границей полного пересечения (максимальный Reach одной линейки) и независимым объединением; коэффициент ${Number(g.line_intersection_coefficient??0).toFixed(2)} задаёт долю дополнительного охвата.`:'';
 }
 $('selectAllReachPlans').onclick=()=>{document.querySelectorAll('.multi-plan-cb,.multi-flight-cb').forEach(x=>x.checked=true);syncGrandUniverseAuto();recalcMultiReach().catch(console.error)};
 $('lineIntersection').addEventListener('change',()=>multiReachMeta&&recalcMultiReach().catch(console.error));
