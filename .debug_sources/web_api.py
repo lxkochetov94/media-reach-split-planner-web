@@ -1,12 +1,12 @@
 from __future__ import annotations
-import json, datetime as dt
+import json, datetime as dt, math, re
 from pathlib import Path
 from collections import defaultdict
 
 from engine import (
     ReachParams, apply_reach, discover_media_plan_groups, discover_workbook_structure,
     parse_media_plan, build_plan_node, intersection_breakdown, selected_summary,
-    selected_channel_summary, flight_channel_kpi_summary,
+    selected_channel_summary, flight_channel_kpi_summary, combine_reach_union,
 )
 from splits import parse_split_workbook, export_split_xlsx, MONTH_NAMES_RU
 
@@ -28,6 +28,29 @@ def _num(v):
         return None if v is None else float(v)
     except Exception:
         return None
+
+def _finite_float(v, name: str) -> float:
+    try:
+        x=float(v)
+    except Exception as e:
+        raise ValueError(f"{name}: ожидается число.") from e
+    if not math.isfinite(x):
+        raise ValueError(f"{name}: ожидается конечное число.")
+    return x
+
+def _positive_float(v, name: str) -> float:
+    x=_finite_float(v,name)
+    if x <= 0:
+        raise ValueError(f"{name} должен быть больше 0.")
+    return x
+
+def _unit_float(v, name: str, *, allow_zero: bool = True) -> float:
+    x=_finite_float(v,name)
+    lower_ok = x >= 0 if allow_zero else x > 0
+    if not lower_ok or x > 1:
+        bounds = "0–1" if allow_zero else "(0; 1]"
+        raise ValueError(f"{name} должен быть в диапазоне {bounds}.")
+    return x
 
 def _json(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
@@ -181,16 +204,33 @@ def calculate(params_json: str) -> str:
     if PLAN is None:
         raise RuntimeError("Медиаплан не загружен")
     q=json.loads(params_json)
-    selected=q.get("selected_flights") or PLAN.flight_ids()
-    universe=float(q.get("universe") or PLAN.universe or 15182450)
-    reachability={int(k):float(v) for k,v in (q.get("reachability") or {}).items() if v is not None}
+    selected_raw=q.get("selected_flights", None)
+    selected=PLAN.flight_ids() if selected_raw is None else [x for x in selected_raw if x in PLAN.flight_ids()]
+
+    raw_universe=q.get("universe", None)
+    if raw_universe in (None, ""):
+        raw_universe=PLAN.universe if PLAN.universe is not None else 15182450
+    universe=_positive_float(raw_universe, "Universe")
+
+    reachability={
+        int(k):_unit_float(v, f"Достижимость @{k}+")
+        for k,v in (q.get("reachability") or {}).items()
+        if v is not None
+    }
     selected_freqs=tuple(int(x) for x in (q.get("selected_frequencies") or [1,2,3,4]))
     eff=int(q.get("effective_frequency") or 3)
+    if eff < 1 or eff > 6:
+        raise ValueError("Эффективная частота должна быть от 1 до 6.")
+
+    lag_visible_share=_unit_float(q.get("lag_visible_share",0.65), "MS фиксирует", allow_zero=False)
+    cookie_people=_positive_float(q.get("cookie_people",2.4), "Куки → люди")
+    target_affinity=_unit_float(q.get("target_affinity",0.65), "Попадание в ЦА")
+
     p=ReachParams(
         universe=universe,
-        lag_visible_share=float(q.get("lag_visible_share",0.65)),
-        cookie_people=float(q.get("cookie_people",2.4)),
-        target_affinity=float(q.get("target_affinity",0.65)),
+        lag_visible_share=lag_visible_share,
+        cookie_people=cookie_people,
+        target_affinity=target_affinity,
         reachability_coefficients=reachability,
         selected_frequencies=selected_freqs,
         effective_frequency=eff,
@@ -423,12 +463,14 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
     plan_map=cache.get("plans") or {}
     base=dict(q.get("base_params") or {})
     requested=q.get("plans") or []
-    coef=max(0.0,min(1.0,float(q.get("line_intersection_coefficient",0.85))))
+    coef=float(q.get("line_intersection_coefficient",0.85))
+    if not math.isfinite(coef) or coef < 0.0 or coef > 1.0:
+        raise ValueError("Коэффициент пересечения линеек должен быть в диапазоне 0–1.")
     manual_grand=q.get("grand_universe")
-    try:
-        manual_grand=float(manual_grand) if manual_grand not in (None, "", 0) else None
-    except Exception:
+    if manual_grand in (None, "", 0, "0"):
         manual_grand=None
+    else:
+        manual_grand=_positive_float(manual_grand, "Grand Universe")
 
     previous_plan=PLAN
     lines=[]
@@ -442,7 +484,10 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
             selected=plan.flight_ids() if selected_raw is None else [x for x in selected_raw if x in plan.flight_ids()]
             if not selected:
                 continue
-            universe=float(item.get("universe") or plan.universe or 15182450)
+            raw_universe=item.get("universe", None)
+            if raw_universe in (None, ""):
+                raw_universe=plan.universe if plan.universe is not None else 15182450
+            universe=_positive_float(raw_universe, f"Universe · {pid}")
             PLAN=plan
             line_q=dict(base)
             line_q["selected_flights"]=selected
@@ -555,39 +600,39 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
             key=f'target_{freq}p'
             vals=[(x['subtotal'].get('reach') or {}).get(key) for x in reach_lines]
             vals=[float(v) for v in vals if v is not None]
-            if not vals:
-                continue
-            raw=sum(vals)
-            grand['raw_reach_sum'][key]=raw
-            if len(reach_lines)==1:
-                # One independently calculated line passes through unchanged.
-                people=vals[0]
-            elif grand_u is not None and grand_u > 0:
-                # Reach is a union on the common Grand Universe, never an arithmetic sum.
-                # Old SUM(lines)*coef could exceed 100% and then relied on a cap.
-                probs=[
-                    max(0.0,min(0.999999,float(v)/float(grand_u)))
-                    for v in vals
-                ]
-                union_prob=1.0
-                for p_i in probs:
-                    union_prob*=1.0-p_i
-                union_prob=1.0-union_prob
-                people=float(grand_u)*union_prob*coef
-            else:
-                # Without a common Grand Universe percentage union is undefined.
-                # Preserve people-only conservative overlap logic for compatible TA.
-                people=raw*coef
-            grand['reach'][key]=people
-            if grand_u and grand_u>0:
-                grand['reach'][f'target_pct_{freq}p']=people/grand_u
+            if vals:
+                grand['raw_reach_sum'][key]=sum(vals)
+
+        if len(reach_lines)==1 and grand_u is not None and grand_u > 0:
+            grand['reach']=combine_reach_union(
+                [(reach_lines[0]['subtotal'].get('reach') or {})],
+                float(grand_u),
+                coefficient=1.0,
+                frequencies=sorted(freqs),
+            )
+        elif grand_u is not None and grand_u > 0:
+            grand['reach']=combine_reach_union(
+                [(x['subtotal'].get('reach') or {}) for x in reach_lines],
+                float(grand_u),
+                coefficient=coef,
+                frequencies=sorted(freqs),
+            )
+        else:
+            # Without a common Grand Universe a percentage union is undefined.
+            # Keep Reach empty instead of manufacturing an unnormalised TOTAL.
+            grand['reach']={}
+            warnings.append(
+                'TOTAL Reach не рассчитан: отсутствует корректный Grand Universe для объединения аудиторий.'
+            )
 
         if len(reach_lines)==1:
             grand['line_intersection_coefficient']=1.0
         grand['warning']=' '.join(warnings)
         grand['normalization_note']=(
-            'Каждая линейка рассчитана на собственном Universe. Для TOTAL абсолютные Reach в людях '
-            'объединяются с коэффициентом пересечения, а процент TOTAL считается от Grand Universe.'
+            'Каждая линейка рассчитана на собственном Universe. Для TOTAL Reach объединяется на Grand Universe '
+            'между двумя границами: крупнейший Reach (полное пересечение) и независимое объединение. '
+            'Коэффициент 0–1 задаёт долю инкрементального охвата между этими границами. '
+            'Арифметическая сумма Reach используется только для диагностики.'
         )
 
     return _json({"lines":lines,"grand_total":grand})

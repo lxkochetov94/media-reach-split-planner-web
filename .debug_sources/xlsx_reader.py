@@ -43,9 +43,14 @@ def _parse_range(ref: str) -> Tuple[int, int, int, int]:
     return min(r1, r2), min(c1, c2), max(r1, r2), max(c1, c2)
 
 
-def excel_serial_to_datetime(value: float) -> _dt.datetime:
-    # Excel's Windows 1900 date system. The 1899-12-30 origin handles the fake 1900-02-29.
-    base = _dt.datetime(1899, 12, 30)
+def excel_serial_to_datetime(value: float, date_1904: bool = False) -> _dt.datetime:
+    """Convert an Excel serial using the workbook's actual date system."""
+    if date_1904:
+        # In the 1904 system serial 0 is 1904-01-01.
+        base = _dt.datetime(1904, 1, 1)
+    else:
+        # Windows 1900 system. The 1899-12-30 origin handles Excel's fake 1900-02-29.
+        base = _dt.datetime(1899, 12, 30)
     return base + _dt.timedelta(days=float(value))
 
 
@@ -79,6 +84,7 @@ class XlsxWorkbook:
             raise ValueError("Поддерживаются .xlsx и .xlsm. Старый .xls нужно сохранить как .xlsx.")
         self._zip = zipfile.ZipFile(self.path, "r")
         self.shared_strings = self._read_shared_strings()
+        self.date_1904 = self._read_date_1904()
         self.date_style_ids = self._read_date_style_ids()
         self.sheet_paths = self._read_sheet_paths()
 
@@ -115,6 +121,16 @@ class XlsxWorkbook:
                     parts.append(t.text or "")
             out.append("".join(parts))
         return out
+
+    def _read_date_1904(self) -> bool:
+        root = self._read_xml("xl/workbook.xml")
+        if root is None:
+            return False
+        props = root.find(_q(NS_MAIN, "workbookPr"))
+        if props is None:
+            return False
+        value = str(props.attrib.get("date1904", "")).strip().lower()
+        return value in {"1", "true", "yes"}
 
     def _read_date_style_ids(self) -> set[int]:
         root = self._read_xml("xl/styles.xml")
@@ -221,7 +237,7 @@ class XlsxWorkbook:
         try:
             num = float(raw)
             if style_id in self.date_style_ids:
-                dt = excel_serial_to_datetime(num)
+                dt = excel_serial_to_datetime(num, self.date_1904)
                 # Most media plans only need date precision.
                 if abs(num - int(num)) < 1e-9:
                     return dt.date(), missing_cached_formula
