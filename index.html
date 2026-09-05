@@ -29,7 +29,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
 <main>
 <section id="tab-reach" class="tab active"><div class="card"><div id="dropzone" class="dropzone"><strong>Перетащите медиаплан сюда</strong><span>или нажмите, чтобы выбрать .xlsx / .xlsm</span><input id="fileInput" type="file" accept=".xlsx,.xlsm" hidden></div></div>
 <div id="multiReachControls" class="card hidden">
-  <div class="row"><div class="grow"><strong>Мультиплановый охват</strong><div class="hint">Flight → Subtotal линейки → Grand Total. Каждая линейка сначала считается тем же стабильным ядром отдельно.</div></div><button id="selectAllReachPlans" class="btn small">Все линейки</button></div>
+  <div class="row"><div class="grow"><strong>Мультиплановый охват</strong><div class="hint">Flight → Subtotal линейки → Grand Total. Каждая линейка сначала считается тем же стабильным ядром отдельно.</div></div><button id="prepareMultiReach" class="btn small">Подготовить мультиплан</button><button id="selectAllReachPlans" class="btn small">Все линейки</button></div>
   <div id="multiPlanWrap" class="multi-plan-list"></div>
   <div class="controls" style="margin-top:12px">
     <div class="field"><label>Пересечение между линейками (0–1)</label><input id="lineIntersection" type="number" min="0" max="1" step="0.01" value="0.85"><div class="hint">Применяется только на Grand Total. Subtotal линейки не меняет.</div></div>
@@ -109,7 +109,17 @@ function pct(v,d=1){if(v==null||!Number.isFinite(Number(v)))return '—';return 
 function compactMoney(v){if(v==null)return '—';v=Number(v);if(Math.abs(v)>=1e6)return (v/1e6).toFixed(v>=1e7?1:2).replace('.',',')+'м₽';if(Math.abs(v)>=1e3)return (v/1e3).toFixed(0)+'к₽';return Math.round(v)+'₽'}
 function dateRu(s){if(!s)return '—';const [y,m,d]=s.split('-');return `${d}.${m}.${y}`}
 function selectedFlights(){return [...document.querySelectorAll('.flight-cb:checked')].map(x=>x.value)}
-function switchTab(tab){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.id===`tab-${tab}`));if(tab==='flow')renderFlow();if(tab==='splits')renderSplits()}
+function switchTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.id===`tab-${tab}`));
+  if(tab==='flow')renderFlow();
+  if(tab==='splits'){
+    renderSplits();
+    if(currentFile&&groupsData&&!splitData){
+      loadSplits().catch(e=>{console.error(e);setStatus('splitStatus','Ошибка сплитов: '+esc(e.message),'err')});
+    }
+  }
+}
 document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
 async function initCore(){
@@ -140,14 +150,37 @@ async function openFile(file){
     currentFile={file,path,name:file.name};$('fileName').textContent=file.name;
     groupsData=await pyCall('web_api.discover(p)',{p:path});
     if(!groupsData.groups.length)throw new Error('В файле не найден рабочий медиаплан');
-    multiReachMeta=await pyCall('web_api.multi_reach_metadata(p)',{p:path});
-    renderMultiReachControls();
-    recalcMultiReach().catch(e=>{console.error(e);setStatus('multiReachStatus','Ошибка мультипланового охвата: '+esc(e.message),'err')});
+
+    // Mobile-safe critical path: show the stable single-line calculation first.
+    // Multi-plan reach and Splits are lazy because Pyodide runs on the main thread.
+    multiReachMeta=null;multiReachData=null;splitData=null;
     renderSplitPlanControls(groupsData.groups);
-    loadSplits().catch(e=>{console.error(e);setStatus('splitStatus','Ошибка сплитов: '+esc(e.message),'err')});
+    $('multiReachControls').classList.remove('hidden');
+    $('multiPlanWrap').innerHTML='<div class="hint">Обычный расчёт загружается первым. Мультиплановый режим запускается отдельно кнопкой «Подготовить мультиплан».</div>';
+    $('multiReachTable').innerHTML='';
+    $('multiReachNote').textContent='';
+    setStatus('multiReachStatus','Мультиплановый расчёт ещё не запускался.');
+    setStatus('splitStatus','Сплиты рассчитаются при открытии вкладки «Сплиты».');
     if(groupsData.groups.length>1)showGroupPicker(groupsData.groups);else await chooseGroup(groupsData.groups[0]);
   }catch(e){console.error(e);setStatus('calcStatus','Ошибка: '+esc(e.message),'err')}
 }
+
+async function prepareMultiReach(){
+  if(!currentFile||!groupsData)return;
+  try{
+    $('prepareMultiReach').disabled=true;
+    setStatus('multiReachStatus','<span class="spinner"></span>Подготавливаю линейки…');
+    multiReachMeta=await pyCall('web_api.multi_reach_metadata(p)',{p:currentFile.path});
+    renderMultiReachControls();
+    await recalcMultiReach();
+  }catch(e){
+    console.error(e);
+    setStatus('multiReachStatus','Ошибка мультипланового расчёта: '+esc(e.message),'err');
+  }finally{
+    $('prepareMultiReach').disabled=false;
+  }
+}
+$('prepareMultiReach').onclick=()=>prepareMultiReach();
 
 function renderMultiReachControls(){
   const root=$('multiReachControls'),wrap=$('multiPlanWrap');
