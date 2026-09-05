@@ -2362,7 +2362,7 @@ def calculate_reach_from_target_1p(
     """
     if target_reach_1p is None or target_reach_1p < 0 or p.universe <= 0:
         return {}
-    target1 = float(target_reach_1p)
+    target1 = min(float(target_reach_1p), float(p.universe) * 0.999999)
     freqs = p.normalized_frequencies()
     targets: Dict[int, float] = {1: target1}
     previous = target1
@@ -2391,6 +2391,59 @@ def calculate_reach_from_target_1p(
     for k in sorted(targets):
         out[f"target_{k}p"] = targets[k]
         out[f"target_pct_{k}p"] = targets[k] / p.universe
+    return out
+
+
+def combine_reach_union(
+    reach_sets: Iterable[Dict[str, float]],
+    universe: float,
+    coefficient: float = 1.0,
+    frequencies: Optional[Iterable[int]] = None,
+) -> Dict[str, float]:
+    """
+    Combine already-unique Reach sets on one audience universe without arithmetic summing.
+
+    Old logic used SUM(Reach) * coefficient. With several flights this can exceed the
+    audience universe (for example 3 x ~60% * 0.85 > 100%). Reach is a union, not an
+    additive metric.
+
+    We first calculate the bounded union probability:
+        P(union) = 1 - PRODUCT(1 - P_i)
+    and only then apply the selected conservative intersection coefficient.
+    This preserves the existing meaning of the coefficient as a discount for additional
+    overlap while making >100% mathematically impossible by construction.
+    """
+    items = [r for r in reach_sets if r]
+    if not items or universe <= 0:
+        return {}
+    coef = max(0.0, min(1.0, float(coefficient)))
+    freqs = tuple(int(x) for x in (frequencies or (1, 2, 3, 4, 5, 6)))
+    out: Dict[str, float] = {}
+    previous = float(universe)
+    first_written = True
+
+    for freq in sorted(set(freqs)):
+        key = f"target_{freq}p"
+        vals = [r.get(key) for r in items]
+        if any(v is None for v in vals):
+            continue
+
+        probs = [
+            max(0.0, min(0.999999, float(v) / float(universe)))
+            for v in vals
+        ]
+        union_prob = 1.0 - math.prod(1.0 - p for p in probs)
+        combined_prob = max(0.0, min(0.999999, union_prob * coef))
+        people = combined_prob * float(universe)
+
+        if not first_written:
+            people = min(people, previous * 0.999999)
+            combined_prob = people / float(universe)
+        out[key] = people
+        out[f"target_pct_{freq}p"] = combined_prob
+        previous = people
+        first_written = False
+
     return out
 
 
@@ -4119,14 +4172,12 @@ def selected_summary(
                 source1, fp, impressions=(fi if fi > 0 else None), avg_frequency=avg_f
             ))
 
-        multiplier = intersection.applied_product
-        for freq in params.normalized_frequencies():
-            key = f"target_{freq}p"
-            vals = [r.get(key) for r in per_flight_reach if r.get(key) is not None]
-            if len(vals) == len(per_flight_reach) and vals:
-                people = sum(vals) * multiplier
-                reach[key] = people
-                reach[f"target_pct_{freq}p"] = people / params.universe
+        reach = combine_reach_union(
+            per_flight_reach,
+            params.universe,
+            coefficient=intersection.applied_product,
+            frequencies=params.normalized_frequencies(),
+        )
         frequency = (weighted_freq_num / weighted_freq_den) if weighted_freq_den > 0 else None
     else:
         # Legacy fallback: explicit/synthesized all-media technical Reach UU per flight.
@@ -4135,15 +4186,32 @@ def selected_summary(
         # This intentionally replaces embedded source-total formulas such as
         # SUM(Reach UU)*0.90: otherwise a media-plan coefficient would silently override
         # the 0.85/manual/detailed coefficient selected in the web calculator.
-        raw_reaches = [
-            float(x.tech_reach) for x in reach_rows
-            if x.tech_reach is not None
-        ]
-        if raw_reaches:
-            tech_reach = sum(raw_reaches) * intersection.applied_product
-            frequency = (reach_impressions / tech_reach) if reach_impressions is not None and tech_reach not in (None, 0) else None
-            reach = calculate_reach(
-                tech_reach, params, impressions=reach_impressions, avg_frequency=frequency
+        row_reach_sets: List[Dict[str, float]] = []
+        raw_reaches: List[float] = []
+        for x in reach_rows:
+            if x.tech_reach is None:
+                continue
+            raw_reaches.append(float(x.tech_reach))
+            row_reach_sets.append(calculate_reach(
+                x.tech_reach,
+                params,
+                impressions=x.impressions,
+                avg_frequency=x.frequency,
+            ))
+        if row_reach_sets:
+            # Keep technical reach/frequency only as diagnostics. The actual Reach is a
+            # bounded union of row-level audiences and is never an arithmetic sum.
+            raw_tech_total = sum(raw_reaches)
+            tech_reach = raw_tech_total
+            frequency = (
+                reach_impressions / raw_tech_total
+                if reach_impressions is not None and raw_tech_total > 0 else None
+            )
+            reach = combine_reach_union(
+                row_reach_sets,
+                params.universe,
+                coefficient=intersection.applied_product,
+                frequencies=params.normalized_frequencies(),
             )
         else:
             warning = (
@@ -4293,13 +4361,29 @@ def selected_channel_summary(
             if src and src.tech_reach is not None:
                 reach_sources.append(src.tech_reach)
         tech_reach = None
+        reach: Dict[str, float] = {}
         if reach_sources and len(reach_sources) == len(channel_flights):
             if len(reach_sources) == 1:
                 tech_reach = reach_sources[0]
+                frequency = impressions / tech_reach if impressions is not None and tech_reach not in (None, 0) else None
+                reach = calculate_reach(
+                    tech_reach, params, impressions=impressions, avg_frequency=frequency
+                )
             else:
-                tech_reach = sum(reach_sources) * intersection.applied_product
-        frequency = impressions / tech_reach if impressions is not None and tech_reach not in (None, 0) else None
-        reach = calculate_reach(tech_reach, params, impressions=impressions, avg_frequency=frequency) if tech_reach is not None else {}
+                source_sets = [
+                    calculate_reach(src, params)
+                    for src in reach_sources
+                ]
+                reach = combine_reach_union(
+                    source_sets,
+                    params.universe,
+                    coefficient=intersection.applied_product,
+                    frequencies=params.normalized_frequencies(),
+                )
+                tech_reach = sum(reach_sources)
+                frequency = impressions / tech_reach if impressions is not None and tech_reach > 0 else None
+        else:
+            frequency = None
         out.append({
             "channel": channel,
             "budget": budget,
