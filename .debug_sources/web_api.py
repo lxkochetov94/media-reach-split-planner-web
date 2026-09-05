@@ -629,9 +629,10 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
             grand['line_intersection_coefficient']=1.0
         grand['warning']=' '.join(warnings)
         grand['normalization_note']=(
-            'Каждая линейка рассчитана на собственном Universe. Для TOTAL Reach объединяется как '
-            'ограниченное объединение аудиторий на Grand Universe; коэффициент пересечения применяется '
-            'к объединенной вероятности. Арифметическая сумма Reach используется только для диагностики.'
+            'Каждая линейка рассчитана на собственном Universe. Для TOTAL Reach объединяется на Grand Universe '
+            'между двумя границами: крупнейший Reach (полное пересечение) и независимое объединение. '
+            'Коэффициент 0–1 задаёт долю инкрементального охвата между этими границами. '
+            'Арифметическая сумма Reach используется только для диагностики.'
         )
 
     return _json({"lines":lines,"grand_total":grand})
