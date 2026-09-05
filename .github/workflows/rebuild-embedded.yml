@@ -11,6 +11,7 @@ on:
       - ".debug_sources/test_reach_engine.py"
       - ".debug_sources/test_web_api.py"
       - ".debug_sources/test_splits_core.py"
+      - ".debug_sources/test_xlsx_reader.py"
       - ".github/workflows/rebuild-embedded.yml"
 
 permissions:
@@ -35,11 +36,13 @@ jobs:
             .debug_sources/splits.py \
             .debug_sources/test_reach_engine.py \
             .debug_sources/test_web_api.py \
-            .debug_sources/test_splits_core.py
+            .debug_sources/test_splits_core.py \
+            .debug_sources/test_xlsx_reader.py
           PYTHONPATH=.debug_sources python -m unittest -v \
             test_reach_engine \
             test_web_api \
-            test_splits_core
+            test_splits_core \
+            test_xlsx_reader
 
       - name: Re-embed planner core into index.html
         run: |
