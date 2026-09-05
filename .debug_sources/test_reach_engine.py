@@ -1,10 +1,17 @@
 import unittest
+from pathlib import Path
 
 from engine import (
     ReachParams,
+    Placement,
+    FlightInfo,
+    ParsedPlan,
+    apply_reach,
     calculate_reach,
     calculate_reach_from_target_1p,
     combine_reach_union,
+    flight_channel_kpi_summary,
+    _synthesize_missing_channel_totals,
 )
 
 
@@ -88,6 +95,54 @@ class ReachEngineAuditTests(unittest.TestCase):
         vals = [out[f"target_{f}p"] for f in range(1, 7)]
         for left, right in zip(vals, vals[1:]):
             self.assertGreater(left, right)
+
+    def test_missing_channel_subtotal_never_adds_reach_uu(self):
+        flight = FlightInfo(
+            id="F1",
+            label="Flight 1",
+            sheet="Plan",
+            universe=self.U,
+        )
+        rows = [
+            Placement(
+                sheet="Plan", source_row=1, flight="F1", flight_label="Flight 1",
+                channel="OLV", platform="Platform A", buying_model="CPM",
+                budget=1_000_000.0, impressions=10_000_000.0, tech_reach=5_000_000.0,
+            ),
+            Placement(
+                sheet="Plan", source_row=2, flight="F1", flight_label="Flight 1",
+                channel="OLV", platform="Platform B", buying_model="CPM",
+                budget=1_000_000.0, impressions=10_000_000.0, tech_reach=5_000_000.0,
+            ),
+        ]
+        placements = _synthesize_missing_channel_totals(rows, flight)
+        synthetic = [x for x in placements if x.synthetic_total]
+        self.assertEqual(len(synthetic), 1)
+        self.assertIsNone(synthetic[0].tech_reach)
+
+        plan = ParsedPlan(
+            path=Path("dummy.xlsx"),
+            placements=placements,
+            sheet_meta={},
+            tables=[],
+            universe=self.U,
+            period_start=None,
+            period_end=None,
+            warnings=[],
+            flights=[flight],
+        )
+        p = ReachParams(
+            universe=self.U,
+            lag_visible_share=0.65,
+            cookie_people=2.4,
+            target_affinity=0.65,
+            selected_frequencies=(1, 3),
+        )
+        apply_reach(plan, p)
+        summary = flight_channel_kpi_summary(plan, "F1", "OLV", p)
+        self.assertIn("target_pct_1p", summary["reach"])
+        self.assertLess(summary["reach"]["target_pct_1p"], 1.0)
+        self.assertLess(summary["reach"]["target_pct_3p"], summary["reach"]["target_pct_1p"])
 
 
 if __name__ == "__main__":
