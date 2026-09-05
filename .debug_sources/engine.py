@@ -2461,11 +2461,16 @@ def combine_reach_union(
 
         if combined_prob >= 1.0:
             raise ValueError(f"Объединенный Reach @{freq}+ достиг или превысил 100%.")
-        if previous is not None and people >= previous:
-            raise ValueError(
-                f"Объединенный Reach @{freq}+ не ниже охвата на меньшей частоте. "
-                "Проверьте входные frequency/reachability данные."
-            )
+        if previous is not None:
+            if previous > 0 and people >= previous:
+                raise ValueError(
+                    f"Объединенный Reach @{freq}+ не ниже охвата на меньшей частоте. "
+                    "Проверьте входные frequency/reachability данные."
+                )
+            if previous == 0 and people > 0:
+                raise ValueError(
+                    f"Объединенный Reach @{freq}+ появился после нулевого охвата на меньшей частоте."
+                )
         out[key] = people
         out[f"target_pct_{freq}p"] = combined_prob
         previous = people
