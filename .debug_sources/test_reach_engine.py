@@ -70,6 +70,22 @@ class ReachEngineAuditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             calculate_reach_from_target_1p(self.U, p, avg_frequency=3.0)
 
+    def test_calculated_reach_over_universe_is_rejected_in_core(self):
+        p = ReachParams(
+            universe=self.U,
+            lag_visible_share=0.50,
+            cookie_people=1.0,
+            target_affinity=1.0,
+            selected_frequencies=(1, 3),
+        )
+        with self.assertRaises(ValueError):
+            calculate_reach(
+                6_000_000.0,
+                p,
+                impressions=18_000_000.0,
+                avg_frequency=3.0,
+            )
+
     def test_frequency_curve_is_monotonic(self):
         p = ReachParams(
             universe=self.U,
