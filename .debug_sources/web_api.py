@@ -1,12 +1,12 @@
 from __future__ import annotations
-import json, datetime as dt
+import json, datetime as dt, math, re
 from pathlib import Path
 from collections import defaultdict
 
 from engine import (
     ReachParams, apply_reach, discover_media_plan_groups, discover_workbook_structure,
     parse_media_plan, build_plan_node, intersection_breakdown, selected_summary,
-    selected_channel_summary, flight_channel_kpi_summary,
+    selected_channel_summary, flight_channel_kpi_summary, combine_reach_union,
 )
 from splits import parse_split_workbook, export_split_xlsx, MONTH_NAMES_RU
 
@@ -423,7 +423,9 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
     plan_map=cache.get("plans") or {}
     base=dict(q.get("base_params") or {})
     requested=q.get("plans") or []
-    coef=max(0.0,min(1.0,float(q.get("line_intersection_coefficient",0.85))))
+    coef=float(q.get("line_intersection_coefficient",0.85))
+    if not math.isfinite(coef) or coef < 0.0 or coef > 1.0:
+        raise ValueError("Коэффициент пересечения линеек должен быть в диапазоне 0–1.")
     manual_grand=q.get("grand_universe")
     try:
         manual_grand=float(manual_grand) if manual_grand not in (None, "", 0) else None
@@ -555,32 +557,25 @@ def calculate_multi_reach(path: str, params_json: str) -> str:
             key=f'target_{freq}p'
             vals=[(x['subtotal'].get('reach') or {}).get(key) for x in reach_lines]
             vals=[float(v) for v in vals if v is not None]
-            if not vals:
-                continue
-            raw=sum(vals)
-            grand['raw_reach_sum'][key]=raw
-            if len(reach_lines)==1:
-                # One independently calculated line passes through unchanged.
-                people=vals[0]
-            elif grand_u is not None and grand_u > 0:
-                # Reach is a union on the common Grand Universe, never an arithmetic sum.
-                # Old SUM(lines)*coef could exceed 100% and then relied on a cap.
-                probs=[
-                    max(0.0,min(0.999999,float(v)/float(grand_u)))
-                    for v in vals
-                ]
-                union_prob=1.0
-                for p_i in probs:
-                    union_prob*=1.0-p_i
-                union_prob=1.0-union_prob
-                people=float(grand_u)*union_prob*coef
-            else:
-                # Without a common Grand Universe percentage union is undefined.
-                # Preserve people-only conservative overlap logic for compatible TA.
-                people=raw*coef
-            grand['reach'][key]=people
-            if grand_u and grand_u>0:
-                grand['reach'][f'target_pct_{freq}p']=people/grand_u
+            if vals:
+                grand['raw_reach_sum'][key]=sum(vals)
+
+        if len(reach_lines)==1:
+            grand['reach']=dict(reach_lines[0]['subtotal'].get('reach') or {})
+        elif grand_u is not None and grand_u > 0:
+            grand['reach']=combine_reach_union(
+                [(x['subtotal'].get('reach') or {}) for x in reach_lines],
+                float(grand_u),
+                coefficient=coef,
+                frequencies=sorted(freqs),
+            )
+        else:
+            # Without a common Grand Universe a percentage union is undefined.
+            # Keep Reach empty instead of manufacturing an unnormalised TOTAL.
+            grand['reach']={}
+            warnings.append(
+                'TOTAL Reach не рассчитан: отсутствует корректный Grand Universe для объединения аудиторий.'
+            )
 
         if len(reach_lines)==1:
             grand['line_intersection_coefficient']=1.0
