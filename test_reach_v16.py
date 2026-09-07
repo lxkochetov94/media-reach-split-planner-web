@@ -1,6 +1,7 @@
 import datetime as dt
 import math
 import unittest
+from types import SimpleNamespace
 
 import reach_v16 as r
 
@@ -241,6 +242,108 @@ class ReachV16Tests(unittest.TestCase):
         }
         with self.assertRaisesRegex(r.V16Error, "TA_NORMALIZATION_REQUIRED"):
             r._brand_merge([a,b], U, [], q)
+
+
+    def test_reach_buying_model_scope_is_automatic(self):
+        def row(model, *, platform="Test", placement_class="Баннеры"):
+            return SimpleNamespace(
+                buying_model=model, platform=platform, platform_canonical="",
+                placement_class=placement_class, placement_class_reason="",
+            )
+        self.assertTrue(r._reach_buying_model_eligible(row("CPM")))
+        self.assertTrue(r._reach_buying_model_eligible(row("CPV", placement_class="OLV")))
+        for model in ("CPC", "CPR", "CPA", "CPI", "CPO", "CPL", "CPCV", "CPE", "CPS", "OTHER"):
+            with self.subTest(model=model):
+                self.assertFalse(r._reach_buying_model_eligible(row(model)))
+        self.assertFalse(r._reach_buying_model_eligible(row("CPM", platform="Adriver", placement_class="")))
+
+    def test_promopages_buying_model_controls_reach_and_channel(self):
+        def row(model, fmt):
+            return SimpleNamespace(
+                buying_model=model, platform="Яндекс ПромоСтраницы", platform_canonical="",
+                format=fmt, raw_text="", placement_class="Статьи",
+                placement_class_reason="", channel="Статьи",
+            )
+        cpc = row("CPC", "Статья")
+        cpr = row("CPR", "Статья")
+        cpm = row("CPM", "Медийный баннер")
+        cpv = row("CPV", "Video pre-roll")
+        cpcv = row("CPCV", "Video pre-roll")
+        self.assertFalse(r._reach_buying_model_eligible(cpc))
+        self.assertFalse(r._reach_buying_model_eligible(cpr))
+        self.assertFalse(r._reach_buying_model_eligible(cpcv))
+        self.assertTrue(r._reach_buying_model_eligible(cpm))
+        self.assertTrue(r._reach_buying_model_eligible(cpv))
+        self.assertEqual(r._reach_channel(cpm), "Banners")
+        self.assertEqual(r._reach_channel(cpv), "OLV")
+
+    def test_avito_native_does_not_inherit_olv_section(self):
+        row = SimpleNamespace(
+            buying_model="CPM", platform="Avito", platform_canonical="",
+            format="Нативный формат", raw_text="", placement_class="Native",
+            placement_class_reason="", channel="OLV",
+        )
+        self.assertEqual(r._reach_channel(row), "Native")
+        self.assertEqual(r._auto_environment([row]), "WEB")
+
+    def test_environment_is_inferred_from_plan_text(self):
+        base = dict(
+            buying_model="CPM", platform_canonical="", raw_text="",
+            placement_class="", placement_class_reason="", channel="Banners",
+        )
+        web = SimpleNamespace(**base, platform="Avito", format="Нативный формат")
+        app = SimpleNamespace(**base, platform="Test", format="Mobile app interstitial")
+        ctv = SimpleNamespace(**base, platform="Test", format="Smart TV CTV video")
+        unknown = SimpleNamespace(**base, platform="Test", format="Generic inventory")
+        self.assertEqual(r._auto_environment([web]), "WEB")
+        self.assertEqual(r._auto_environment([app]), "MOBILE_APP")
+        self.assertEqual(r._auto_environment([ctv]), "CTV")
+        self.assertEqual(r._auto_environment([unknown]), "UNKNOWN")
+
+    def test_aon_slice_is_modelled_automatically_from_source_delivery(self):
+        U = 10_000_000.0
+        aon_row = SimpleNamespace(
+            sheet="Plan", source_row=9, flight="FA", flight_label="Always-on",
+            channel="Banners", platform="Test Platform", platform_canonical="",
+            format="Banner", buying_model="CPM", placement_class="Баннеры",
+            placement_class_reason="", raw_text="",
+            impressions=12_000_000.0, frequency=3.0, tech_reach=4_000_000.0,
+            start=dt.date(2026, 1, 1), end=dt.date(2026, 12, 31),
+        )
+        flights = [
+            {
+                "name":"Always-on", "flight_id":"FA", "is_common":True,
+                "start":dt.date(2026,1,1), "end":dt.date(2026,12,31),
+            },
+            {
+                "name":"Flight 1", "flight_id":"F1", "is_common":False,
+                "start":dt.date(2026,2,1), "end":dt.date(2026,2,28),
+            },
+        ]
+        cfg = {
+            "requested_mode":"AUTO", "K":2.4, "K_source":"MODEL_DEFAULT",
+            "B":1.8, "B_source":"BASE_FALLBACK",
+            "D":2.25, "D_source":"BASE_FALLBACK",
+            "L":68.0, "L_source":"MODEL_DEFAULT",
+            "B_min":1.6, "B_max":1.9, "D_min":1.74, "D_max":2.45,
+            "age_range":None, "ta_name":"",
+            "web_device_universes":{}, "unit_web_device_universes":{},
+            "environments":{}, "browser_families":{}, "device_reaches":{},
+            "browser_segments":{}, "device_segments":{}, "safari_l":None,
+            "plan_id":"P1",
+        }
+        diagnostics = []
+        r._attach_aon_slices(
+            flights, {}, "P1", diagnostics,
+            source_rows_by_flight={"FA":[aon_row]}, U=U, cfg=cfg,
+        )
+        slices = flights[0].get("temporal_slices") or []
+        self.assertEqual(len(slices), 1)
+        self.assertEqual(slices[0]["burst_flight_id"], "F1")
+        self.assertEqual(slices[0]["source"], "MODELLED_FROM_SOURCE_DELIVERY")
+        self.assertGreater(slices[0]["human_reach_1p_slice"], 0)
+        self.assertLess(slices[0]["human_reach_1p_slice"], 4_000_000)
+        self.assertTrue(any(d.get("code") == "AON_TEMPORAL_FOOTPRINT" for d in diagnostics))
 
 
 if __name__ == "__main__":
