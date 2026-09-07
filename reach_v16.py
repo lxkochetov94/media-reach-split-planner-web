@@ -7,8 +7,8 @@ This module is intentionally separate from the production 0.52 reach engine.
 It reuses only the workbook parser from engine.py and does not call apply_reach(),
 combine_reach_union() or any of the legacy reach aggregation functions.
 
-Implemented production path:
-L1 placement technical reach -> L2 Quick people -> aggregate L3 fallback ->
+Implemented test path:
+L1 placement technical reach -> L2 Quick or Advanced Web people -> aggregate L3 fallback ->
 L4 platform/family/channel merge -> L5 channel/flight merge ->
 L6 flight/line merge -> L7 line/brand merge.
 
@@ -18,6 +18,7 @@ The module keeps every model-default relaxation and approximation visible in dia
 import datetime as dt
 import json
 import math
+import re
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -29,6 +30,9 @@ IPF_TOL = 1e-8
 IPF_MAX_ITER = 1800
 SIGMA_DEFAULT = 2.50
 K_DEFAULT = 2.40
+CHROMIUM_L_DEFAULT = 68.0
+BASE_BROWSER = 1.80
+BASE_DEVICE_FACTOR = 2.25
 RHO_CHANNEL_DEFAULT = -0.35
 RESIDUAL_CAP = 0.10
 ARITH_REL_TOL = 0.03
@@ -148,6 +152,150 @@ def level2_quick(rtech: float, U: float, K: float) -> float:
             "Проверьте Reach, Universe и K."
         )
     return max(0.0, r)
+
+
+_AGE_B = [(12, 24, 1.80), (25, 34, 1.90), (35, 44, 1.90), (45, 54, 1.75), (55, 120, 1.60)]
+_AGE_D = [(12, 24, 2.45), (25, 34, 2.35), (35, 44, 2.25), (45, 54, 2.15), (55, 120, 1.74)]
+
+
+def _age_range(ta_name: str) -> Optional[Tuple[int, int]]:
+    m = re.search(r"(?<!\d)(\d{1,2})\s*[-–—]\s*(\d{1,2})(?!\d)", str(ta_name or ""))
+    if not m:
+        return None
+    lo, hi = int(m.group(1)), int(m.group(2))
+    if lo > hi:
+        lo, hi = hi, lo
+    if lo < 12:
+        return None
+    return lo, hi
+
+
+def _age_weighted(ta_name: str, bands: Sequence[Tuple[int, int, float]], base: float) -> Tuple[float, str]:
+    rng = _age_range(ta_name)
+    if rng is None:
+        return base, "BASE_FALLBACK"
+    lo, hi = rng
+    vals = []
+    for age in range(lo, hi + 1):
+        match = next((v for a, b, v in bands if a <= age <= b), None)
+        if match is None:
+            return base, "BASE_FALLBACK"
+        vals.append(match)
+    if not vals:
+        return base, "BASE_FALLBACK"
+    return sum(vals) / len(vals), "AGE_WIDTH_APPROXIMATION"
+
+
+def recommended_advanced_factors(ta_name: str) -> dict:
+    B, src_b = _age_weighted(ta_name, _AGE_B, BASE_BROWSER)
+    D, src_d = _age_weighted(ta_name, _AGE_D, BASE_DEVICE_FACTOR)
+    return {"B": B, "D": D, "B_source": src_b, "D_source": src_d}
+
+
+def level2_advanced_web(
+    rtech: float,
+    U: float,
+    T: float,
+    F: float,
+    U_D: float,
+    B: float,
+    D: float,
+    L: float = CHROMIUM_L_DEFAULT,
+) -> dict:
+    T = _positive(T, "T")
+    F = _finite(F, "Average Frequency")
+    U_D = _positive(U_D, "Web-device Universe U_D")
+    B = _finite(B, "B")
+    D = _finite(D, "D")
+    L = _positive(L, "L")
+    if F < 1:
+        raise V16Error("Average Frequency должна быть >= 1.")
+    if B < 1:
+        raise V16Error("Browser multiplicity B должна быть >= 1.")
+    if D < 1:
+        raise V16Error("Device multiplicity D должна быть >= 1.")
+
+    k_time = 1.0 if F <= 1 else 1.0 + (F - 1.0) * (1.0 - 2.0 ** (-T / (L * F)))
+    r_stable = rtech / k_time
+    browser_capacity = U_D * B
+    if r_stable > browser_capacity + 1e-6:
+        raise V16Error(
+            f"Level 2 Advanced: R_stable {r_stable:.0f} превышает U_D×B {browser_capacity:.0f}."
+        )
+
+    base_browser = 1.0 - r_stable / browser_capacity
+    r_device = U_D * (1.0 - max(0.0, base_browser) ** B)
+
+    device_capacity = U * D
+    if r_device > device_capacity + 1e-6:
+        raise V16Error(
+            f"Level 2 Advanced: R_device {r_device:.0f} превышает U×D {device_capacity:.0f}."
+        )
+    base_device = 1.0 - r_device / device_capacity
+    r_people = U * (1.0 - max(0.0, base_device) ** D)
+    if r_people > U + 1e-6:
+        raise V16Error("Level 2 Advanced: Human Reach превышает Universe.")
+
+    return {
+        "R_people": max(0.0, r_people),
+        "K_time": k_time,
+        "R_stable": r_stable,
+        "R_device": r_device,
+        "B": B,
+        "D": D,
+        "L": L,
+        "U_D": U_D,
+    }
+
+
+def _resolve_l2_line_params(plan, U: float, q: dict, plan_id: str) -> dict:
+    requested = str(q.get("l2_mode") or "AUTO").upper()
+    if requested not in {"AUTO", "QUICK", "ADVANCED_WEB"}:
+        raise V16Error("Level 2 mode должен быть AUTO, QUICK или ADVANCED_WEB.")
+
+    K = _positive(q.get("K", K_DEFAULT), "K")
+    if K < 1:
+        raise V16Error("K должен быть >= 1.")
+
+    adv = q.get("advanced") or {}
+    ta_name = next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
+    rec = recommended_advanced_factors(ta_name)
+    B_raw = adv.get("B")
+    D_raw = adv.get("D")
+    B = rec["B"] if B_raw in (None, "") else _finite(B_raw, "B")
+    D = rec["D"] if D_raw in (None, "") else _finite(D_raw, "D")
+    L = _positive(adv.get("L", CHROMIUM_L_DEFAULT), "L")
+    ud_map = adv.get("web_device_universes") or {}
+    ud_raw = ud_map.get(plan_id)
+    U_D = None if ud_raw in (None, "", 0, "0") else _positive(ud_raw, "Web-device Universe U_D")
+
+    effective = requested
+    fallback_reason = None
+    if requested == "AUTO":
+        if U_D is not None:
+            effective = "ADVANCED_WEB"
+        else:
+            effective = "QUICK"
+            fallback_reason = "NO_WEB_DEVICE_UNIVERSE"
+    elif requested == "ADVANCED_WEB" and U_D is None:
+        raise V16Error(
+            "Advanced Web требует Web-device Universe U_D. "
+            "Без U_D используйте AUTO/QUICK или задайте U_D."
+        )
+
+    return {
+        "requested_mode": requested,
+        "effective_mode": effective,
+        "K": K,
+        "U_D": U_D,
+        "B": B,
+        "D": D,
+        "L": L,
+        "B_source": "USER_OVERRIDE" if B_raw not in (None, "") else rec["B_source"],
+        "D_source": "USER_OVERRIDE" if D_raw not in (None, "") else rec["D_source"],
+        "ta_name": ta_name,
+        "fallback_reason": fallback_reason,
+    }
 
 
 # --------------------------- frequency ---------------------------
@@ -483,14 +631,55 @@ def _is_feasible(reaches: Sequence[float], U: float, pair_targets: Dict[Tuple[in
 
 # --------------------------- Level 4 / 5 ---------------------------
 
-def _entity_from_row(row, U: float, K: float, diagnostics: List[dict]) -> Optional[dict]:
+def _entity_from_row(row, U: float, l2: dict, diagnostics: List[dict]) -> Optional[dict]:
     rtech = level1_technical(row, diagnostics)
     if rtech is None:
         return None
-    rpeople = level2_quick(rtech, U, K)
     I = float(row.impressions or 0.0)
     if I < 0:
         raise V16Error("Impressions < 0.")
+
+    mode = l2["effective_mode"]
+    if mode == "QUICK":
+        rpeople = level2_quick(rtech, U, l2["K"])
+    else:
+        if not row.start or not row.end:
+            if l2["requested_mode"] == "AUTO":
+                rpeople = level2_quick(rtech, U, l2["K"])
+                diagnostics.append({
+                    "code": "L2_AUTO_FALLBACK_QUICK",
+                    "reason": "MISSING_ROW_DATES",
+                    "sheet": row.sheet, "row": row.source_row + 1,
+                })
+                mode = "QUICK"
+            else:
+                raise V16Error(
+                    f"{row.sheet}:{row.source_row+1}: Advanced Web требует даты начала и окончания размещения."
+                )
+        else:
+            F_input = float(row.frequency) if row.frequency is not None else (
+                I / rtech if rtech > 0 and I > 0 else 1.0
+            )
+            adv = level2_advanced_web(
+                rtech=rtech,
+                U=U,
+                T=_duration_days(row.start, row.end),
+                F=F_input,
+                U_D=l2["U_D"],
+                B=l2["B"],
+                D=l2["D"],
+                L=l2["L"],
+            )
+            rpeople = adv["R_people"]
+            diagnostics.append({
+                "code": "L2_ADVANCED_WEB_ROW",
+                "sheet": row.sheet, "row": row.source_row + 1,
+                "K_time": adv["K_time"],
+                "R_stable": adv["R_stable"],
+                "R_device": adv["R_device"],
+                "B": adv["B"], "D": adv["D"], "L": adv["L"], "U_D": adv["U_D"],
+            })
+
     fbar = I / rpeople if rpeople > 0 and I > 0 else (float(row.frequency) if row.frequency else 1.0)
     if rpeople > 0 and fbar < 1:
         # Supplied placement Reach may be technical while impressions are rounded.
@@ -512,11 +701,11 @@ def _entity_from_row(row, U: float, K: float, diagnostics: List[dict]) -> Option
     }
 
 
-def level4_channel(rows: Sequence[Any], U: float, K: float, diagnostics: List[dict]) -> List[dict]:
+def level4_channel(rows: Sequence[Any], U: float, l2: dict, diagnostics: List[dict]) -> List[dict]:
     units: List[dict] = []
     signatures = defaultdict(list)
     for row in rows:
-        e = _entity_from_row(row, U, K, diagnostics)
+        e = _entity_from_row(row, U, l2, diagnostics)
         if e is not None and e["reach_1p"] > 0:
             units.append(e)
         sig = (
@@ -856,12 +1045,12 @@ def _line_ta(plan, groups: Sequence[dict]) -> str:
     return names[0] if len(names) == 1 else (plan.line or plan.display_name or "")
 
 
-def calculate_line(plan, U: float, K: float, diagnostics: List[dict]) -> dict:
+def calculate_line(plan, U: float, l2: dict, diagnostics: List[dict]) -> dict:
     groups = _normalize_flight_groups(plan)
     flights = []
     for g in groups:
         rows = plan.detail_rows(g["ids"])
-        channels = level4_channel(rows, U, K, diagnostics)
+        channels = level4_channel(rows, U, l2, diagnostics)
         flight = level5_flight(channels, U, diagnostics)
         flight.update({
             "name": g["label"],
@@ -881,6 +1070,18 @@ def calculate_line(plan, U: float, K: float, diagnostics: List[dict]) -> dict:
         "universe": U,
         "ta_name": _line_ta(plan, groups),
         "flights": flights,
+        "l2": {
+            "requested_mode": l2["requested_mode"],
+            "effective_mode": l2["effective_mode"],
+            "K": l2["K"],
+            "U_D": l2["U_D"],
+            "B": l2["B"],
+            "D": l2["D"],
+            "L": l2["L"],
+            "B_source": l2["B_source"],
+            "D_source": l2["D_source"],
+            "fallback_reason": l2["fallback_reason"],
+        },
     })
     return line
 
@@ -927,6 +1128,9 @@ def discover(path: str) -> str:
             "ta_name": next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), ""),
             "flight_count": len(plan.flights),
             "placement_count": len(plan.detail_rows()),
+            "advanced_recommended": recommended_advanced_factors(
+                next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
+            ),
         })
     return _json({"version": VERSION, "plans": out})
 
@@ -935,9 +1139,6 @@ def calculate(path: str, params_json: str = "{}") -> str:
     q = json.loads(params_json or "{}")
     selected_ids = [str(x) for x in (q.get("selected_plan_ids") or [])]
     overrides = q.get("universes") or {}
-    K = _positive(q.get("K", K_DEFAULT), "K")
-    if K < 1:
-        raise V16Error("K должен быть >= 1.")
 
     groups = discover_media_plan_groups(path)
     if selected_ids:
@@ -948,14 +1149,25 @@ def calculate(path: str, params_json: str = "{}") -> str:
     diagnostics: List[dict] = [{
         "code": "ENGINE_VERSION",
         "version": VERSION,
-        "l2_mode": "QUICK",
-        "K": K,
+        "l2_mode_requested": str(q.get("l2_mode") or "AUTO").upper(),
     }]
     lines = []
     for g in groups:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
         U = _plan_universe(plan, overrides.get(g.id))
-        line = calculate_line(plan, U, K, diagnostics)
+        l2 = _resolve_l2_line_params(plan, U, q, g.id)
+        diagnostics.append({
+            "code": "L2_LINE_MODE",
+            "plan_id": g.id,
+            "requested_mode": l2["requested_mode"],
+            "effective_mode": l2["effective_mode"],
+            "K": l2["K"],
+            "U_D": l2["U_D"],
+            "B": l2["B"], "D": l2["D"], "L": l2["L"],
+            "B_source": l2["B_source"], "D_source": l2["D_source"],
+            "fallback_reason": l2["fallback_reason"],
+        })
+        line = calculate_line(plan, U, l2, diagnostics)
         line["plan_id"] = g.id
         line["label"] = g.label
         lines.append(line)
@@ -1011,8 +1223,7 @@ def calculate(path: str, params_json: str = "{}") -> str:
     return _json({
         "version": VERSION,
         "status": "GO" if brand_error is None else "PARTIAL",
-        "l2_mode": "QUICK",
-        "K": K,
+        "l2_mode_requested": str(q.get("l2_mode") or "AUTO").upper(),
         "lines": lines,
         "brand_total": brand,
         "brand_error": brand_error,
