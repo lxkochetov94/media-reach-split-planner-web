@@ -262,7 +262,13 @@ def _is_feasible(reaches: Sequence[float], U: float, pair_targets: Dict[Tuple[in
 
 def level5_flight(channels: Sequence[dict], U: float, diagnostics: List[dict]) -> dict:
     out = m.level5_flight(channels, U)
-    diagnostics.extend(out.get("diagnostics") or [])
+    for d in out.get("diagnostics") or []:
+        diagnostics.append(d)
+        if d.get("code") == "GLOBAL_FEASIBILITY_RELAXATION":
+            diagnostics.append({
+                **d,
+                "code": "DEFAULT_RELAXED_FOR_GLOBAL_FEASIBILITY",
+            })
     return out
 
 
