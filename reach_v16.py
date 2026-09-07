@@ -332,8 +332,10 @@ def _plan_ta(plan) -> str:
 
 def _plan_input_profile(plan) -> dict:
     rows = list(plan.detail_rows())
+    eligible = _reach_rows(rows)
+    excluded = _excluded_reach_rows(rows)
     durations = sorted(
-        _duration_days(r.start, r.end) for r in rows if r.start and r.end
+        _duration_days(r.start, r.end) for r in eligible if r.start and r.end
     )
     med = None
     if durations:
@@ -341,20 +343,19 @@ def _plan_input_profile(plan) -> dict:
         med = durations[n // 2] if n % 2 else (durations[n // 2 - 1] + durations[n // 2]) / 2
     return {
         "rows": len(rows),
-        "supplied_reach_rows": sum(r.tech_reach is not None for r in rows),
-        "impressions_rows": sum(r.impressions is not None for r in rows),
-        "frequency_rows": sum(r.frequency is not None for r in rows),
-        "impressions_frequency_rows": sum(r.impressions is not None and r.frequency is not None for r in rows),
-        "l1_ready_rows": sum(
-            r.tech_reach is not None or (r.impressions is not None and r.frequency is not None)
-            for r in rows
-        ),
-        "dated_rows": sum(bool(r.start and r.end) for r in rows),
+        "reach_scope_rows": len(eligible),
+        "reach_excluded_rows": len(excluded),
+        "supplied_reach_rows": sum(r.tech_reach is not None for r in eligible),
+        "impressions_rows": sum(r.impressions is not None for r in eligible),
+        "frequency_rows": sum(r.frequency is not None for r in eligible),
+        "impressions_frequency_rows": sum(r.impressions is not None and r.frequency is not None for r in eligible),
+        "l1_ready_rows": len(eligible),
+        "dated_rows": sum(bool(r.start and r.end) for r in eligible),
         "duration_days_min": min(durations) if durations else None,
         "duration_days_median": med,
         "duration_days_max": max(durations) if durations else None,
-        "platforms": len({norm(_platform_label(r)) for r in rows}),
-        "channels": len({norm(r.channel or "Other") for r in rows}),
+        "platforms": len({norm(_platform_label(r)) for r in eligible}),
+        "channels": len({norm(r.channel or "Other") for r in eligible}),
     }
 
 
@@ -412,6 +413,83 @@ def _scope_map_value(
     return next(iter(unique.values()))
 
 
+def _reach_row_state(row: Any) -> dict:
+    """Classify whether a parsed media row can enter canonical Level 1→3.
+
+    Reach Engine is allowed to calculate only rows with a usable impressions scope and
+    either supplied Technical Reach or Average Frequency. Performance/service/package
+    rows without those inputs remain visible as excluded source scope; they are never
+    assigned invented Reach.
+    """
+    I = getattr(row, "impressions", None)
+    F = getattr(row, "frequency", None)
+    R = getattr(row, "tech_reach", None)
+    has_i = I is not None and isinstance(I, (int, float)) and math.isfinite(float(I)) and float(I) >= 0
+    has_f = F is not None and isinstance(F, (int, float)) and math.isfinite(float(F))
+    has_r = R is not None and isinstance(R, (int, float)) and math.isfinite(float(R)) and float(R) >= 0
+    ready = bool(has_i and (has_r or has_f))
+    if ready:
+        reason = "SUPPLIED_TECHNICAL_REACH" if has_r else "IMPRESSIONS_PLUS_FREQUENCY"
+    elif not has_i:
+        reason = "IMPRESSIONS_NOT_AVAILABLE"
+    else:
+        reason = "FREQUENCY_AND_TECHNICAL_REACH_NOT_AVAILABLE"
+    return {
+        "ready": ready,
+        "reason": reason,
+        "has_impressions": has_i,
+        "has_frequency": has_f,
+        "has_technical_reach": has_r,
+    }
+
+
+def _reach_rows(rows: Sequence[Any]) -> List[Any]:
+    return [row for row in rows if _reach_row_state(row)["ready"]]
+
+
+def _excluded_reach_rows(rows: Sequence[Any]) -> List[dict]:
+    out = []
+    for row in rows:
+        state = _reach_row_state(row)
+        if state["ready"]:
+            continue
+        out.append({
+            "unit_id": _unit_id(row),
+            "sheet": row.sheet,
+            "row": row.source_row + 1,
+            "platform": _platform_label(row),
+            "channel": row.channel or "Other",
+            "buying_model": row.buying_model or "",
+            "reason": state["reason"],
+            "has_impressions": state["has_impressions"],
+            "has_frequency": state["has_frequency"],
+            "has_technical_reach": state["has_technical_reach"],
+        })
+    return out
+
+
+def _platform_scope_requirements(units: Sequence[dict]) -> List[dict]:
+    grouped: Dict[str, List[dict]] = defaultdict(list)
+    for unit in units:
+        grouped[str(unit.get("platform_scope_id") or "")].append(unit)
+    out = []
+    for scope_id, items in grouped.items():
+        if len(items) <= 1:
+            continue
+        out.append({
+            "scope_id": scope_id,
+            "platform": items[0].get("platform"),
+            "channel": items[0].get("channel"),
+            "fragment_count": len(items),
+            "source_rows": [
+                {"unit_id": x.get("id"), "sheet": x.get("sheet"), "row": x.get("row"), "start": x.get("start"), "end": x.get("end")}
+                for x in items
+            ],
+            "required_input": "weekly_human_reaches OR aggregate_flight_technical_reaches",
+        })
+    return out
+
+
 def _platform_groups(rows: Sequence[Any]) -> List[List[Any]]:
     grouped: Dict[Tuple[str, str], List[Any]] = defaultdict(list)
     for row in rows:
@@ -421,7 +499,7 @@ def _platform_groups(rows: Sequence[Any]) -> List[List[Any]]:
 
 
 def _inventory_units(plan) -> List[dict]:
-    rows = list(plan.detail_rows())
+    rows = _reach_rows(list(plan.detail_rows()))
     counts = Counter(_platform_scope_id(row) for row in rows)
     units = []
     for row in rows:
@@ -449,6 +527,8 @@ def _inventory_units(plan) -> List[dict]:
             "l3a_temporal_input_required_if_no_aggregate": counts[sid] > 1,
         })
     return units
+
+
 
 def _duplicate_warnings(rows: Sequence[Any]) -> List[dict]:
     signatures: Dict[tuple, List[dict]] = defaultdict(list)
@@ -1599,8 +1679,38 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
     groups = _flight_groups(plan)
     _validate_line_source_scope(groups, U, q, plan_id, diagnostics)
     flights: List[dict] = []
+    line_excluded_rows: List[dict] = []
     for g in groups:
-        rows = list(plan.detail_rows([g["id"]]))
+        source_rows = list(plan.detail_rows([g["id"]]))
+        excluded = _excluded_reach_rows(source_rows)
+        if excluded:
+            line_excluded_rows.extend(excluded)
+            diagnostics.append({
+                "code": "REACH_SCOPE_ROWS_EXCLUDED",
+                "level": "SCOPE",
+                "severity": "WARNING",
+                "plan_id": plan_id,
+                "flight_id": g["id"],
+                "flight": g["label"],
+                "count": len(excluded),
+                "rows": excluded,
+                "message": (
+                    "Строки без полного Level-1/3 Reach input исключены из Reach scope. "
+                    "Technical/Human Reach для них не придумывается."
+                ),
+            })
+        rows = _reach_rows(source_rows)
+        if not rows:
+            diagnostics.append({
+                "code": "NON_REACH_FLIGHT_SKIPPED",
+                "level": "SCOPE",
+                "severity": "INFO",
+                "plan_id": plan_id,
+                "flight_id": g["id"],
+                "flight": g["label"],
+                "message": "Flight не содержит ни одной строки с usable Reach input и не участвует в L4–L6.",
+            })
+            continue
         channels = _build_level4_channels(rows, U, cfg, q, plan_id, g["id"], diagnostics)
 
         l5_specs = _pair_specs(q, "L5", plan_id=plan_id, flight_id=g["id"])
@@ -1655,6 +1765,12 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             "D_Campaign": flight.get("D_Campaign"),
         })
         flights.append(flight)
+
+    if not flights:
+        raise V16Error(
+            f"{plan.display_name or plan.line or plan_id}: NO_REACH_ELIGIBLE_MEDIA — "
+            "не найдено ни одной строки с Impressions и (Technical Reach или Frequency)."
+        )
 
     for a, b in zip(flights, flights[1:]):
         if a.get("end") and b.get("start") and m.gap_days(a["end"], b["start"]) == 0:
@@ -1729,6 +1845,8 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
         "addressable_universe": U_l,
         "addressable_universe_assumed": U_l_raw in (None, "", 0, "0"),
         "line_universe_assumed": U_l_raw in (None, "", 0, "0"),
+        "reach_scope_excluded_count": len(line_excluded_rows),
+        "reach_scope_excluded_rows": line_excluded_rows,
     })
     return line
 
@@ -1880,6 +1998,18 @@ def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> Lis
         elif code == "DUPLICATE_LIKE_ROW_WARNING":
             add("DATA QUALITY", "IMPORT", "Похожие строки медиаплана",
                 "Строки не удалялись автоматически. Проверьте, являются ли они реальными дублями.", "WARNING")
+        elif code == "REACH_SCOPE_ROWS_EXCLUDED":
+            add("SCOPE EXCLUSION", "SCOPE", "Часть медиаплана вне Reach scope",
+                f"Исключено строк: {d.get('count')}. Для них нет полного Level-1/3 input; Reach не моделировался.", "WARNING")
+        elif code == "SOURCE_REACH_CURVE_INVALID":
+            add("DATA QUALITY", "IMPORT", "Невалидная source Reach-кривая",
+                d.get("message") or "В исходном МП Reach @N+ нарушает монотонность.", "ERROR")
+        elif code == "SOURCE_DATE_RANGE_INVALID":
+            add("DATA QUALITY", "IMPORT", "Ошибка диапазона дат в исходном МП",
+                d.get("message") or "Дата окончания раньше даты начала; silent repair запрещён.", "ERROR")
+        elif code == "SOURCE_IMPORT_WARNING":
+            add("DATA QUALITY", "IMPORT", "Предупреждение парсера",
+                d.get("message") or "Источник требует проверки.", "WARNING")
         elif code in {"L4_CHANNEL", "L5_FLIGHT", "L6_LINE", "L7_BRAND"}:
             path = d.get("model_path")
             if path and ("MAXENT" in path or "ADDRESSABILITY_NEUTRAL" in path):
@@ -1991,6 +2121,8 @@ def discover(path: str) -> str:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
         ta = _plan_ta(plan)
         units = _inventory_units(plan)
+        excluded_units = _excluded_reach_rows(list(plan.detail_rows()))
+        platform_scopes = _platform_scope_requirements(units)
         aon_pairs = []
         fs = _flight_groups(plan)
         for aon in [x for x in fs if x["is_common"]]:
@@ -2020,6 +2152,8 @@ def discover(path: str) -> str:
             "advanced_recommended": recommended_advanced_factors(ta),
             "input_profile": _plan_input_profile(plan),
             "inventory_units": units,
+            "excluded_reach_rows": excluded_units,
+            "platform_scopes": platform_scopes,
             "aon_pairs": aon_pairs,
             "source_flights": [
                 {
@@ -2037,7 +2171,22 @@ def discover(path: str) -> str:
             "source_ta_mismatch": scope["ta_mismatch"],
             "source_universe_mismatch": scope["universe_mismatch"],
             "line_identity_review_required": str(g.id) in conflict_ids,
-            "import_warnings": _duplicate_warnings(plan.detail_rows()),
+            "import_warnings": (
+                _duplicate_warnings(plan.detail_rows())
+                + [
+                    {
+                        "code": (
+                            str(w).split(":", 1)[0]
+                            if str(w).startswith("SOURCE_")
+                            else "SOURCE_IMPORT_WARNING"
+                        ),
+                        "level": "IMPORT",
+                        "severity": "WARNING",
+                        "message": str(w),
+                    }
+                    for w in (getattr(plan, "warnings", None) or [])
+                ]
+            ),
         })
     return _json({
         "version": VERSION,
@@ -2094,6 +2243,16 @@ def calculate(path: str, params_json: str = "{}") -> str:
     for g in groups:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
         diagnostics.extend(_duplicate_warnings(plan.detail_rows()))
+        for warning in (getattr(plan, "warnings", None) or []):
+            message = str(warning)
+            code = message.split(":", 1)[0] if message.startswith("SOURCE_") else "SOURCE_IMPORT_WARNING"
+            diagnostics.append({
+                "code": code,
+                "level": "IMPORT",
+                "severity": "WARNING",
+                "plan_id": g.id,
+                "message": message,
+            })
         U = _plan_universe(plan, overrides.get(g.id))
         _validate_line_source_scope(_flight_groups(plan), U, q, g.id, None)
         cfg = _resolve_line_l2(plan, U, q, g.id)
