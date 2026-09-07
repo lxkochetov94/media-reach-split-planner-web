@@ -1399,6 +1399,168 @@ def _flight_groups(plan) -> List[dict]:
     return groups
 
 
+_LINE_HINT_STOPWORDS = {
+    "mediaplan", "media", "plan", "mp", "phd", "digital", "lab", "industries",
+    "flight", "flights", "wave", "флайт", "флайты", "флаит", "волна",
+    "персил", "persil", "final", "финал", "upd", "update", "версия", "version",
+    "свеж", "свежий", "свежесть",
+    "январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
+    "сентябрь", "октябрь", "ноябрь", "декабрь",
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept",
+    "oct", "nov", "dec",
+}
+
+
+def _sheet_line_hint_tokens(name: Any) -> set[str]:
+    """Weak sheet-name identity hints used only to force review, never to auto-merge."""
+    raw = norm(name)
+    tokens = re.findall(r"[0-9a-zа-яё]+", raw, flags=re.IGNORECASE)
+    out = set()
+    for token in tokens:
+        token = token.strip().lower().replace("ё", "е")
+        if not token or token.isdigit() or token in _LINE_HINT_STOPWORDS:
+            continue
+        if re.fullmatch(r"(?:20)?\d{2}", token):
+            continue
+        if len(token) < 4:
+            continue
+        out.add(token)
+    return out
+
+
+def _line_identity_conflicts(groups: Sequence[Any]) -> List[dict]:
+    """Find contradictory Campaign-vs-sheet line identity patterns.
+
+    This is a validation/review detector only.  It never silently groups plans.
+    """
+    out: List[dict] = []
+    for i in range(len(groups)):
+        a = groups[i]
+        a_line = str(getattr(a, "line", "") or getattr(a, "label", "") or "").strip()
+        a_tokens = set()
+        for sheet in getattr(a, "sheet_names", ()) or ():
+            a_tokens |= _sheet_line_hint_tokens(sheet)
+        if not a_tokens:
+            continue
+        for j in range(i + 1, len(groups)):
+            b = groups[j]
+            b_line = str(getattr(b, "line", "") or getattr(b, "label", "") or "").strip()
+            if a_line and b_line and norm(a_line) == norm(b_line):
+                continue
+            b_tokens = set()
+            for sheet in getattr(b, "sheet_names", ()) or ():
+                b_tokens |= _sheet_line_hint_tokens(sheet)
+            shared = sorted(a_tokens & b_tokens)
+            if not shared:
+                continue
+            out.append({
+                "code": "LINE_IDENTITY_HEADER_CONFLICT",
+                "severity": "WARNING",
+                "group_ids": [str(getattr(a, "id", "")), str(getattr(b, "id", ""))],
+                "line_a": a_line,
+                "line_b": b_line,
+                "shared_sheet_markers": shared,
+                "sheets_a": list(getattr(a, "sheet_names", ()) or ()),
+                "sheets_b": list(getattr(b, "sheet_names", ()) or ()),
+                "message": (
+                    "Названия рабочих листов указывают на общий line marker, "
+                    "но Campaign/Line headers формируют разные Lines. "
+                    "Движок не объединяет их автоматически."
+                ),
+            })
+    return out
+
+
+def _line_scope_summary(groups: Sequence[dict]) -> dict:
+    active = [g for g in groups if not g.get("is_common")]
+    ta_map = {}
+    for g in active:
+        key = _norm_ta(g.get("ta_name"))
+        if key:
+            ta_map.setdefault(key, g.get("ta_name"))
+    universes = []
+    for g in active:
+        u = g.get("source_universe")
+        if u not in (None, "", 0, "0"):
+            universes.append(float(u))
+    distinct_u = []
+    for u in universes:
+        if not any(abs(u - x) <= max(1e-6, m.SOLVER_TOL * max(1.0, abs(u), abs(x))) for x in distinct_u):
+            distinct_u.append(u)
+    return {
+        "source_tas": list(ta_map.values()),
+        "source_universes": distinct_u,
+        "ta_mismatch": len(ta_map) > 1,
+        "universe_mismatch": len(distinct_u) > 1,
+    }
+
+
+def _validate_line_source_scope(
+    groups: Sequence[dict],
+    U: float,
+    q: Mapping[str, Any],
+    plan_id: str,
+    diagnostics: Optional[List[dict]] = None,
+) -> dict:
+    """Validate Line-master scope before any Level-2/3 recalculation."""
+    summary = _line_scope_summary(groups)
+    if summary["ta_mismatch"]:
+        detail = [
+            {"flight": g.get("label"), "ta": g.get("ta_name")}
+            for g in groups if not g.get("is_common")
+        ]
+        raise V16Error(
+            "L6_SCOPE_TA_MISMATCH / TA_NORMALIZATION_REQUIRED: "
+            "Flights внутри одной Line имеют разные ЦА. "
+            "Подтверждение в интерфейсе не может просто переименовать такую ЦА; "
+            "нужны upstream inputs, рассчитанные на одну Line Master TA. " + str(detail)
+        )
+
+    confirm_map = q.get("line_scope_confirmed") or {}
+    confirmed = bool(confirm_map.get(plan_id)) if isinstance(confirm_map, Mapping) else False
+    source_us = summary["source_universes"]
+    tol = max(1e-6, m.SOLVER_TOL * max(1.0, abs(float(U))))
+
+    source_differs_from_master = any(abs(float(u) - float(U)) > tol for u in source_us)
+    if summary["universe_mismatch"] and not confirmed:
+        raise V16Error(
+            "L6_SCOPE_UNIVERSE_MISMATCH / LINE_MASTER_UNIVERSE_CONFIRMATION_REQUIRED: "
+            f"Flights имеют разные source Universe {source_us}. "
+            "Нельзя silently использовать Universe последнего Flight. "
+            "Укажите Human Universe Line и подтвердите, что это одна и та же TA/geo/human-definition "
+            "и все Flights должны быть пересчитаны upstream на этот U."
+        )
+    if source_differs_from_master and not summary["universe_mismatch"] and not confirmed:
+        raise V16Error(
+            "LINE_MASTER_UNIVERSE_OVERRIDE_CONFIRMATION_REQUIRED: "
+            f"Source Universe={source_us}, заданный Line Universe={U}. "
+            "Подтвердите нормализацию scope перед пересчётом."
+        )
+
+    if diagnostics is not None:
+        diagnostics.append({
+            "code": "LINE_SOURCE_SCOPE",
+            "level": "SCOPE",
+            "plan_id": plan_id,
+            "source_tas": summary["source_tas"],
+            "source_universes": source_us,
+            "line_master_universe": U,
+            "source_universe_mismatch": summary["universe_mismatch"],
+            "line_scope_confirmed": confirmed,
+            "universe_normalized": source_differs_from_master,
+        })
+        if source_differs_from_master and confirmed:
+            diagnostics.append({
+                "code": "LINE_UNIVERSE_NORMALIZED_USER_CONFIRMED",
+                "level": "SCOPE",
+                "plan_id": plan_id,
+                "source_universes": source_us,
+                "line_master_universe": U,
+                "source": "USER_CONFIRMED",
+            })
+    return summary
+
+
 def _attach_aon_slices(flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict]) -> None:
     all_slices = q.get("aon_slices") or {}
     p_slices = all_slices.get(plan_id) if isinstance(all_slices, Mapping) else {}
@@ -1435,6 +1597,7 @@ def _attach_aon_slices(flights: List[dict], q: dict, plan_id: str, diagnostics: 
 
 def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
     groups = _flight_groups(plan)
+    _validate_line_source_scope(groups, U, q, plan_id, diagnostics)
     flights: List[dict] = []
     for g in groups:
         rows = list(plan.detail_rows([g["id"]]))
@@ -1492,22 +1655,6 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             "D_Campaign": flight.get("D_Campaign"),
         })
         flights.append(flight)
-
-    l6_ta = {
-        _norm_ta(f.get("ta_name"))
-        for f in flights
-        if not f.get("is_common") and _norm_ta(f.get("ta_name"))
-    }
-    if len(l6_ta) > 1:
-        detail = [
-            {"flight": f.get("name"), "ta": f.get("ta_name")}
-            for f in flights if not f.get("is_common")
-        ]
-        raise V16Error(
-            "L6_SCOPE_TA_MISMATCH / TA_NORMALIZATION_REQUIRED: "
-            "Flights внутри одной Line имеют разные ЦА и не могут быть дедуплицированы "
-            "до upstream-нормализации на одну Line Master TA. " + str(detail)
-        )
 
     for a, b in zip(flights, flights[1:]):
         if a.get("end") and b.get("start") and m.gap_days(a["end"], b["start"]) == 0:
@@ -1835,6 +1982,10 @@ def _contribution_rows(lines: Sequence[dict], brand: Optional[dict]) -> List[dic
 
 def discover(path: str) -> str:
     groups = discover_media_plan_groups(path)
+    identity_conflicts = _line_identity_conflicts(groups)
+    conflict_ids = {
+        gid for item in identity_conflicts for gid in item.get("group_ids", [])
+    }
     out = []
     for g in groups:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
@@ -1852,6 +2003,7 @@ def discover(path: str) -> str:
                     "burst_start": _date(burst["start"]),
                     "burst_end": _date(burst["end"]),
                 })
+        scope = _line_scope_summary(fs)
         out.append({
             "id": g.id,
             "label": g.label,
@@ -1869,11 +2021,28 @@ def discover(path: str) -> str:
             "input_profile": _plan_input_profile(plan),
             "inventory_units": units,
             "aon_pairs": aon_pairs,
+            "source_flights": [
+                {
+                    "id": f["id"],
+                    "label": f["label"],
+                    "ta_name": f["ta_name"],
+                    "source_universe": f["source_universe"],
+                    "source_universe_source": f["source_universe_source"],
+                    "start": _date(f["start"]),
+                    "end": _date(f["end"]),
+                    "campaign": f["campaign"],
+                }
+                for f in fs if not f["is_common"]
+            ],
+            "source_ta_mismatch": scope["ta_mismatch"],
+            "source_universe_mismatch": scope["universe_mismatch"],
+            "line_identity_review_required": str(g.id) in conflict_ids,
             "import_warnings": _duplicate_warnings(plan.detail_rows()),
         })
     return _json({
         "version": VERSION,
         "plans": out,
+        "line_identity_conflicts": identity_conflicts,
         "model_catalog": model_catalog(),
         "contract": {
             "brand_universe_required_for_brand_total": True,
@@ -1888,7 +2057,27 @@ def calculate(path: str, params_json: str = "{}") -> str:
     selected_ids = [str(x) for x in (q.get("selected_plan_ids") or [])]
     overrides = q.get("universes") or {}
 
-    groups = discover_media_plan_groups(path)
+    all_groups = discover_media_plan_groups(path)
+    identity_conflicts = _line_identity_conflicts(all_groups)
+    selected_set = set(selected_ids) if selected_ids else {str(g.id) for g in all_groups}
+    identity_confirmed = q.get("line_identity_confirmed") or {}
+    for item in identity_conflicts:
+        involved = [gid for gid in item.get("group_ids", []) if gid in selected_set]
+        if len(involved) >= 2:
+            ok = (
+                isinstance(identity_confirmed, Mapping)
+                and all(bool(identity_confirmed.get(gid)) for gid in involved)
+            )
+            if not ok:
+                raise V16Error(
+                    "LINE_IDENTITY_HEADER_CONFLICT: "
+                    f"{item.get('line_a')} ↔ {item.get('line_b')}; "
+                    f"shared sheet markers={item.get('shared_sheet_markers')}. "
+                    "Движок не имеет права автоматически решить, это одна Line или разные. "
+                    "Проверьте исходные Campaign/Line headers и подтвердите текущую разбивку, "
+                    "если Lines действительно разные."
+                )
+    groups = all_groups
     if selected_ids:
         groups = [g for g in groups if g.id in selected_ids]
     if not groups:
@@ -1906,6 +2095,7 @@ def calculate(path: str, params_json: str = "{}") -> str:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
         diagnostics.extend(_duplicate_warnings(plan.detail_rows()))
         U = _plan_universe(plan, overrides.get(g.id))
+        _validate_line_source_scope(_flight_groups(plan), U, q, g.id, None)
         cfg = _resolve_line_l2(plan, U, q, g.id)
         diagnostics.append({
             "code": "LINE_SCOPE",
