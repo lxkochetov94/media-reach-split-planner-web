@@ -51,15 +51,7 @@ def cfg(plan_id):
 
 
 def q_for(rows, plan_id="P1"):
-    return {
-        "family_mapping": {
-            plan_id: {
-                r._unit_id(row): r._platform_label(row)
-                for row in rows
-            }
-        },
-        "family_mapping_confirmed": {plan_id: True},
-    }
+    return {}
 
 
 def make_rows(sheet, rows):
@@ -213,38 +205,45 @@ class PersilBattlePlanTests(unittest.TestCase):
                 self.assertGreaterEqual(out["avg_human_frequency"], 1.0)
         print("PERSIL_BATTLE_VALID_RESULTS=" + json.dumps(results, ensure_ascii=False, sort_keys=True))
 
-    def test_capsules_flight2_month_fragments_are_blocked_without_l3a_input(self):
+    def test_capsules_flight2_month_fragments_are_automatic(self):
         rows = make_rows("caps_f2", [
             {"row":18,"channel":"OLV","platform":"VK Video","format":"Pre-roll","impressions":1_735_058,"frequency":2.5,"tech_reach":694_023.2,"start":"2026-06-01","end":"2026-06-30"},
             {"row":19,"channel":"OLV","platform":"VK Video","format":"Pre-roll","impressions":5_976_313,"frequency":2.5,"tech_reach":2_390_525.2,"start":"2026-07-01","end":"2026-07-31"},
         ])
-        with self.assertRaisesRegex(r.V16Error, "L3A_TEMPORAL_INPUT_REQUIRED"):
-            r._build_level4_channels(
-                rows, 15_182_450, cfg("P1"), q_for(rows),
-                "P1", "F1", [],
-            )
+        diagnostics = []
+        channels = r._build_level4_channels(
+            rows, 15_182_450, cfg("P1"), q_for(rows),
+            "P1", "F1", diagnostics,
+        )
+        self.assertEqual(len(channels), 1)
+        unit = channels[0]["families"][0]["inventory_units"][0]
+        self.assertEqual(unit["fragment_count"], 2)
+        self.assertEqual(unit["l3a"]["model_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
+        self.assertTrue(any(d.get("code") == "L3A_AUTO_PERIODIC_PLATFORM" for d in diagnostics))
 
-    def test_core_flight2_month_fragments_are_blocked_without_l3a_input(self):
+    def test_core_flight2_month_fragments_are_automatic(self):
         rows = make_rows("core_f2", [
             {"row":18,"channel":"OLV","platform":"VK","format":"Pre-roll","impressions":1_216_256,"frequency":2.5,"tech_reach":486_502.4,"start":"2026-06-01","end":"2026-06-30"},
             {"row":19,"channel":"OLV","platform":"VK","format":"Pre-roll","impressions":4_189_328,"frequency":2.5,"tech_reach":1_675_731.2,"start":"2026-07-01","end":"2026-07-31"},
         ])
-        with self.assertRaisesRegex(r.V16Error, "L3A_TEMPORAL_INPUT_REQUIRED"):
-            r._build_level4_channels(
-                rows, 15_182_450, cfg("P1"), q_for(rows),
-                "P1", "F1", [],
-            )
+        channels = r._build_level4_channels(
+            rows, 15_182_450, cfg("P1"), q_for(rows),
+            "P1", "F1", [],
+        )
+        unit = channels[0]["families"][0]["inventory_units"][0]
+        self.assertEqual(unit["l3a"]["model_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
 
-    def test_core_flight4_month_fragments_are_blocked_without_l3a_input(self):
+    def test_core_flight4_month_fragments_are_automatic(self):
         rows = make_rows("core_f4", [
             {"row":18,"channel":"OLV","platform":"Digital Alliance","format":"Multi-roll","impressions":2_590_322,"frequency":2.0,"tech_reach":1_295_161,"start":"2026-11-01","end":"2026-11-30"},
             {"row":19,"channel":"OLV","platform":"Digital Alliance","format":"Multi-roll","impressions":4_709_677,"frequency":2.0,"tech_reach":2_354_838.5,"start":"2026-12-01","end":"2026-12-20"},
         ])
-        with self.assertRaisesRegex(r.V16Error, "L3A_TEMPORAL_INPUT_REQUIRED"):
-            r._build_level4_channels(
-                rows, 15_182_450, cfg("P1"), q_for(rows),
-                "P1", "F1", [],
-            )
+        channels = r._build_level4_channels(
+            rows, 15_182_450, cfg("P1"), q_for(rows),
+            "P1", "F1", [],
+        )
+        unit = channels[0]["families"][0]["inventory_units"][0]
+        self.assertEqual(unit["l3a"]["model_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
 
     def test_explicit_aggregate_flight_reach_unlocks_fragmented_platform(self):
         rows = make_rows("caps_f2", [
