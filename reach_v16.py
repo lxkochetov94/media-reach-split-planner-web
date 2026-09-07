@@ -543,6 +543,19 @@ def _lookup_unit_map(mapping: Mapping[str, Any], plan_id: str, unit_id: str, def
 
 
 
+
+
+def _mapping_for_plan(q: dict, plan_id: str) -> Mapping[str, str]:
+    all_maps = q.get("family_mapping") or {}
+    pmap = all_maps.get(plan_id)
+    return pmap if isinstance(pmap, Mapping) else {}
+
+
+def _mapping_confirmed(q: dict, plan_id: str) -> bool:
+    flags = q.get("family_mapping_confirmed") or {}
+    if isinstance(flags, Mapping):
+        return bool(flags.get(plan_id))
+    return False
 def _scope_value(
     q: Mapping[str, Any],
     key: str,
