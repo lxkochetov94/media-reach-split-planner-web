@@ -1502,6 +1502,10 @@ def _platform_entity(
         "level": 3,
         "scope_id": scope_id,
         "platform": platform,
+        "format": " / ".join(sorted({
+            str(getattr(r, "format", "") or "").strip()
+            for r in rows if str(getattr(r, "format", "") or "").strip()
+        })),
         "channel": channel,
         "flight_id": flight_id,
         "source_refs": source_refs,
@@ -1878,7 +1882,12 @@ def _validate_line_source_scope(
     plan_id: str,
     diagnostics: Optional[List[dict]] = None,
 ) -> dict:
-    """Validate Line-master scope before any Level-2/3 recalculation."""
+    """Validate semantic Line scope and normalize all flights to the chosen Line Universe.
+
+    A real TA mismatch is a hard error. Source Universe differences are not: Level 2–6
+    are recalculated on the explicit Line U, so different historical/source U values are
+    retained only as diagnostics instead of blocking the user.
+    """
     summary = _line_scope_summary(groups)
     if summary["ta_mismatch"]:
         detail = [
@@ -1888,30 +1897,12 @@ def _validate_line_source_scope(
         raise V16Error(
             "L6_SCOPE_TA_MISMATCH / TA_NORMALIZATION_REQUIRED: "
             "Flights внутри одной Line имеют разные ЦА. "
-            "Подтверждение в интерфейсе не может просто переименовать такую ЦА; "
-            "нужны upstream inputs, рассчитанные на одну Line Master TA. " + str(detail)
+            "Нужны upstream inputs, рассчитанные на одну Line Master TA. " + str(detail)
         )
 
-    confirm_map = q.get("line_scope_confirmed") or {}
-    confirmed = bool(confirm_map.get(plan_id)) if isinstance(confirm_map, Mapping) else False
     source_us = summary["source_universes"]
     tol = max(1e-6, m.SOLVER_TOL * max(1.0, abs(float(U))))
-
     source_differs_from_master = any(abs(float(u) - float(U)) > tol for u in source_us)
-    if summary["universe_mismatch"] and not confirmed:
-        raise V16Error(
-            "L6_SCOPE_UNIVERSE_MISMATCH / LINE_MASTER_UNIVERSE_CONFIRMATION_REQUIRED: "
-            f"Flights имеют разные source Universe {source_us}. "
-            "Нельзя silently использовать Universe последнего Flight. "
-            "Укажите Human Universe Line и подтвердите, что это одна и та же TA/geo/human-definition "
-            "и все Flights должны быть пересчитаны upstream на этот U."
-        )
-    if source_differs_from_master and not summary["universe_mismatch"] and not confirmed:
-        raise V16Error(
-            "LINE_MASTER_UNIVERSE_OVERRIDE_CONFIRMATION_REQUIRED: "
-            f"Source Universe={source_us}, заданный Line Universe={U}. "
-            "Подтвердите нормализацию scope перед пересчётом."
-        )
 
     if diagnostics is not None:
         diagnostics.append({
@@ -1922,20 +1913,23 @@ def _validate_line_source_scope(
             "source_universes": source_us,
             "line_master_universe": U,
             "source_universe_mismatch": summary["universe_mismatch"],
-            "line_scope_confirmed": confirmed,
             "universe_normalized": source_differs_from_master,
+            "normalization_source": "LINE_MASTER_UNIVERSE",
         })
-        if source_differs_from_master and confirmed:
+        if source_differs_from_master:
             diagnostics.append({
-                "code": "LINE_UNIVERSE_NORMALIZED_USER_CONFIRMED",
+                "code": "LINE_UNIVERSE_NORMALIZED_AUTO",
                 "level": "SCOPE",
+                "severity": "INFO",
                 "plan_id": plan_id,
                 "source_universes": source_us,
                 "line_master_universe": U,
-                "source": "USER_CONFIRMED",
+                "message": (
+                    "Source Universe differs by flight; all flights are recalculated "
+                    "on the selected Line Universe before Level 6."
+                ),
             })
     return summary
-
 
 def _attach_aon_slices(
     flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict],
@@ -2198,6 +2192,30 @@ def _brand_merge(lines: Sequence[dict], U: float, diagnostics: List[dict], q: Op
     if not lines:
         return m.level7_brand([], U)
 
+    if len(lines) == 1:
+        line = lines[0]
+        line_u = float(line.get("universe") or U)
+        if abs(line_u - U) > max(1e-6, m.SOLVER_TOL * max(1.0, U)):
+            raise V16Error(
+                "SINGLE_LINE_BRAND_UNIVERSE_MISMATCH: Brand U must equal the Line U "
+                "for an identity Brand Total."
+            )
+        out = m.level7_brand(lines, U)
+        out["name"] = line.get("brand") or line.get("label") or line.get("name") or "Brand"
+        out["brand_master_ta"] = line.get("ta_name") or ""
+        out["brand_master_geo"] = str(q.get("brand_master_geo") or "")
+        out["brand_horizon_start"] = line.get("start")
+        out["brand_horizon_end"] = line.get("end")
+        diagnostics.append({
+            "code": "L7_BRAND_SINGLE_LINE_IDENTITY",
+            "level": 7,
+            "U_B": U,
+            "TA": line.get("ta_name") or "",
+            "model_path": out.get("model_path"),
+            "source": "SINGLE_LINE_IDENTITY",
+        })
+        return out
+
     if not bool(q.get("brand_scope_confirmed")):
         raise V16Error(
             "BRAND_MASTER_SCOPE_CONFIRMATION_REQUIRED: подтвердите Brand Master TA / geo / horizon / human scope."
@@ -2408,49 +2426,85 @@ def _hierarchy(lines: Sequence[dict], brand: Optional[dict], brand_u: Optional[f
 
 
 def _contribution_rows(lines: Sequence[dict], brand: Optional[dict]) -> List[dict]:
+    """User-facing contribution table.
+
+    Rows are intentionally business-shaped: Flight → Channel → Platform → Format,
+    followed by a channel subtotal. Internal Family/Line/Brand attribution stays in
+    diagnostics and is not mixed into this table.
+    """
     rows: List[dict] = []
     for line in lines:
+        line_label = line.get("label") or line.get("name") or ""
         for flight in line.get("flights", []):
+            flight_name = flight.get("name") or ""
+            flight_contrib = {
+                str(x.get("name") or ""): x
+                for x in (flight.get("contributions") or [])
+            }
             for channel in flight.get("channels", []):
-                for c in channel.get("contributions", []) or []:
+                channel_name = channel.get("name") or ""
+                platform_contrib = {
+                    str(x.get("name") or ""): x
+                    for x in (channel.get("contributions") or [])
+                }
+
+                for family in channel.get("families", []):
+                    family_name = str(family.get("name") or "")
+                    contrib = platform_contrib.get(family_name)
+                    units = family.get("inventory_units") or []
+                    if not units:
+                        continue
+                    # Current canonical auto-family mapping is platform-based, so one
+                    # family normally represents one platform entity. If several units
+                    # exist, show the family/platform union once with all formats.
+                    platform = " / ".join(dict.fromkeys(
+                        str(u.get("platform") or u.get("name") or "").strip()
+                        for u in units if str(u.get("platform") or u.get("name") or "").strip()
+                    )) or family_name
+                    fmt = " / ".join(dict.fromkeys(
+                        str(u.get("format") or "").strip()
+                        for u in units if str(u.get("format") or "").strip()
+                    ))
+                    if contrib is None:
+                        # Identity family: contribution equals the family union.
+                        sh = float(family.get("reach_1p") or 0.0)
+                        ex = sh
+                    else:
+                        sh = float(contrib.get("shapley_people") or 0.0)
+                        ex = float(contrib.get("exclusive_people") or 0.0)
                     rows.append({
-                        "scope": "Channel",
-                        "parent": channel.get("name"),
-                        "line": line.get("label"),
-                        **c,
-                        "parent_reach": channel.get("reach_1p"),
+                        "kind": "platform",
+                        "line": line_label,
+                        "flight": flight_name,
+                        "channel": channel_name,
+                        "platform": platform,
+                        "format": fmt or "—",
+                        "shapley_people": sh,
+                        "exclusive_people": ex,
+                        "shared_people": max(0.0, sh - ex),
+                        "parent_reach": float(channel.get("reach_1p") or 0.0),
                     })
-            for c in flight.get("contributions", []) or []:
+
+                subtotal = flight_contrib.get(channel_name)
+                if subtotal is None:
+                    sh = float(channel.get("reach_1p") or 0.0)
+                    ex = sh
+                else:
+                    sh = float(subtotal.get("shapley_people") or 0.0)
+                    ex = float(subtotal.get("exclusive_people") or 0.0)
                 rows.append({
-                    "scope": "Flight",
-                    "parent": flight.get("name"),
-                    "line": line.get("label"),
-                    **c,
-                    "parent_reach": flight.get("reach_1p"),
+                    "kind": "channel_subtotal",
+                    "line": line_label,
+                    "flight": flight_name,
+                    "channel": channel_name,
+                    "platform": "",
+                    "format": "",
+                    "shapley_people": sh,
+                    "exclusive_people": ex,
+                    "shared_people": max(0.0, sh - ex),
+                    "parent_reach": float(flight.get("reach_1p") or 0.0),
                 })
-        for c in line.get("contributions", []) or []:
-            rows.append({
-                "scope": "Line",
-                "parent": line.get("label") or line.get("name"),
-                "line": line.get("label"),
-                **c,
-                "parent_reach": line.get("reach_1p"),
-            })
-    if brand is not None:
-        for c in brand.get("contributions", []) or []:
-            rows.append({
-                "scope": "Brand",
-                "parent": brand.get("name") or "Brand",
-                "line": "",
-                **c,
-                "parent_reach": brand.get("reach_1p"),
-            })
     return rows
-
-
-# ---------------------------------------------------------------------------
-# JSON APIs used by the web tab
-# ---------------------------------------------------------------------------
 
 def discover(path: str) -> str:
     groups = discover_media_plan_groups(path)
@@ -2624,10 +2678,18 @@ def calculate(path: str, params_json: str = "{}") -> str:
     brand_error: Optional[str] = None
     brand_U: Optional[float] = None
 
-    if brand_raw in (None, "") or not brand_confirmed:
+    if len(lines) == 1:
+        brand_U = float(lines[0]["universe"])
+        try:
+            brand = _brand_merge(lines, brand_U, diagnostics, q)
+            brand["universe"] = brand_U
+        except (V16Error, m.ReachValidationError, m.ReachCalculationError) as exc:
+            brand_error = str(exc)
+            diagnostics.append({"code": "BRAND_TOTAL_BLOCKED", "level": 7, "message": brand_error})
+    elif brand_raw in (None, "") or not brand_confirmed:
         brand_error = (
-            "BRAND_MASTER_UNIVERSE_REQUIRED: Brand Total требует явный подтверждённый U_B. "
-            "Max/сумма Line Universe не подставляются автоматически."
+            "BRAND_MASTER_UNIVERSE_REQUIRED: Для объединения нескольких Lines нужен "
+            "единый подтверждённый Brand Universe."
         )
         diagnostics.append({"code": "BRAND_TOTAL_BLOCKED", "level": 7, "message": brand_error})
     else:

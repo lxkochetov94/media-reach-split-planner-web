@@ -321,7 +321,7 @@ class PersilBattlePlanTests(unittest.TestCase):
         ]
         self.assertEqual(r._line_identity_conflicts(groups), [])
 
-    def test_line_source_universe_mismatch_requires_confirmation(self):
+    def test_line_source_universe_mismatch_is_auto_normalized(self):
         groups = [
             {
                 "id":"F1","label":"Flight 1","ta_name":"Ж 25-44 ВС",
@@ -332,17 +332,13 @@ class PersilBattlePlanTests(unittest.TestCase):
                 "source_universe":15_182_450.0,"source_universe_source":"mp","is_common":False,
             },
         ]
-        with self.assertRaisesRegex(r.V16Error, "L6_SCOPE_UNIVERSE_MISMATCH"):
-            r._validate_line_source_scope(groups, 15_182_450.0, {}, "P1", [])
         diagnostics = []
         out = r._validate_line_source_scope(
-            groups, 15_182_450.0,
-            {"line_scope_confirmed":{"P1":True}},
-            "P1", diagnostics,
+            groups, 15_182_450.0, {}, "P1", diagnostics,
         )
         self.assertTrue(out["universe_mismatch"])
         self.assertTrue(any(
-            d.get("code") == "LINE_UNIVERSE_NORMALIZED_USER_CONFIRMED"
+            d.get("code") == "LINE_UNIVERSE_NORMALIZED_AUTO"
             for d in diagnostics
         ))
 
@@ -364,13 +360,20 @@ class PersilBattlePlanTests(unittest.TestCase):
                 "P1", [],
             )
 
-    def test_line_universe_override_needs_scope_confirmation_even_with_one_source_u(self):
+    def test_line_universe_override_is_auto_normalized_even_with_one_source_u(self):
         groups = [{
             "id":"F1","label":"Flight 1","ta_name":"Ж 25-44 ВС",
             "source_universe":15_900_000.0,"source_universe_source":"mp","is_common":False,
         }]
-        with self.assertRaisesRegex(r.V16Error, "LINE_MASTER_UNIVERSE_OVERRIDE_CONFIRMATION_REQUIRED"):
-            r._validate_line_source_scope(groups, 15_182_450.0, {}, "P1", [])
+        diagnostics = []
+        out = r._validate_line_source_scope(
+            groups, 15_182_450.0, {}, "P1", diagnostics,
+        )
+        self.assertFalse(out["universe_mismatch"])
+        self.assertTrue(any(
+            d.get("code") == "LINE_UNIVERSE_NORMALIZED_AUTO"
+            for d in diagnostics
+        ))
 
 
 if __name__ == "__main__":
