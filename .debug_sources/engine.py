@@ -474,6 +474,16 @@ def _parse_single_date(v: Any, default_year: int = 2026) -> Optional[dt.date]:
     return None
 
 
+def _explicit_range_reversed(a_raw: str, b_raw: str, da: Optional[dt.date], db: Optional[dt.date]) -> bool:
+    """True only when both endpoints carry explicit 4-digit years and end < start."""
+    return bool(
+        da and db
+        and re.search(r"20\d{2}", str(a_raw))
+        and re.search(r"20\d{2}", str(b_raw))
+        and db < da
+    )
+
+
 def parse_period(v: Any, default_year: int = 2026) -> Tuple[Optional[dt.date], Optional[dt.date]]:
     if v is None:
         return None, None
@@ -491,6 +501,8 @@ def parse_period(v: Any, default_year: int = 2026) -> Tuple[Optional[dt.date], O
     if len(ds) == 1:
         return ds[0], ds[0]
     if len(ds) >= 2:
+        if len(pats) >= 2 and _explicit_range_reversed(pats[0], pats[1], ds[0], ds[1]):
+            return None, None
         return min(ds[0], ds[1]), max(ds[0], ds[1])
 
     # month names and optional year
@@ -532,6 +544,8 @@ def parse_period_intervals(v: Any, default_year: int = 2026) -> List[Tuple[dt.da
         for a, b in explicit:
             da, db = _parse_single_date(a, default_y), _parse_single_date(b, default_y)
             if da and db:
+                if _explicit_range_reversed(a, b, da, db):
+                    continue
                 out.append((min(da, db), max(da, db)))
         if out:
             return _merge_date_intervals(out)
@@ -1176,6 +1190,9 @@ class SheetMeta:
     flight_reach_people_1p: Dict[int, float] = field(default_factory=dict)
     flight_reach_pct_1p: Dict[int, float] = field(default_factory=dict)
     universe_candidates: List[Tuple[str, float]] = field(default_factory=list)
+    # Source summary curve is QA evidence only; Reach Engine recalculates independently.
+    source_reach_pct_curve: Dict[int, float] = field(default_factory=dict)
+    source_validation_warnings: List[str] = field(default_factory=list)
 
 
 def _neighbor_values(matrix: List[List[Any]], r: int, c: int, radius: int = 4) -> List[Any]:
@@ -1328,6 +1345,24 @@ def extract_metadata(sheet: SheetData, default_year: int = 2026) -> SheetMeta:
                         meta.ta_universe = found
                         meta.ta_universe_source = "mp"
 
+            # Source summary Reach % @N+ is QA only. It must be monotonic:
+            # Reach @1+ >= @2+ >= ... . We never repair a broken source curve.
+            freq_match = re.search(r"(?:@\s*)?(\d+)\s*\+", t)
+            pct_label = (
+                "reach (%)" in t
+                or ("охват" in t and ("%" in clean_display(v) or "reach" in t))
+            )
+            if freq_match and pct_label:
+                k = int(freq_match.group(1))
+                pct_val = None
+                for cand in _neighbor_values(m, r, c, 5):
+                    n = to_number(cand)
+                    if n is not None and 0 <= n <= 1.5:
+                        pct_val = float(n)
+                        break
+                if pct_val is not None:
+                    meta.source_reach_pct_curve[k] = pct_val
+
             # Source Reach @1+ rows. Two adjacent numbers are typically people and pct.
             if ("охват в людях" in t or "reach people" in t or "people reach" in t) and "1+" in t:
                 nums: List[float] = []
@@ -1396,6 +1431,17 @@ def extract_metadata(sheet: SheetData, default_year: int = 2026) -> SheetMeta:
         if len(set(vals)) == 1:
             meta.ta_universe = vals[0]
             meta.ta_universe_source = "mp"
+
+    if meta.source_reach_pct_curve:
+        ordered_curve = sorted(meta.source_reach_pct_curve.items())
+        for (k1, r1), (k2, r2) in zip(ordered_curve, ordered_curve[1:]):
+            if k2 > k1 and r2 > r1 + 1e-12:
+                meta.source_validation_warnings.append(
+                    "SOURCE_REACH_CURVE_INVALID: "
+                    f"{sheet.name}: Reach @{k2}+={r2:.6g} > Reach @{k1}+={r1:.6g}. "
+                    "Источник содержит немонотонную Reach-кривую; значение не исправлено автоматически."
+                )
+                break
 
     # If only flight periods are present, they define the sheet campaign span.
     if meta.flight_intervals:
@@ -1897,6 +1943,37 @@ def _structure_intervals_from_row(row: Sequence[Any], columns: Dict[int, Tuple[d
         if (n is not None and abs(n) > 1e-12) or (n is None and clean_display(value)):
             active.append(period)
     return _merge_date_intervals(active)
+
+
+def _invalid_explicit_date_warnings(sheet: SheetData, default_year: int) -> List[str]:
+    warnings: List[str] = []
+    for rr, row in enumerate(sheet.matrix[:50], start=1):
+        for cc, value in enumerate(row[:180], start=1):
+            text = clean_display(value)
+            if not text or not re.search(r"\d{1,2}[./-]\d{1,2}", text):
+                continue
+            for a, b in re.findall(
+                r"(\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?)\s*(?:-|по|до)\s*"
+                r"(\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?)",
+                text,
+            ):
+                da, db = _parse_single_date(a, default_year), _parse_single_date(b, default_year)
+                if _explicit_range_reversed(a, b, da, db):
+                    warnings.append(
+                        "SOURCE_DATE_RANGE_INVALID: "
+                        f"{sheet.name}!{_excel_col(cc)}{rr}: '{text}' — дата окончания раньше даты начала. "
+                        "Диапазон не разворачивается автоматически."
+                    )
+    return warnings
+
+
+def _excel_col(idx1: int) -> str:
+    out = ""
+    n = int(idx1)
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
 
 
 def parse_table(sheet: SheetData, meta: SheetMeta, table: TableDef, default_year: int = 2026) -> List[Placement]:
@@ -2894,6 +2971,8 @@ def _sheet_scenario_name(name: str) -> str:
     mm = re.search(r"(?:^|\b)(\d+(?:[.,]\d+)?)\s*(?:млн|million|mln)(?:\b|$)", t)
     if mm:
         return f"{mm.group(1).replace(',', '.')} млн"
+    if re.search(r"(?:^|\b)(?:доп(?:олнит\w*)?\.?\s*бюджет|extra\s+budget|additional\s+budget)(?:\b|$)", t):
+        return "Доп. бюджет"
     mm = re.search(r"(?:^|\b)(?:scenario|сценарий|option|вариант)\s*[-_ ]*([0-9a-zа-я]+)(?:\b|$)", t)
     if mm:
         return f"Сценарий {mm.group(1)}"
@@ -3450,16 +3529,26 @@ def discover_workbook_structure(path: str | Path, default_year: int = 2026) -> W
     # If one logical line contains more than one explicit scenario marker, keep a
     # separate top-level plan per scenario while still merging years/flights inside it.
     scenarios_by_line: Dict[str, set[str]] = defaultdict(set)
+    explicit_scenario_lines: set[str] = set()
     for rec in active:
-        if rec["line_key"] and rec.get("scenario"):
-            scenarios_by_line[rec["line_key"]].add(_line_key(rec["scenario"]))
+        if not rec["line_key"]:
+            continue
+        scenario = rec.get("scenario") or ""
+        scenario_key = _line_key(scenario) if scenario else "__base__"
+        scenarios_by_line[rec["line_key"]].add(scenario_key)
+        if scenario:
+            explicit_scenario_lines.add(rec["line_key"])
 
     for rec in active:
         meta = rec["meta"]
         if rec["line_key"]:
             scenario = rec.get("scenario") or ""
-            scenario_key = _line_key(scenario)
-            if scenario_key and len(scenarios_by_line.get(rec["line_key"], set())) > 1:
+            scenario_key = _line_key(scenario) if scenario else "__base__"
+            split_scenarios = (
+                rec["line_key"] in explicit_scenario_lines
+                and len(scenarios_by_line.get(rec["line_key"], set())) > 1
+            )
+            if split_scenarios:
                 grouped[("line_scenario", rec["line_key"], scenario_key)].append(rec)
             else:
                 grouped[("line", rec["line_key"])].append(rec)
@@ -3538,6 +3627,8 @@ def parse_media_plan(
             continue
         meta = extract_metadata(sheet, default_year)
         metas[name] = meta
+        warnings.extend(meta.source_validation_warnings)
+        warnings.extend(_invalid_explicit_date_warnings(sheet, default_year))
         tdefs = find_tables(sheet, meta)
         if not tdefs:
             if meta.missing_formula_cache:

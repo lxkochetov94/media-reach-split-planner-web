@@ -4,20 +4,35 @@ on:
   push:
     branches:
       - "feature/reach-engine-v16-tab"
+      - "feature/reach-engine-v16-canonical-parity"
     paths:
       - "reach_v16.py"
+      - "reach_v16_math.py"
       - "reach_v16.js"
       - "reach_v16.css"
       - "test_reach_v16.py"
+      - "test_reach_v16_math.py"
+      - "test_reach_v16_lab_fixture.py"
+      - "test_reach_v16_persil_battle.py"
+      - "test_reach_v16_template_battle.py"
+      - ".debug_sources/engine.py"
+      - ".debug_sources/xlsx_reader.py"
       - "index.html"
       - ".github/workflows/test-reach-v16.yml"
   pull_request:
     branches: ["main"]
     paths:
       - "reach_v16.py"
+      - "reach_v16_math.py"
       - "reach_v16.js"
       - "reach_v16.css"
       - "test_reach_v16.py"
+      - "test_reach_v16_math.py"
+      - "test_reach_v16_lab_fixture.py"
+      - "test_reach_v16_persil_battle.py"
+      - "test_reach_v16_template_battle.py"
+      - ".debug_sources/engine.py"
+      - ".debug_sources/xlsx_reader.py"
       - "index.html"
       - ".github/workflows/test-reach-v16.yml"
 
@@ -35,35 +50,44 @@ jobs:
 
       - name: Python syntax
         run: |
-          PYTHONPATH=.debug_sources:. python -m py_compile reach_v16.py test_reach_v16.py
+          PYTHONPATH=.debug_sources:. python -m py_compile reach_v16_math.py reach_v16.py .debug_sources/engine.py .debug_sources/xlsx_reader.py test_reach_v16_math.py test_reach_v16.py test_reach_v16_lab_fixture.py test_reach_v16_persil_battle.py test_reach_v16_template_battle.py
 
       - name: JavaScript syntax
         run: node --check reach_v16.js
 
       - name: Reach Engine v1.6 regression suite
-        run: PYTHONPATH=.debug_sources:. python -m unittest -v test_reach_v16
+        run: PYTHONPATH=.debug_sources:. python -m unittest -v test_reach_v16_math test_reach_v16 test_reach_v16_lab_fixture test_reach_v16_persil_battle test_reach_v16_template_battle
 
       - name: Guard production 0.52 reach code
         shell: bash
         run: |
           git fetch origin main
           python - <<'PY'
-          import subprocess
-          diff = subprocess.check_output(
-              ["git","diff","origin/main...HEAD","--","index.html"],
-              text=True,
-          )
-          forbidden = [
-              "function calcParams()",
-              "async function recalc()",
-              "function renderReach()",
-              "async function recalcMultiReach()",
-              "function combine_reach_union",
-          ]
-          for line in diff.splitlines():
-              if line.startswith(("+++","---")):
-                  continue
-              if line[:1] in "+-" and any(x in line for x in forbidden):
-                  raise SystemExit("Production 0.52 reach function was modified: " + line)
-          print("Production 0.52 reach function definitions were not modified.")
+          import re, subprocess
+
+          def read(ref):
+              return subprocess.check_output(
+                  ["git", "show", f"{ref}:index.html"], text=True
+              )
+
+          def normalize(html):
+              # Reach Engine v1.6 is an isolated UI surface.  The guard removes only
+              # that section and normalizes its cache-busting asset versions; every
+              # other byte of index.html must remain identical to origin/main.
+              start = html.find('<section id="tab-reach16"')
+              end = html.find('<section id="tab-flow"', start)
+              if start < 0 or end < 0:
+                  raise SystemExit("Reach Engine v1.6 section markers not found.")
+              html = html[:start] + "<!-- REACH_V16_ISOLATED_SECTION -->\n" + html[end:]
+              html = re.sub(r'reach_v16\.css\?v=[^"\']+', 'reach_v16.css?v=V16', html)
+              html = re.sub(r'reach_v16\.js\?v=[^"\']+', 'reach_v16.js?v=V16', html)
+              return html
+
+          base = normalize(read("origin/main"))
+          head = normalize(read("HEAD"))
+          if base != head:
+              raise SystemExit(
+                  "Production 0.52 guard failed: index.html changed outside the isolated Reach Engine v1.6 section."
+              )
+          print("Production 0.52 index surface is byte-identical outside Reach Engine v1.6.")
           PY
