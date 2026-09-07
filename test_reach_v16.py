@@ -175,15 +175,13 @@ class ReachV16Tests(unittest.TestCase):
         self.assertFalse(meta.get("aon_staged", False))
         self.assertFalse(any(d.get("code") == "AON_STAGED_MERGE" for d in diagnostics))
 
-    def test_aon_burst_is_staged_and_flagged(self):
+    def test_aon_burst_without_temporal_slice_is_blocked(self):
         U = 10_000_000
         aon = ent("AON", 5_000_000, start=dt.date(2026,1,1), end=dt.date(2026,12,31), common=True)
         burst = ent("Burst", 2_000_000, start=dt.date(2026,2,1), end=dt.date(2026,2,28), common=False)
         diagnostics = []
-        j, meta = r._l6_pair(aon, burst, U, diagnostics)
-        self.assertGreaterEqual(j, 0)
-        self.assertTrue(meta.get("aon_staged"))
-        self.assertTrue(any(d.get("code") == "AON_STAGED_MERGE" for d in diagnostics))
+        with self.assertRaisesRegex(r.V16Error, "AON_TEMPORAL_APPROXIMATION_REQUIRED"):
+            r._l6_pair(aon, burst, U, diagnostics)
 
     def test_maxent_merge_preserves_invariants(self):
         U = 10_000_000
