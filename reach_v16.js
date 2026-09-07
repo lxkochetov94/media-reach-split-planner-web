@@ -221,11 +221,9 @@
 
       const units=(p.inventory_units||[]).map(u=>`
         <tr class="v16-unit-row" data-unit-id="${esc(u.id)}">
-          <td data-label="Площадка"><strong>${esc(u.platform||'')}</strong><span class="v16-th-sub">${esc(u.sheet)} · строка ${u.row}</span></td>
-          <td data-label="Формат">${esc(u.format||'—')}</td>
-          <td data-label="Канал">${esc(u.channel||'—')}</td>
-          <td data-label="Группа аудитории"><input class="v16-family" value="${esc(u.suggested_family||'')}" aria-label="Группа аудитории"></td>
-          <td data-label="Техническая среда">
+          <td><strong>${esc(u.platform||'')}</strong><span class="v16-th-sub">${esc(u.channel||'—')} · ${esc(u.format||'—')}</span></td>
+          <td><input class="v16-family" value="${esc(u.suggested_family||'')}" aria-label="Группа аудитории"></td>
+          <td>
             <select class="v16-env">
               <option value="UNKNOWN" selected>Не определена → Quick</option>
               <option value="WEB">Web / browser</option>
@@ -233,99 +231,72 @@
               <option value="CTV">CTV / OTT</option>
             </select>
           </td>
-          <td data-label="Браузер">
-            <select class="v16-browser">
-              <option value="UNKNOWN" selected>Не определён</option>
-              <option value="CHROMIUM">Chromium-class</option>
-              <option value="SAFARI">Safari / WebKit</option>
-            </select>
+          <td>
+            <details class="v16-mini-details">
+              <summary>Доп. device-данные</summary>
+              <div class="v16-mini-grid">
+                <select class="v16-browser">
+                  <option value="UNKNOWN" selected>Браузер не определён</option>
+                  <option value="CHROMIUM">Chromium-class</option>
+                  <option value="SAFARI">Safari / WebKit</option>
+                </select>
+                <input class="v16-unit-ud" type="number" min="1" step="1" placeholder="U_D, если измерен">
+                <input class="v16-device-reach" type="number" min="0" step="1" placeholder="Device Reach, если измерен">
+              </div>
+            </details>
           </td>
-          <td data-label="Universe устройств"><input class="v16-unit-ud" type="number" min="1" step="1" placeholder="U_D, если есть"></td>
-          <td data-label="Device Reach"><input class="v16-device-reach" type="number" min="0" step="1" placeholder="Если измерен"></td>
         </tr>`).join('');
 
-      const sourceFlights=(p.source_flights||[]).map(f=>`
-        <div class="v16-scope-flight">
-          <strong>${esc(f.label||f.id)}</strong>
-          <span>ЦА: ${esc(f.ta_name||'—')}</span>
-          <span>Universe: ${f.source_universe?num(f.source_universe,0):'—'}</span>
-          <span>${esc(f.start||'—')} — ${esc(f.end||'—')}</span>
-        </div>`).join('');
-
-      const lineScopeReview=`
-        <details class="v16-plan-advanced" ${(p.source_universe_mismatch||p.source_ta_mismatch)?'open':''}>
-          <summary>ЦА и Universe по флайтам</summary>
-          <div class="v16-scope-flight-list">${sourceFlights||'<div class="v16-note">Параметры флайтов в источнике не распознаны.</div>'}</div>
-          ${p.source_ta_mismatch?'<div class="v16-explain-alert err"><strong>Во флайтах разные целевые аудитории.</strong><span>Такие охваты нельзя объединять. Галочка не исправляет TA mismatch — сначала нужны входы, пересчитанные на одну Line Master TA.</span></div>':''}
-          ${p.source_universe_mismatch?'<div class="v16-explain-alert warn"><strong>Во флайтах разный Universe.</strong><span>Чтобы объединить охват, нужен один Human Universe Line. Подтвердите его только если TA, география и human-definition действительно одинаковы.</span></div>':''}
-          <label class="v16-confirm-line">
-            <input type="checkbox" class="v16-line-scope-confirm">
-            <span><strong>Подтверждаю единый Line Master Universe / scope</strong><small>Это разрешает нормализацию Universe, но никогда не снимает различие целевых аудиторий.</small></span>
-          </label>
-        </details>`;
-
-      const identityReview=p.line_identity_review_required?`
-        <div class="v16-explain-alert warn v16-line-identity-warning">
-          <strong>Нужно подтвердить, это одна Line или несколько.</strong>
-          <span>Названия листов похожи, но Campaign/Line headers расходятся. Движок не объединяет их автоматически.</span>
-          <label class="v16-confirm-line">
-            <input type="checkbox" class="v16-line-identity-confirm">
-            <span><strong>Подтверждаю текущую разбивку на отдельные Lines</strong><small>Если это одна Line — сначала исправьте идентичность в исходном медиаплане.</small></span>
-          </label>
-        </div>`: '';
-
-      const platformScopeInputs=(p.platform_scopes||[]).length?`
-        <details class="v16-plan-advanced" open>
-          <summary>Площадки, разбитые на несколько периодов · ${p.platform_scopes.length}</summary>
-          <div class="v16-explain-alert warn">
-            <strong>Reach периодов нельзя просто сложить.</strong>
-            <span>Один человек мог увидеть рекламу в нескольких периодах. Для каждого platform-flight нужен weekly Human Reach либо общий Technical Reach за весь флайт.</span>
+      const platformScopes=(p.platform_scopes||[]).length?`
+        <details class="v16-plan-advanced v16-required-input" open>
+          <summary>Нужен общий Reach для площадок, разбитых на несколько периодов · ${p.platform_scopes.length}</summary>
+          <div class="v16-note" style="margin:7px 0">Reach разных месяцев одной площадки нельзя просто сложить: один человек мог попасть в несколько периодов. Если площадка дала общий Technical Reach за весь флайт — внесите его здесь.</div>
+          <div class="v16-compact-input-list">
+            ${p.platform_scopes.map(s=>`
+              <label><span><strong>${esc(s.platform||s.scope_id)}</strong><small>${esc(s.channel||'—')} · ${s.fragment_count||0} строк</small></span>
+                <input class="v16-aggregate-rtech" data-scope-id="${esc(s.scope_id)}" type="number" min="0" step="1" placeholder="Общий Technical Reach за флайт">
+              </label>`).join('')}
           </div>
-          <div class="v16-platform-scope-grid">
-            ${(p.platform_scopes||[]).map(s=>`
-              <div class="v16-platform-scope-card">
-                <strong>${esc(s.platform||s.scope_id)}</strong>
-                <small>${esc(s.channel||'—')} · ${s.fragment_count||0} строк в источнике</small>
-                <div class="v16-scope-rows">${(s.source_rows||[]).map(x=>`${esc(x.sheet)}:${x.row}`).join(' · ')}</div>
-                <div class="field">
-                  <label>Общий Technical Reach за весь platform-flight</label>
-                  <input class="v16-aggregate-rtech" data-scope-id="${esc(s.scope_id)}" type="number" min="0" step="1" placeholder="Введите, если он измерен">
-                </div>
-                <div class="v16-note">Если есть weekly Human Reach, его можно передать в экспертных измеренных входах.</div>
-              </div>`).join('')}
-          </div>
-        </details>`: '';
+        </details>`:'';
 
-      const excludedReach=(p.excluded_reach_rows||[]).length?`
+      const lineScope=(p.source_universe_mismatch||p.source_ta_mismatch)?`
+        <details class="v16-plan-advanced v16-required-input" open>
+          <summary>Проверка ЦА / Universe между флайтами</summary>
+          ${p.source_ta_mismatch?'<div class="warning">Во флайтах разные ЦА. Их нельзя объединить без пересчёта на одну Line Master TA.</div>':''}
+          ${p.source_universe_mismatch?'<div class="v16-note" style="margin:7px 0">Universe между флайтами различается. Подтвердите единый Line Universe только если это одна и та же ЦА, география и human-definition.</div>':''}
+          <label class="v16-confirm-line"><input type="checkbox" class="v16-line-scope-confirm"><span><strong>Подтверждаю единый Line Universe</strong></span></label>
+        </details>`:'';
+
+      const identity=p.line_identity_review_required?`
+        <details class="v16-plan-advanced v16-required-input" open>
+          <summary>Нужно подтвердить разбивку на Lines</summary>
+          <div class="v16-note">Названия листов похожи, но Campaign/Line headers расходятся. Если это действительно разные Lines — подтвердите.</div>
+          <label class="v16-confirm-line"><input type="checkbox" class="v16-line-identity-confirm"><span><strong>Подтверждаю текущую разбивку на отдельные Lines</strong></span></label>
+        </details>`:'';
+
+      const excluded=(p.excluded_reach_rows||[]).length?`
         <details class="v16-plan-advanced">
-          <summary>Строки вне расчёта охвата · ${p.excluded_reach_rows.length}</summary>
-          <div class="v16-note" style="margin:8px 0">Эти размещения остаются частью медиаплана, но у них нет полного Reach-входа: Impressions + (Frequency или Technical Reach). Движок не придумывает им охват.</div>
-          <div class="v16-excluded-list">
-            ${p.excluded_reach_rows.map(x=>`<div><strong>${esc(x.platform||x.unit_id)}</strong><span>${esc(x.channel||'—')} · ${esc(x.buying_model||'—')} · ${esc(x.reason||'')}</span><small>${esc(x.sheet)}:${x.row}</small></div>`).join('')}
-          </div>
-        </details>`: '';
+          <summary>Строки вне расчёта Reach · ${p.excluded_reach_rows.length}</summary>
+          <div class="v16-note">Эти строки остаются в медиаплане, но для них нет достаточных охватных данных. Reach для них не моделируется.</div>
+        </details>`:'';
 
-      const sourceQaItems=(p.import_warnings||[]).filter(w=>String(w.code||'').startsWith('SOURCE_'));
-      const sourceQaReview=sourceQaItems.length?`
-        <details class="v16-plan-advanced v16-source-qa" open>
-          <summary>Ошибки и предупреждения исходного файла · ${sourceQaItems.length}</summary>
-          <div class="v16-source-qa-list">
-            ${sourceQaItems.map(w=>`<div class="${String(w.code||'').includes('INVALID')?'err':'warn'}"><strong>${esc(w.code||'SOURCE_QA')}</strong><span>${esc(w.message||'')}</span></div>`).join('')}
-          </div>
-        </details>`: '';
+      const sourceQa=(p.import_warnings||[]).filter(w=>String(w.code||'').startsWith('SOURCE_'));
+      const sourceQaBlock=sourceQa.length?`
+        <details class="v16-plan-advanced">
+          <summary>Замечания к исходному файлу · ${sourceQa.length}</summary>
+          <div class="v16-source-compact">${sourceQa.map(w=>`<div><strong>${esc(w.code||'SOURCE_QA')}</strong><span>${esc(w.message||'')}</span></div>`).join('')}</div>
+        </details>`:'';
 
       const aon=(p.aon_pairs||[]).length?`
         <details class="v16-plan-advanced">
-          <summary>Always-on ↔ burst · временной Reach</summary>
-          <div class="v16-note" style="margin:8px 0">Годовой Always-on Reach нельзя автоматически разложить по burst-периодам. Если есть замер, укажите deduplicated Human Reach Always-on ровно за период соответствующего burst.</div>
-          <div class="v16-aon-grid">
-            ${(p.aon_pairs||[]).map(x=>`
-              <div class="field">
-                <label>${esc(x.aon_label)} → ${esc(x.burst_label)} · ${esc(x.burst_start||'')}—${esc(x.burst_end||'')}</label>
+          <summary>Always-on ↔ burst · измеренный Reach за burst-период</summary>
+          <div class="v16-compact-input-list">
+            ${p.aon_pairs.map(x=>`
+              <label><span><strong>${esc(x.aon_label)} → ${esc(x.burst_label)}</strong><small>${esc(x.burst_start||'')}—${esc(x.burst_end||'')}</small></span>
                 <input class="v16-aon-slice" data-aon-id="${esc(x.aon_flight_id)}" data-burst-id="${esc(x.burst_flight_id)}" type="number" min="0" step="1" placeholder="Human Reach за burst-период">
-              </div>`).join('')}
+              </label>`).join('')}
           </div>
-        </details>`: '';
+        </details>`:'';
 
       box.innerHTML=`
         <div class="v16-plan-head">
@@ -333,97 +304,77 @@
             <input type="checkbox" class="v16-plan-cb" checked>
             <span><strong>${esc(p.label||p.line||p.campaign||p.id)}</strong><span class="hint">${esc((p.sheet_names||[]).join(', '))}</span></span>
           </label>
-          <div class="field"><label>Human Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="${p.universe?Math.round(p.universe):''}" placeholder="Обязательный вход"></div>
+          <div class="field"><label>Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="${p.universe?Math.round(p.universe):''}" placeholder="Обязательный вход"></div>
           <div class="v16-plan-facts">
             <span>ЦА: <strong>${esc(p.ta_name||'не распознана')}</strong></span>
-            <span>${p.flight_count||0} флайта · ${reachRows} из ${p.placement_count||0} строк в Reach scope</span>
-            <span>Готовность Reach-входов: <strong>${readiness}%</strong></span>
+            <span>${p.flight_count||0} флайт(а) · ${reachRows} Reach-размещений</span>
+            <span>Готовность L1: <strong>${readiness}%</strong></span>
           </div>
         </div>
 
-        ${lineScopeReview}
-        ${identityReview}
-        ${platformScopeInputs}
-        ${sourceQaReview}
-        ${excludedReach}
-
-        <details class="v16-mapping" open>
-          <summary>Площадки и группы аудитории · обязательная проверка</summary>
-          <div class="v16-note" style="margin:9px 0">Группа аудитории (Audience Family) нужна, чтобы не посчитать одного человека несколько раз внутри связанных размещений. Предложение движка нужно проверить и подтвердить.</div>
-          <div class="table-wrap v16-unit-wrap">
-            <table class="data-table v16-unit-table">
-              <thead><tr><th>Площадка</th><th>Формат</th><th>Канал</th><th>Группа аудитории</th><th>Техническая среда</th><th>Браузер</th><th>Universe устройств</th><th>Device Reach</th></tr></thead>
-              <tbody>${units}</tbody>
-            </table>
+        <div class="v16-auto-strip">
+          <div>
+            <span class="v16-auto-label">Авто по ЦА</span>
+            <strong>B = ${num(rec.B,2)}</strong>
+            <small><b>B — среднее число browser ID на одно web-устройство.</b> Для этой ЦА диапазон ${fmtRange(rec.B_min,rec.B_max)}.</small>
           </div>
-          <label class="v16-confirm-line">
-            <input type="checkbox" class="v16-family-confirm">
-            <span><strong>Я проверил группировку площадок</strong><small>Без подтверждения Level 4 не запускается. Неопределённая technical environment допустима и ведёт в честный Quick fallback.</small></span>
-          </label>
-        </details>
+          <div>
+            <span class="v16-auto-label">Авто по ЦА</span>
+            <strong>D = ${num(rec.D,2)}</strong>
+            <small><b>D — среднее число устройств на одного человека.</b> Для этой ЦА диапазон ${fmtRange(rec.D_min,rec.D_max)}.</small>
+          </div>
+          <div>
+            <span class="v16-auto-label">Методология</span>
+            <strong>L = 68 дней</strong>
+            <small><b>L — период стабильности browser ID Chromium.</b> Фиксированное значение методологии.</small>
+          </div>
+        </div>
 
         <details class="v16-plan-advanced">
-          <summary>Что означают B, D, L и U_D</summary>
-          <div class="v16-auto-strip">
-            <div>
-              <span class="v16-auto-label">B — browser ID на одно устройство</span>
-              <strong>B = ${num(rec.B,2)}</strong>
-              <small><b>Что это:</b> сколько в среднем разных browser ID приходится на одно web-устройство.</small>
-              <small><b>Почему такое значение:</b> для ЦА ${esc(p.ta_name||'—')} модель даёт диапазон ${fmtRange(rec.B_min,rec.B_max)}; используется ${num(rec.B,2)}.</small>
-            </div>
-            <div>
-              <span class="v16-auto-label">D — устройств на одного человека</span>
-              <strong>D = ${num(rec.D,2)}</strong>
-              <small><b>Что это:</b> сколько в среднем устройств приходится на одного человека.</small>
-              <small><b>Почему такое значение:</b> для ЦА ${esc(p.ta_name||'—')} модель даёт диапазон ${fmtRange(rec.D_min,rec.D_max)}; используется ${num(rec.D,2)}.</small>
-            </div>
-            <div>
-              <span class="v16-auto-label">L — стабильность browser ID</span>
-              <strong>L = 68 дней</strong>
-              <small><b>Что это:</b> базовый период стабильности browser ID для Chromium.</small>
-              <small><b>Почему 68:</b> это фиксированное значение методологии v1.6, а не расчёт по ЦА.</small>
-            </div>
+          <summary>Есть измеряемый Web-device Universe U<sub>D</sub>?</summary>
+          <div class="v16-plan-advanced-body">
+            <div class="field v16-ud-field"><label>U<sub>D</sub> для этой Line</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если данных нет"></div>
+            <div class="v16-note"><b>U<sub>D</sub> — измеренное количество уникальных web-устройств этой же ЦА, географии и периода.</b> Это устройства, не люди. Если такого измерения нет — оставьте поле пустым.</div>
           </div>
-          <div class="field v16-ud-human" style="margin-top:10px">
-            <label><strong>U_D — измеренный Universe web-устройств</strong></label>
-            <input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если такого измерения нет">
-            <div class="hint"><b>Что это:</b> реальное количество уникальных web-устройств этой же ЦА, географии и периода. Это не люди и не U × D. Если U_D не измерен — поле оставляем пустым.</div>
-          </div>
+        </details>
+
+        ${lineScope}
+        ${identity}
+        ${platformScopes}
+        ${sourceQaBlock}
+        ${excluded}
+
+        <details class="v16-plan-advanced">
+          <summary>Проверьте группировку площадок для дедупликации</summary>
+          <div class="v16-note" style="margin:7px 0">Нужно только подтвердить, какие размещения относятся к одной аудитории/экосистеме. Предложенные группы уже заполнены.</div>
+          <div class="table-wrap"><table class="data-table v16-compact-map"><thead><tr><th>Площадка</th><th>Группа аудитории</th><th>Среда</th><th>Доп. данные</th></tr></thead><tbody>${units}</tbody></table></div>
+          <label class="v16-confirm-line"><input type="checkbox" class="v16-family-confirm"><span><strong>Я проверил группировку площадок</strong></span></label>
         </details>
         ${aon}
       `;
+
       wrap.appendChild(box);
     }
-    wrap.querySelectorAll('input,select').forEach(el=>el.addEventListener('change',markDirty));
+    wrap.querySelectorAll('input,select').forEach(el=>el.addEventListener('change',()=>{syncBrandUniverse?.();markDirty();}));
     renderPrecalc();
   }
 
   function renderInputAudit(){
     const wrap=$(ids.inputAudit);if(!wrap)return;
     const state=allUserState(),plans=state.plans;
-    if(!plans.length){wrap.innerHTML='<div class="v16-explain-alert err"><strong>Не выбрана ни одна Line.</strong><span>Выберите хотя бы одну Line, которую нужно включить в расчёт.</span></div>';return}
+    if(!plans.length){wrap.innerHTML='<div class="warning">Не выбрано ни одной Line.</div>';return}
     wrap.innerHTML='<div class="v16-audit-grid">'+plans.map(p=>{
-      const x=p.meta.input_profile||{},rows=x.rows||0,reachRows=x.reach_scope_rows??rows,excluded=x.reach_excluded_rows||0,l1=x.l1_ready_rows||0;
-      const mapping=collectFamilyMapping(p),mapped=Object.values(mapping.mapping).filter(Boolean).length,totalUnits=(p.meta.inventory_units||[]).length;
-      const mappingReady=mapped===totalUnits&&mapping.confirmed,scope=collectLineScope(p);
-      const sourceWarnings=(p.meta.import_warnings||[]).filter(w=>String(w.code||'').startsWith('SOURCE_'));
-      const hardTa=!!p.meta.source_ta_mismatch;
-      const uIssue=!!p.meta.source_universe_mismatch&&!scope.scopeConfirmed;
-      const platformIssues=(p.meta.platform_scopes||[]).length;
-      const blockers=(hardTa?1:0)+(mappingReady?0:1)+(sourceWarnings.some(w=>String(w.code||'').includes('INVALID'))?1:0);
-      const reviews=(uIssue?1:0)+platformIssues;
-      const stateKind=blockers?'err':reviews?'warn':'ok';
-      const stateText=blockers?'Есть блокирующие проверки':reviews?'Нужно проверить входы':'Базовые входы готовы';
-      return `<div class="v16-audit-card ${stateKind}">
-        <div class="v16-audit-title">${badge(stateText,stateKind)}<strong>${esc(p.meta.label||p.id)}</strong></div>
-        <div class="v16-audit-checks">
-          <div class="${l1===reachRows?'ok':'warn'}"><span>Reach-входы</span><strong>${l1}/${reachRows}</strong><small>${l1===reachRows?'Все строки Reach scope имеют достаточные входы.':'Часть строк требует проверки исходных Reach/Frequency.'}</small></div>
-          <div class="${hardTa?'err':uIssue?'warn':'ok'}"><span>ЦА и Universe</span><strong>${hardTa?'TA mismatch':uIssue?'U mismatch':'OK'}</strong><small>${hardTa?'Флайты относятся к разным ЦА — объединение запрещено.':uIssue?'Нужен подтверждённый единый Line Universe.':'Критических противоречий scope не найдено.'}</small></div>
-          <div class="${mappingReady?'ok':'warn'}"><span>Группировка площадок</span><strong>${mapped}/${totalUnits}</strong><small>${mappingReady?'Audience Family проверены пользователем.':'Проверьте и подтвердите группы аудитории.'}</small></div>
-          <div class="${sourceWarnings.length?'warn':'ok'}"><span>Исходный файл</span><strong>${sourceWarnings.length?sourceWarnings.length+' QA':'OK'}</strong><small>${sourceWarnings.length?'Есть source QA, ниже показаны конкретные строки.':'Невалидных source-проверок не найдено.'}</small></div>
-          <div class="${platformIssues?'warn':'ok'}"><span>Площадки по периодам</span><strong>${platformIssues||'OK'}</strong><small>${platformIssues?'Для нескольких platform-flight нужен общий/weekly Reach.':'Нет неоднозначного сложения Reach периодов.'}</small></div>
-          <div class="neutral"><span>Вне Reach scope</span><strong>${excluded}</strong><small>${excluded?'Строки остаются в медиаплане, но их Reach не моделируется.':'Все распознанные строки относятся к Reach scope.'}</small></div>
+      const x=p.meta.input_profile||{},rows=x.reach_scope_rows??x.rows??0;
+      const l1=x.l1_ready_rows||0,reach=x.supplied_reach_rows||0,ifRows=x.impressions_frequency_rows||0,dates=x.dated_rows||0;
+      const ready=rows&&l1===rows;
+      return `<div class="v16-audit-card">
+        <div class="v16-audit-title">${ready?badge('L1 готов','ok'):badge('проверить входы','warn')}<strong>${esc(p.meta.label||p.id)}</strong></div>
+        <div class="v16-audit-stats">
+          <span>Строк: <b>${rows}</b></span><span>Supplied Reach: <b>${reach}</b></span>
+          <span>I + F: <b>${ifRows}</b></span><span>С датами: <b>${dates}</b></span>
+          <span>Площадок: <b>${x.platforms||0}</b></span><span>Каналов: <b>${x.channels||0}</b></span>
         </div>
+        <div class="v16-note">${ready?'Для каждой охватной строки есть supplied Reach либо пара Impressions + Frequency.':'Часть строк не позволяет получить Technical Reach. Ниже показаны необходимые проверки.'}</div>
       </div>`;
     }).join('')+'</div>';
   }
@@ -432,44 +383,29 @@
 
   function renderL2Decision(){
     const wrap=$(ids.l2Decision);if(!wrap)return;
-    const state=allUserState(),mode=currentMode();
+    const state=allUserState(),mode=currentMode(),K=Number($(ids.k)?.value||2.4);
     if(!state.plans.length){wrap.innerHTML='';return}
     wrap.innerHTML='<div class="v16-decision-list">'+state.plans.map(p=>{
-      const map=collectFamilyMapping(p),rec=p.meta.advanced_recommended||{};
-      let adv=0,quick=0,blocked=0;
-      const rows=[...p.root.querySelectorAll('.v16-unit-row')];
-      rows.forEach(r=>{
-        const env=r.querySelector('.v16-env')?.value||'UNKNOWN';
-        const unitUD=r.querySelector('.v16-unit-ud')?.value?.trim();
-        const lineUd=p.root.querySelector('.v16-line-ud')?.value?.trim();
-        const device=r.querySelector('.v16-device-reach')?.value?.trim();
-        if(mode==='QUICK'){quick++;return}
-        if(mode==='ADVANCED'||mode==='ADVANCED_WEB'){
-          const ok=env==='WEB'?!!(unitUD||lineUd):(env==='MOBILE_APP'||env==='CTV')?!!device:false;
-          if(ok)adv++;else blocked++;
-          return;
-        }
-        if(env==='WEB'&&(unitUD||lineUd))adv++;
-        else if((env==='MOBILE_APP'||env==='CTV')&&device)adv++;
-        else quick++;
-      });
-      return `<div class="v16-decision ${blocked?'error':adv?'advanced':'fallback'}">
-        <div class="v16-decision-head"><strong>${esc(p.meta.label||p.id)}</strong>
-          ${blocked?badge(`${blocked} Advanced не готовы`,'err'):badge(`${adv} Advanced · ${quick} Quick`,adv?'ok':'warn')}
-        </div>
-        <div class="v16-formula-path">
-          <span>Technical Reach</span><b>→</b><span>перевод технических ID</span><b>→</b><span>Human Reach</span>
-        </div>
-        <div class="v16-note" style="margin:8px 0">
-          <b>Что это значит:</b> площадка считает технические ID, а движок переводит их в оценку реальных людей.
-          ${adv
-            ? 'Для части или всех размещений есть измеренные данные по устройствам — используется детальный путь.'
-            : 'Измеренного U_D нет — используется стандартный Quick-путь: Technical Reach делится на коэффициент K.'}
-        </div>
+      const rec=p.meta.advanced_recommended||{};
+      const hasUD=!!lineUD(p);
+      const effective=mode==='QUICK'?'QUICK':(mode==='ADVANCED'||mode==='ADVANCED_WEB')?(hasUD?'ADVANCED WEB':'НЕ ГОТОВ'):(hasUD?'ADVANCED WEB':'QUICK FALLBACK');
+      const kind=effective==='ADVANCED WEB'?'advanced':effective==='НЕ ГОТОВ'?'error':'fallback';
+      const path=effective==='ADVANCED WEB'
+        ?`<div class="v16-formula-path"><span>Technical Reach</span><b>→</b><span>L</span><b>→</b><span>B + U_D</span><b>→</b><span>D</span><b>→</b><span>Human Reach</span></div>`
+        :`<div class="v16-formula-path compact"><span>Technical Reach</span><b>→</b><span>÷ K=${num(K,2)}</span><b>→</b><span>Human Reach</span></div>`;
+      const why=effective==='ADVANCED WEB'
+        ?'Есть измеренный U_D, поэтому технические ID можно детально перевести в устройства, а затем в людей.'
+        :effective==='НЕ ГОТОВ'
+          ?'Выбран принудительный Advanced Web, но измеренного U_D нет.'
+          :'U_D не задан. Используется Quick: Technical Reach делится на K — модельное число технических ID на одного человека.';
+      return `<div class="v16-decision ${kind}">
+        <div class="v16-decision-head"><strong>${esc(p.meta.label||p.id)}</strong>${badge(effective,kind==='advanced'?'ok':kind==='error'?'err':'warn')}</div>
+        ${path}
+        <div class="v16-decision-why">${esc(why)}</div>
         <div class="v16-param-row">
-          <span><b>Browser ID на устройство: ${num(rec.B,2)} (B)</b><small>Автоматическая модельная оценка по возрасту ЦА; используется на шаге browser → device.</small></span>
-          <span><b>Устройств на человека: ${num(rec.D,2)} (D)</b><small>Автоматическая модельная оценка по возрасту ЦА; используется на шаге device → people.</small></span>
-          <span><b>Группировка площадок</b><small>${map.confirmed?'Проверена пользователем':'Ещё не подтверждена'}</small></span>
+          <span><b>B = ${num(rec.B,2)}</b><small>среднее число browser ID на одно web-устройство</small></span>
+          <span><b>D = ${num(rec.D,2)}</b><small>среднее число устройств на одного человека</small></span>
+          <span><b>U_D ${hasUD?num(lineUD(p),0):'нет'}</b><small>измеренный Universe web-устройств; если его нет — не подставляется</small></span>
         </div>
       </div>`;
     }).join('')+'</div>';
@@ -478,33 +414,19 @@
   function renderModelMap(){
     const wrap=$(ids.modelMap);if(!wrap)return;
     const c=modelCatalog();
-    if(!c.level2){wrap.innerHTML='<div class="hint">Описание методики появится после загрузки медиаплана.</div>';return}
+    if(!c.level2){wrap.innerHTML='<div class="hint">Каталог модели загрузится после медиаплана.</div>';return}
     wrap.innerHTML=`
-      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 1</div><strong>Одна строка медиаплана</strong>
-        <p>Проверяем показы, частоту и Technical Reach одной строки. Если Reach не задан — получаем его из Impressions ÷ Frequency.</p>
-      </div>
-      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Технические ID → реальные люди</strong>
-        <p>Переводим cookie / browser ID / device ID в Human Reach. Без device-данных используется Quick K; при наличии измерений — детальный путь.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3A</div><strong>Одна площадка во времени</strong>
-        <p>Объединяем, например, июнь и июль одной площадки и не складываем повторных людей дважды.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3B</div><strong>Reach 1+…6+</strong>
-        <p>Считаем, сколько людей получили минимум 1, 2, 3 и больше рекламных контактов.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 4</div><strong>Площадки → канал</strong>
-        <p>Объединяем площадки внутри одного канала и убираем пересечения пользователей между ними.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 5</div><strong>Каналы → флайт</strong>
-        <p>Объединяем OLV, баннеры, соцсети и другие каналы в уникальный Reach одного флайта.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 6</div><strong>Флайты → Line</strong>
-        <p>Объединяем несколько флайтов одной кампании с учётом повторной аудитории между периодами.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 7</div><strong>Lines → Brand</strong>
-        <p>Объединяем несколько Lines в Brand Reach, только если у них единая ЦА, география и Universe.</p>
-      </div>`;
+      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 1</div><strong>Строка медиаплана → Technical Reach</strong><p>Проверяем показы, частоту и Reach одной строки.</p></div>
+      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Technical Reach → люди</strong><p>Переводим технические ID площадки в Human Reach.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3A</div><strong>Площадка во времени</strong><p>Объединяем периоды одной площадки без двойного счёта людей.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3B</div><strong>Reach 1+…6+</strong><p>Считаем, сколько людей получили минимум 1, 2, 3 и больше контактов.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 4</div><strong>Площадки → канал</strong><p>Убираем пересечения пользователей между площадками одного канала.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 5</div><strong>Каналы → флайт</strong><p>Объединяем каналы в уникальный Reach одного флайта.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 6</div><strong>Флайты → Line</strong><p>Объединяем флайты с учётом повторной аудитории между периодами.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 7</div><strong>Lines → Brand</strong><p>Объединяем Lines в общий Brand Reach на одной ЦА и Universe.</p></div>
+    `;
   }
+
   function renderPrecalc(){renderInputAudit();renderL2Decision();renderModelMap()}
 
   function topResult(){
@@ -620,16 +542,14 @@
     let h='<thead><tr><th>Канал / сущность</th><th>Родитель</th><th class="num">Вклад в Reach</th><th class="num">Эксклюзивная аудитория</th><th class="num">Учтённая часть пересечений</th></tr></thead><tbody>';
     for(const r of rows){
       const parent=Number(r.parent_reach||0),sh=Number(r.shapley_people||0),ex=Number(r.exclusive_people||0),shared=Math.max(0,sh-ex);
-      h+=`<tr>
-        <td data-label="Канал / сущность"><strong>${esc(r.name||'')}</strong><span class="v16-th-sub">${esc(r.scope||'')}</span></td>
-        <td data-label="Родитель">${esc(r.parent||'')}</td>
-        <td data-label="Вклад в Reach" class="num"><strong>${num(sh,0)} человек</strong><span class="v16-pct">${parent?pct(sh/parent,2):'—'} итогового Reach</span></td>
-        <td data-label="Эксклюзивная аудитория" class="num"><strong>${num(ex,0)} человек</strong><span class="v16-pct">${parent?pct(ex/parent,2):'—'} итогового Reach</span></td>
-        <td data-label="Учтённые пересечения" class="num"><strong>${num(shared,0)} человек</strong><span class="v16-pct">${parent?pct(shared/parent,2):'—'} итогового Reach</span></td>
-      </tr>`;
+      h+=`<tr><td><strong>${esc(r.name||'')}</strong><span class="v16-th-sub">${esc(r.scope||'')}</span></td><td>${esc(r.parent||'')}</td>
+        <td class="num"><strong>${num(sh,0)} человек</strong><span class="v16-pct">${parent?pct(sh/parent,2):'—'}</span></td>
+        <td class="num"><strong>${num(ex,0)} человек</strong><span class="v16-pct">${parent?pct(ex/parent,2):'—'}</span></td>
+        <td class="num"><strong>${num(shared,0)} человек</strong><span class="v16-pct">${parent?pct(shared/parent,2):'—'}</span></td></tr>`;
     }
     table.innerHTML=h+'</tbody>';
   }
+
   function renderBusinessDiagnostics(){
     const wrap=$(ids.businessDiag);if(!wrap)return;
     const rows=v16Data?.business_diagnostics||[];
@@ -753,12 +673,12 @@
       aggregate_flight_technical_reaches:state.aggregate_flight_technical_reaches,
       aon_slices:state.aon_slices,
       brand_universe:brandRaw===''?null:Number(brandRaw),
-      brand_universe_confirmed:!!$(ids.brandUConfirm)?.checked,
+      brand_universe_confirmed:brandRaw!=='' && (plans.length===1 || !!$(ids.brandUConfirm)?.checked),
       brand_master_ta:$(ids.brandTA)?.value?.trim()||'',
       brand_master_geo:$(ids.brandGeo)?.value?.trim()||'',
       brand_horizon_start:$(ids.brandStart)?.value||'',
       brand_horizon_end:$(ids.brandEnd)?.value||'',
-      brand_scope_confirmed:!!$(ids.brandScopeConfirm)?.checked
+      brand_scope_confirmed:plans.length===1 || !!$(ids.brandScopeConfirm)?.checked
     };
 
     try{
