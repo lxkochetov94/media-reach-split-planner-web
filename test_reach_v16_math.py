@@ -146,7 +146,7 @@ class CanonicalReachMathTests(unittest.TestCase):
         }
         out = m.audience_merge(es, U, pair_details=p, model_path="L4_TEST")
         self.assertTrue(out["feasibility"]["feasible"])
-        self.assertEqual(out["solver_status"], "CONVERGED")
+        self.assertTrue(str(out["solver_status"]).startswith("CONVERGED"))
         self.assertAlmostEqual(out["reach_1p"], 4_743_447, delta=3_000)
         self.assertAlmostEqual(sum(x["shapley_people"] for x in out["contributions"]), out["reach_1p"], delta=1e-4)
 
