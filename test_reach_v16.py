@@ -30,6 +30,43 @@ class FakeRow:
 
 
 class ReachV16Tests(unittest.TestCase):
+    def test_advanced_age_weighted_defaults_for_25_45(self):
+        rec = r.recommended_advanced_factors("Ж 25-45 ВС")
+        self.assertAlmostEqual(rec["B"], (10*1.90 + 10*1.90 + 1*1.75) / 21, places=6)
+        self.assertAlmostEqual(rec["D"], (10*2.35 + 10*2.25 + 1*2.15) / 21, places=6)
+        self.assertEqual(rec["B_source"], "AGE_WIDTH_APPROXIMATION")
+        self.assertEqual(rec["D_source"], "AGE_WIDTH_APPROXIMATION")
+
+    def test_advanced_web_level2_invariants(self):
+        out = r.level2_advanced_web(
+            rtech=3_000_000,
+            U=15_000_000,
+            T=28,
+            F=3.0,
+            U_D=18_000_000,
+            B=1.90,
+            D=2.30,
+            L=68,
+        )
+        self.assertGreater(out["R_stable"], 0)
+        self.assertGreater(out["R_device"], 0)
+        self.assertGreater(out["R_people"], 0)
+        self.assertLessEqual(out["R_people"], 15_000_000)
+        self.assertGreaterEqual(out["K_time"], 1.0)
+
+    def test_advanced_web_requires_capacity_validity(self):
+        with self.assertRaises(r.V16Error):
+            r.level2_advanced_web(
+                rtech=10_000_000,
+                U=1_000_000,
+                T=28,
+                F=3.0,
+                U_D=1_000_000,
+                B=1.0,
+                D=1.0,
+                L=68,
+            )
+
     def test_json_serializes_nested_dates(self):
         payload = {
             "lines": [{
