@@ -459,6 +459,8 @@ def _resolve_line_l2(plan, U: float, q: dict, plan_id: str) -> dict:
         "environments": adv_q.get("environments") or {},
         "browser_families": adv_q.get("browser_families") or {},
         "device_reaches": adv_q.get("device_reaches") or {},
+        "browser_segments": adv_q.get("browser_segments") or {},
+        "device_segments": adv_q.get("device_segments") or {},
         "safari_l": adv_q.get("safari_l"),
         "plan_id": plan_id,
     }
@@ -471,6 +473,163 @@ def _lookup_unit_map(mapping: Mapping[str, Any], plan_id: str, unit_id: str, def
     if unit_id in mapping:
         return mapping[unit_id]
     return default
+
+
+
+def _scope_value(
+    q: Mapping[str, Any],
+    key: str,
+    plan_id: str,
+    *,
+    flight_id: Optional[str] = None,
+    name: Optional[str] = None,
+    default=None,
+):
+    root = q.get(key) or {}
+    if not isinstance(root, Mapping):
+        return default
+    cur: Any = root
+    if plan_id in cur and isinstance(cur[plan_id], Mapping):
+        cur = cur[plan_id]
+    if flight_id is not None and isinstance(cur, Mapping) and flight_id in cur and isinstance(cur[flight_id], Mapping):
+        cur = cur[flight_id]
+    if name is not None and isinstance(cur, Mapping) and name in cur:
+        return cur[name]
+    if name is None and flight_id is not None and isinstance(cur, Mapping) and flight_id in cur and not isinstance(cur[flight_id], Mapping):
+        return cur[flight_id]
+    if name is None and plan_id in root and not isinstance(root[plan_id], Mapping):
+        return root[plan_id]
+    return default
+
+
+_PAIR_SOURCE_RANK = {
+    "MEASURED": 100,
+    "MEASURED_CAMPAIGN": 100,
+    "MEASURED_ADDRESSABLE": 100,
+    "BRAND_ADDRESSABILITY_MAP": 100,
+    "HISTORICAL": 80,
+    "HISTORICAL_CALIBRATED": 80,
+    "CUSTOM": 60,
+    "CUSTOM_ADDRESSABILITY": 60,
+    "MODEL_DEFAULT": 10,
+    "BASE_MODEL_DEFAULT": 10,
+    "NEUTRAL_MODEL_DEFAULT": 10,
+}
+
+
+def _pair_specs(
+    q: Mapping[str, Any],
+    level: str,
+    *,
+    plan_id: Optional[str] = None,
+    flight_id: Optional[str] = None,
+    parent: Optional[str] = None,
+) -> List[dict]:
+    raw = q.get("pair_inputs") or []
+    if isinstance(raw, Mapping):
+        raw = raw.get(level) or raw.get(level.upper()) or []
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        raise V16Error("pair_inputs должен быть list либо mapping level→list.")
+    out = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise V16Error("Каждый pair_inputs item должен быть object.")
+        item_level = str(item.get("level") or level).upper()
+        if item_level != level.upper():
+            continue
+        for field, actual in (("plan_id", plan_id), ("flight_id", flight_id), ("parent", parent)):
+            expected = item.get(field)
+            if expected not in (None, "") and actual is not None and str(expected) != str(actual):
+                break
+        else:
+            out.append(dict(item))
+    return out
+
+
+def _entity_alias_map(entities: Sequence[dict]) -> Dict[str, int]:
+    aliases: Dict[str, int] = {}
+    for idx, ent in enumerate(entities):
+        aliases[str(idx)] = idx
+        for key in ("name", "label", "unit_id", "family_id", "flight_id", "plan_id", "line_id"):
+            value = str(ent.get(key) or "").strip()
+            if value:
+                aliases[value] = idx
+                aliases[value.lower()] = idx
+    return aliases
+
+
+def _pair_raw_by_index(entities: Sequence[dict], specs: Sequence[dict]) -> Dict[Tuple[int, int], dict]:
+    aliases = _entity_alias_map(entities)
+    chosen: Dict[Tuple[int, int], Tuple[int, dict]] = {}
+    for spec in specs:
+        a_raw, b_raw = spec.get("a"), spec.get("b")
+        if a_raw is None or b_raw is None:
+            raise V16Error("pair_inputs требует a и b.")
+        def resolve(token):
+            if isinstance(token, int) and 0 <= token < len(entities):
+                return token
+            key = str(token).strip()
+            idx = aliases.get(key, aliases.get(key.lower()))
+            if idx is None:
+                raise V16Error(f"pair_inputs: entity '{token}' не найдена в текущем scope.")
+            return idx
+        i, j = resolve(a_raw), resolve(b_raw)
+        if i == j:
+            raise V16Error("pair_inputs: a и b не могут быть одной entity.")
+        key = tuple(sorted((i, j)))
+        source = str(spec.get("source") or "CUSTOM").upper()
+        rank = _PAIR_SOURCE_RANK.get(source, 50)
+        payload = {
+            k: v for k, v in spec.items()
+            if k not in {"level", "plan_id", "flight_id", "parent", "a", "b"}
+        }
+        payload["source"] = source
+        if key in chosen and chosen[key][0] == rank:
+            raise V16Error(
+                f"pair_inputs: несколько relations одинакового приоритета для pair {a_raw} × {b_raw}."
+            )
+        if key not in chosen or rank > chosen[key][0]:
+            chosen[key] = (rank, payload)
+    return {k: v for k, (_rank, v) in chosen.items()}
+
+
+def _normalized_pair_details(
+    entities: Sequence[dict],
+    U: float,
+    specs: Sequence[dict],
+    *,
+    default_rho: Optional[float],
+) -> Dict[Tuple[int, int], dict]:
+    raw = _pair_raw_by_index(entities, specs)
+    out: Dict[Tuple[int, int], dict] = {}
+    for (i, j), meta in raw.items():
+        Ui = meta.get("U_i", entities[i].get("addressable_universe"))
+        Uj = meta.get("U_j", entities[j].get("addressable_universe"))
+        Mij = meta.get("M")
+        try:
+            out[(i, j)] = m.normalize_pair_input(
+                meta,
+                float(entities[i]["reach_1p"]),
+                float(entities[j]["reach_1p"]),
+                U,
+                Ua=Ui, Ub=Uj, M=Mij,
+                default_rho=default_rho,
+                default_source=str(meta.get("source") or "CUSTOM"),
+            )
+        except (m.ReachValidationError, m.ReachCalculationError) as exc:
+            raise V16Error(str(exc)) from exc
+    return out
+
+
+def _parse_scope_date(value: Any, label: str) -> dt.date:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.date.fromisoformat(str(value))
+    except Exception as exc:
+        raise V16Error(f"{label} должен быть YYYY-MM-DD.") from exc
 
 
 def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
@@ -487,6 +646,8 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
     line_ud = cfg["web_device_universes"].get(cfg["plan_id"])
     U_D = unit_ud if unit_ud not in (None, "", 0, "0") else line_ud
     device_reach = _lookup_unit_map(cfg["device_reaches"], cfg["plan_id"], uid, None)
+    browser_segments = _lookup_unit_map(cfg.get("browser_segments") or {}, cfg["plan_id"], uid, None)
+    device_segments = _lookup_unit_map(cfg.get("device_segments") or {}, cfg["plan_id"], uid, None)
 
     reason = None
     use_advanced = requested == "ADVANCED"
@@ -545,6 +706,8 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
             B=cfg["B"], D=cfg["D"], L=cfg["L"],
             browser_family=browser_family,
             safari_l=cfg.get("safari_l"),
+            browser_segments=browser_segments,
+            device_segments=device_segments,
             B_source=cfg["B_source"], D_source=cfg["D_source"],
         )
     except (m.ReachValidationError, m.ReachCalculationError) as exc:
@@ -721,11 +884,23 @@ def _inventory_entity(
                 "mu", "solver_iterations_frequency", "solver_residual_frequency", "cap",
             )
         },
+        "addressable_universe": (
+            float(_lookup_unit_map(q.get("inventory_universes") or {}, plan_id, uid, U))
+        ),
+        "addressable_universe_assumed": (
+            _lookup_unit_map(q.get("inventory_universes") or {}, plan_id, uid, None) in (None, "", 0, "0")
+        ),
+        "inventory_universe_source": (
+            "MODEL_DEFAULT_ASSUMED_FAMILY_OR_U"
+            if _lookup_unit_map(q.get("inventory_universes") or {}, plan_id, uid, None) in (None, "", 0, "0")
+            else "USER_INPUT"
+        ),
     }
 
 
 def _build_level4_channels(
-    rows: Sequence[Any], U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict],
+    rows: Sequence[Any], U: float, cfg: dict, q: dict, plan_id: str,
+    flight_id: str, diagnostics: List[dict],
 ) -> List[dict]:
     units = [
         _inventory_entity(row, U, cfg, q, plan_id, diagnostics)
@@ -734,10 +909,6 @@ def _build_level4_channels(
     by_channel: Dict[str, List[dict]] = defaultdict(list)
     for unit in units:
         by_channel[unit["channel"]].append(unit)
-
-    family_universes_all = q.get("family_universes") or {}
-    p_family_u = family_universes_all.get(plan_id) if isinstance(family_universes_all, Mapping) else {}
-    p_family_u = p_family_u if isinstance(p_family_u, Mapping) else {}
 
     channels: List[dict] = []
     for channel_name, ch_units in by_channel.items():
@@ -748,21 +919,41 @@ def _build_level4_channels(
         families: List[dict] = []
         family_diagnostics: List[dict] = []
         for family_name, fam_units in by_family.items():
-            U_F_raw = p_family_u.get(family_name)
+            U_F_raw = _scope_value(
+                q, "family_universes", plan_id,
+                flight_id=flight_id, name=family_name, default=None,
+            )
             U_F = U if U_F_raw in (None, "", 0, "0") else m.positive(U_F_raw, f"U_F {family_name}")
             if U_F > U + m.NUMERICAL_TOL:
                 raise V16Error(f"Audience Family {family_name}: U_F > U.")
             for ent in fam_units:
+                explicit_ui = not bool(ent.get("addressable_universe_assumed"))
+                if explicit_ui:
+                    if float(ent["addressable_universe"]) > U_F + m.NUMERICAL_TOL:
+                        raise V16Error(
+                            f"Audience Family {family_name}: Inventory Unit U_i превышает U_F."
+                        )
+                    if ent["reach_1p"] > float(ent["addressable_universe"]) + m.NUMERICAL_TOL:
+                        raise V16Error(
+                            f"Audience Family {family_name}: Inventory Unit Reach превышает U_i."
+                        )
+                else:
+                    ent["addressable_universe"] = U_F
                 if ent["reach_1p"] > U_F + m.NUMERICAL_TOL:
                     raise V16Error(
                         f"Audience Family {family_name}: Inventory Unit Reach превышает U_F."
                     )
-                ent["addressable_universe"] = U_F
-                ent["addressable_universe_assumed"] = U_F_raw in (None, "", 0, "0")
 
+            specs = _pair_specs(
+                q, "L4A", plan_id=plan_id, flight_id=flight_id, parent=family_name,
+            )
+            pair_details = _normalized_pair_details(
+                fam_units, U_F, specs, default_rho=0.0,
+            ) if specs else None
             fm = m.audience_merge(
                 fam_units, U_F,
-                neutral_unstructured=True,
+                pair_details=pair_details,
+                neutral_unstructured=not bool(pair_details),
                 model_path="L4A_FAMILY",
             )
             fm.update({
@@ -783,24 +974,34 @@ def _build_level4_channels(
                 "reach": fm["reach_1p"],
                 "D_family": fm["D_family"],
                 "model_path": fm["model_path"],
+                "pair_details": fm.get("pair_details"),
             })
 
-        if len(families) == 1:
-            cm = m.audience_merge(families, U, model_path="L4B_CHANNEL")
-        else:
-            # Ordinary media plans do not contain measured M_ij / pair unions.
-            # With no structured addressability inputs, canonical neutral path is exact
-            # mutual independence relative to the common Human Universe.
-            cm = m.audience_merge(
-                families, U,
-                neutral_unstructured=True,
-                model_path="L4B_CHANNEL",
-            )
+        specs_b = _pair_specs(
+            q, "L4B", plan_id=plan_id, flight_id=flight_id, parent=channel_name,
+        )
+        pair_b = _normalized_pair_details(
+            families, U, specs_b, default_rho=0.0,
+        ) if specs_b else None
+        cm = m.audience_merge(
+            families, U,
+            pair_details=pair_b,
+            neutral_unstructured=not bool(pair_b),
+            model_path="L4B_CHANNEL",
+        )
+        U_c_raw = _scope_value(
+            q, "channel_universes", plan_id,
+            flight_id=flight_id, name=channel_name, default=None,
+        )
+        U_c = U if U_c_raw in (None, "", 0, "0") else m.positive(U_c_raw, f"U_c {channel_name}")
+        if U_c > U + m.NUMERICAL_TOL or cm["reach_1p"] > U_c + m.NUMERICAL_TOL:
+            raise V16Error(f"Channel {channel_name}: требуется Reach ≤ U_c ≤ U.")
         cm.update({
             "name": channel_name,
             "families": families,
-            "addressable_universe": U,
-            "addressable_universe_assumed": True,
+            "addressable_universe": U_c,
+            "addressable_universe_assumed": U_c_raw in (None, "", 0, "0"),
+            "U_c_source": "MODEL_DEFAULT_ASSUMED_U" if U_c_raw in (None, "", 0, "0") else "USER_INPUT",
             "D_cross": 1.0 - cm["reach_1p"] / sum(f["reach_1p"] for f in families)
                 if sum(f["reach_1p"] for f in families) > 0 else 0.0,
             "D_overall": 1.0 - cm["reach_1p"] / sum(u["reach_1p"] for u in ch_units)
@@ -809,8 +1010,11 @@ def _build_level4_channels(
         diagnostics.append({
             "code": "L4_CHANNEL",
             "level": 4,
+            "flight_id": flight_id,
             "channel": channel_name,
             "U": U,
+            "U_c": U_c,
+            "U_c_source": cm["U_c_source"],
             "audience_family_mapping": [
                 {"unit_id": u["unit_id"], "family": u["family"], "source": "USER_CONFIRMED"}
                 for u in ch_units
@@ -818,6 +1022,7 @@ def _build_level4_channels(
             "families": family_diagnostics,
             "D_cross": cm["D_cross"],
             "D_overall": cm["D_overall"],
+            "pair_details": cm.get("pair_details"),
             "model_path": cm["model_path"],
             "feasibility": cm.get("feasibility"),
             "solver_iterations": cm.get("solver_iterations"),
@@ -884,8 +1089,18 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
     flights: List[dict] = []
     for g in groups:
         rows = list(plan.detail_rows([g["id"]]))
-        channels = _build_level4_channels(rows, U, cfg, q, plan_id, diagnostics)
-        flight = m.level5_flight(channels, U)
+        channels = _build_level4_channels(rows, U, cfg, q, plan_id, g["id"], diagnostics)
+
+        l5_specs = _pair_specs(q, "L5", plan_id=plan_id, flight_id=g["id"])
+        l5_pairs = _normalized_pair_details(
+            channels, U, l5_specs, default_rho=m.RHO_CHANNEL_DEFAULT,
+        ) if l5_specs else None
+        flight = m.level5_flight(channels, U, custom_pairs=l5_pairs)
+
+        U_f_raw = _scope_value(q, "flight_universes", plan_id, flight_id=g["id"], default=None)
+        U_f = U if U_f_raw in (None, "", 0, "0") else m.positive(U_f_raw, f"U_f {g['label']}")
+        if U_f > U + m.NUMERICAL_TOL or flight["reach_1p"] > U_f + m.NUMERICAL_TOL:
+            raise V16Error(f"Flight {g['label']}: требуется Reach ≤ U_f ≤ U.")
         flight.update({
             "name": g["label"],
             "flight_id": g["id"],
@@ -894,13 +1109,13 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             "is_common": g["is_common"],
             "ta_name": g["ta_name"],
             "channels": channels,
-            "addressable_universe": U,
-            "addressable_universe_assumed": True,
+            "addressable_universe": U_f,
+            "addressable_universe_assumed": U_f_raw in (None, "", 0, "0"),
         })
         atomic = sum(
             u["reach_1p"]
-            for c in channels
-            for fam in c.get("families", [])
+            for ch in channels
+            for fam in ch.get("families", [])
             for u in fam.get("inventory_units", [])
         )
         flight["D_Campaign"] = 1.0 - flight["reach_1p"] / atomic if atomic > 0 else 0.0
@@ -912,8 +1127,10 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             "code": "L5_FLIGHT",
             "level": 5,
             "flight": g["label"],
+            "flight_id": g["id"],
             "U": U,
-            "channels": [c["name"] for c in channels],
+            "U_f": U_f,
+            "channels": [ch["name"] for ch in channels],
             "rho_target": flight.get("rho_target"),
             "rho_effective": flight.get("rho_effective"),
             "lambda": flight.get("relaxation_lambda"),
@@ -927,7 +1144,6 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
         })
         flights.append(flight)
 
-    # Do not silently merge contiguous parser flights.  Their boundary can be real.
     for a, b in zip(flights, flights[1:]):
         if a.get("end") and b.get("start") and m.gap_days(a["end"], b["start"]) == 0:
             diagnostics.append({
@@ -940,8 +1156,10 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             })
 
     _attach_aon_slices(flights, q, plan_id, diagnostics)
+    l6_specs = _pair_specs(q, "L6", plan_id=plan_id)
+    l6_pairs = _pair_raw_by_index(flights, l6_specs) if l6_specs else None
     try:
-        line = m.level6_line(flights, U)
+        line = m.level6_line(flights, U, custom_pairs=l6_pairs)
     except (m.ReachValidationError, m.ReachCalculationError) as exc:
         raise V16Error(str(exc)) from exc
     diagnostics.extend(line.get("diagnostics") or [])
@@ -968,11 +1186,23 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
         for g in groups if g.get("ta_name") and not g.get("is_common")
     })
     ta_name = ta_names[0] if len(ta_names) == 1 else (_plan_ta(plan) or plan.line or plan.display_name or "")
+    line_start = min((f.get("start") for f in flights if f.get("start")), default=plan.period_start)
+    line_end = max((f.get("end") for f in flights if f.get("end")), default=plan.period_end)
+
+    U_l_raw = _scope_value(q, "line_universes", plan_id, default=None)
+    U_l = U if U_l_raw in (None, "", 0, "0") else m.positive(U_l_raw, f"U_l {plan_id}")
+    if U_l > U + m.NUMERICAL_TOL or line["reach_1p"] > U_l + m.NUMERICAL_TOL:
+        raise V16Error(f"Line {plan_id}: требуется Reach ≤ U_l ≤ U.")
+
     line.update({
         "name": plan.line or plan.display_name or plan.campaign or "Line",
         "brand": plan.brand or "",
         "universe": U,
         "ta_name": ta_name,
+        "start": line_start,
+        "end": line_end,
+        "planning_horizon_start": line_start,
+        "planning_horizon_end": line_end,
         "flights": flights,
         "l2": {
             "requested_mode": cfg["requested_mode"],
@@ -984,8 +1214,9 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             "D_min": cfg["D_min"], "D_max": cfg["D_max"],
             "age_range": cfg["age_range"],
         },
-        "addressable_universe": U,
-        "addressable_universe_assumed": True,
+        "addressable_universe": U_l,
+        "addressable_universe_assumed": U_l_raw in (None, "", 0, "0"),
+        "line_universe_assumed": U_l_raw in (None, "", 0, "0"),
     })
     return line
 
@@ -995,12 +1226,33 @@ def _brand_merge(lines: Sequence[dict], U: float, diagnostics: List[dict], q: Op
     if not lines:
         return m.level7_brand([], U)
 
-    ta_keys = {_norm_ta(x.get("ta_name")) for x in lines if _norm_ta(x.get("ta_name"))}
-    if len(ta_keys) > 1:
+    if not bool(q.get("brand_scope_confirmed")):
         raise V16Error(
-            "TA_NORMALIZATION_REQUIRED: Lines имеют разные ЦА. "
-            "Все Lines должны быть пересчитаны upstream на Brand Master TA."
+            "BRAND_MASTER_SCOPE_CONFIRMATION_REQUIRED: подтвердите Brand Master TA / geo / horizon / human scope."
         )
+    master_ta = str(q.get("brand_master_ta") or "").strip()
+    master_geo = str(q.get("brand_master_geo") or "").strip()
+    if not master_ta:
+        raise V16Error("BRAND_MASTER_TA_REQUIRED: Brand Master TA должна быть задана явно.")
+    if not master_geo:
+        raise V16Error("BRAND_MASTER_GEO_REQUIRED: master geography должна быть задана явно.")
+    horizon_start = _parse_scope_date(q.get("brand_horizon_start"), "Brand horizon start")
+    horizon_end = _parse_scope_date(q.get("brand_horizon_end"), "Brand horizon end")
+    if horizon_end < horizon_start:
+        raise V16Error("Brand horizon end < start.")
+
+    ta_keys = {_norm_ta(x.get("ta_name")) for x in lines if _norm_ta(x.get("ta_name"))}
+    if len(ta_keys) > 1 or any(t != _norm_ta(master_ta) for t in ta_keys):
+        raise V16Error(
+            "TA_NORMALIZATION_REQUIRED: Lines должны быть upstream рассчитаны на явно заданную Brand Master TA."
+        )
+    for line in lines:
+        ls, le = line.get("start"), line.get("end")
+        if ls and ls < horizon_start or le and le > horizon_end:
+            raise V16Error(
+                f"PLANNING_HORIZON_MISMATCH: Line {line.get('label') or line.get('name')} выходит за Brand horizon."
+            )
+
     mismatched_u = [
         {"line": x.get("label") or x.get("name"), "line_universe": x.get("universe")}
         for x in lines
@@ -1013,15 +1265,48 @@ def _brand_merge(lines: Sequence[dict], U: float, diagnostics: List[dict], q: Op
             + str(mismatched_u)
         )
 
+    # Optional explicit line geographies are checked when supplied. Otherwise geo is
+    # accepted only under the explicit Brand scope confirmation; the base parser does
+    # not invent geography from free text.
+    line_geos = q.get("line_geographies") or {}
+    for line in lines:
+        pid = line.get("plan_id")
+        if isinstance(line_geos, Mapping) and pid in line_geos:
+            geo = str(line_geos[pid] or "").strip()
+            if not geo:
+                raise V16Error(f"Line {pid}: empty geography input.")
+            diagnostics.append({
+                "code": "LINE_GEO_SCOPE",
+                "level": 7,
+                "plan_id": pid,
+                "line_geo": geo,
+                "brand_geo": master_geo,
+                "source": "USER_INPUT",
+            })
+
+    l7_specs = _pair_specs(q, "L7")
+    l7_pairs = _pair_raw_by_index(lines, l7_specs) if l7_specs else None
     addressability_map = q.get("brand_addressability_map")
-    out = m.level7_brand(lines, U, addressability_map=addressability_map)
+    out = m.level7_brand(
+        lines, U,
+        custom_pairs=l7_pairs,
+        addressability_map=addressability_map,
+    )
     out["name"] = next((x.get("brand") for x in lines if x.get("brand")), "Brand")
+    out["brand_master_ta"] = master_ta
+    out["brand_master_geo"] = master_geo
+    out["brand_horizon_start"] = horizon_start
+    out["brand_horizon_end"] = horizon_end
     diagnostics.append({
         "code": "L7_BRAND",
         "level": 7,
         "U_B": U,
         "U_B_source": "USER_INPUT",
-        "TA": next(iter(ta_keys), ""),
+        "TA": master_ta,
+        "geo": master_geo,
+        "planning_horizon": [_date(horizon_start), _date(horizon_end)],
+        "human_definition": "CANONICAL_HUMAN_V1_6",
+        "scope_confirmation": "USER_CONFIRMED",
         "BrandAddressabilityMap": out.get("brand_addressability_status"),
         "pair_details": out.get("pair_details"),
         "model_path": out.get("model_path"),
