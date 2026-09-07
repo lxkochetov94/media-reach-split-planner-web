@@ -154,11 +154,21 @@
     };
   }
 
+  function collectPlatformScopeInputs(plan){
+    const out={};
+    plan.root.querySelectorAll('.v16-aggregate-rtech').forEach(el=>{
+      const raw=el.value?.trim()||'';
+      const scope=el.dataset.scopeId||'';
+      if(scope&&raw!=='')out[scope]=Number(raw);
+    });
+    return out;
+  }
+
   function allUserState(){
     const plans=selectedPlans();
     const family_mapping={},family_mapping_confirmed={},environments={},browser_families={},
       unit_web_device_universes={},device_reaches={},web_device_universes={},aon_slices={},
-      line_scope_confirmed={},line_identity_confirmed={};
+      line_scope_confirmed={},line_identity_confirmed={},aggregate_flight_technical_reaches={};
     plans.forEach(p=>{
       const x=collectFamilyMapping(p);
       family_mapping[p.id]=x.mapping;
@@ -172,10 +182,12 @@
       const lineScope=collectLineScope(p);
       line_scope_confirmed[p.id]=lineScope.scopeConfirmed;
       line_identity_confirmed[p.id]=lineScope.identityConfirmed;
+      const aggregateScopes=collectPlatformScopeInputs(p);
+      if(Object.keys(aggregateScopes).length)aggregate_flight_technical_reaches[p.id]=aggregateScopes;
     });
     return {plans,family_mapping,family_mapping_confirmed,environments,browser_families,
       unit_web_device_universes,device_reaches,web_device_universes,aon_slices,
-      line_scope_confirmed,line_identity_confirmed};
+      line_scope_confirmed,line_identity_confirmed,aggregate_flight_technical_reaches};
   }
 
   function markDirty(){
@@ -187,7 +199,8 @@
     const wrap=$(ids.plans);wrap.innerHTML='';
     for(const p of v16Meta?.plans||[]){
       const rec=p.advanced_recommended||{},prof=p.input_profile||{};
-      const readiness=prof.rows?Math.round(100*(prof.l1_ready_rows||0)/prof.rows):0;
+      const reachRows=prof.reach_scope_rows??prof.rows??0;
+      const readiness=reachRows?Math.round(100*(prof.l1_ready_rows||0)/reachRows):0;
       const box=document.createElement('div');
       box.className='v16-plan';
       box.dataset.planId=p.id;
@@ -259,6 +272,35 @@
           </label>
         </div>`: '';
 
+      const platformScopeInputs=(p.platform_scopes||[]).length?`
+        <details class="v16-plan-advanced" open>
+          <summary>Level 3A · площадка разбита на несколько source rows</summary>
+          <div class="warning" style="margin:8px 0">
+            Эти строки нельзя дедуплицировать как независимые Inventory Units. Для каждого platform-flight scope нужен weekly Human Reach либо aggregate Technical Reach за весь Flight.
+          </div>
+          <div class="v16-platform-scope-grid">
+            ${(p.platform_scopes||[]).map(s=>`
+              <div class="v16-platform-scope-card">
+                <strong>${esc(s.platform||s.scope_id)}</strong>
+                <small>${esc(s.channel||'—')} · ${s.fragment_count||0} source rows</small>
+                <div class="v16-scope-rows">${(s.source_rows||[]).map(x=>`${esc(x.sheet)}:${x.row}`).join(' · ')}</div>
+                <div class="field">
+                  <label>Aggregate Technical Reach за platform-flight</label>
+                  <input class="v16-aggregate-rtech" data-scope-id="${esc(s.scope_id)}" type="number" min="0" step="1" placeholder="Оставьте пустым, если дадите weekly Human Reach">
+                </div>
+              </div>`).join('')}
+          </div>
+        </details>`: '';
+
+      const excludedReach=(p.excluded_reach_rows||[]).length?`
+        <details class="v16-plan-advanced">
+          <summary>Вне Reach scope · ${p.excluded_reach_rows.length} строк</summary>
+          <div class="v16-note" style="margin:8px 0">Для этих строк нет Impressions + (Frequency или Technical Reach). Движок не придумывает им Reach и не требует Audience Family.</div>
+          <div class="v16-excluded-list">
+            ${p.excluded_reach_rows.map(x=>`<div><strong>${esc(x.platform||x.unit_id)}</strong><span>${esc(x.channel||'—')} · ${esc(x.buying_model||'—')} · ${esc(x.reason||'')}</span><small>${esc(x.sheet)}:${x.row}</small></div>`).join('')}
+          </div>
+        </details>`: '';
+
       box.innerHTML=`
         <div class="v16-plan-head">
           <label class="v16-plan-title">
@@ -270,8 +312,8 @@
           <div class="field"><label>Human Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="${p.universe?Math.round(p.universe):''}" placeholder="Обязательный input"></div>
           <div class="v16-plan-facts">
             <span>ЦА: <strong>${esc(p.ta_name||'не распознана')}</strong></span>
-            <span>${p.flight_count||0} flight · ${p.placement_count||0} строк</span>
-            <span>Готовность L1: <strong>${readiness}%</strong></span>
+            <span>${p.flight_count||0} flight · Reach scope ${reachRows}/${p.placement_count||0} строк</span>
+            <span>Готовность L1 Reach scope: <strong>${readiness}%</strong></span>
           </div>
         </div>
 
@@ -282,6 +324,8 @@
         </div>
         ${lineScopeReview}
         ${identityReview}
+        ${platformScopeInputs}
+        ${excludedReach}
 
         <details class="v16-mapping" open>
           <summary>Audience Family и technical environment · обязательная проверка перед расчётом</summary>
@@ -313,6 +357,8 @@
     if(!plans.length){wrap.innerHTML='<div class="warning">Не выбрано ни одной Line.</div>';return}
     wrap.innerHTML='<div class="v16-audit-grid">'+plans.map(p=>{
       const x=p.meta.input_profile||{},rows=x.rows||0;
+      const reachRows=x.reach_scope_rows??rows;
+      const excluded=x.reach_excluded_rows||0;
       const l1=x.l1_ready_rows||0;
       const mapping=collectFamilyMapping(p);
       const mapped=Object.values(mapping.mapping).filter(Boolean).length;
@@ -321,10 +367,13 @@
       const scope=collectLineScope(p);
       const scopeBadge=p.meta.source_ta_mismatch?badge('TA mismatch','err'):(p.meta.source_universe_mismatch?(scope.scopeConfirmed?badge('U normalized','ok'):badge('U mismatch','warn')):'');
       const identityBadge=p.meta.line_identity_review_required?(scope.identityConfirmed?badge('Line split confirmed','ok'):badge('Line identity review','warn')):'';
+      const sourceWarnings=(p.meta.import_warnings||[]).filter(w=>String(w.code||'').startsWith('SOURCE_'));
+      const sourceBadge=sourceWarnings.length?badge('Source QA '+sourceWarnings.length,'err'):'';
       return `<div class="v16-audit-card">
-        <div class="v16-audit-title">${l1===rows?badge('L1 готов','ok'):badge('L1 проверить','warn')} ${mappingReady?badge('Family confirmed','ok'):badge('Family не подтверждена','warn')} ${scopeBadge} ${identityBadge}<strong>${esc(p.meta.label||p.id)}</strong></div>
+        <div class="v16-audit-title">${l1===reachRows?badge('L1 Reach scope готов','ok'):badge('L1 Reach scope проверить','warn')} ${mappingReady?badge('Family confirmed','ok'):badge('Family не подтверждена','warn')} ${scopeBadge} ${identityBadge} ${sourceBadge}<strong>${esc(p.meta.label||p.id)}</strong></div>
         <div class="v16-audit-stats">
-          <span>Строк: <b>${rows}</b></span><span>L1 ready: <b>${l1}/${rows}</b></span>
+          <span>Строк: <b>${rows}</b></span><span>Reach scope: <b>${reachRows}</b></span>
+          <span>Вне Reach scope: <b>${excluded}</b></span><span>L1 ready: <b>${l1}/${reachRows}</b></span>
           <span>Universe: <b>${allU?num(p.universe,0):'нет'}</b></span><span>Family mapping: <b>${mapped}/${(p.meta.inventory_units||[]).length}</b></span>
           <span>С датами: <b>${x.dated_rows||0}</b></span><span>I+F: <b>${x.impressions_frequency_rows||0}</b></span>
           <span>Source U: <b>${(p.meta.source_flights||[]).map(f=>f.source_universe?num(f.source_universe,0):'—').join(' / ')||'—'}</b></span>
@@ -601,6 +650,7 @@
       family_mapping_confirmed:state.family_mapping_confirmed,
       line_scope_confirmed:state.line_scope_confirmed,
       line_identity_confirmed:state.line_identity_confirmed,
+      aggregate_flight_technical_reaches:state.aggregate_flight_technical_reaches,
       aon_slices:state.aon_slices,
       brand_universe:brandRaw===''?null:Number(brandRaw),
       brand_universe_confirmed:!!$(ids.brandUConfirm)?.checked,
