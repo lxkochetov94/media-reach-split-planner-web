@@ -294,17 +294,18 @@
     const state=allUserState(),plans=state.plans;
     if(!plans.length){wrap.innerHTML='<div class="warning">Не выбрано ни одной Line.</div>';return}
     wrap.innerHTML='<div class="v16-audit-grid">'+plans.map(p=>{
-      const x=p.meta.input_profile||{},rows=x.reach_scope_rows??x.rows??0;
-      const l1=x.l1_ready_rows||0,reach=x.supplied_reach_rows||0,ifRows=x.impressions_frequency_rows||0,dates=x.dated_rows||0;
-      const ready=rows&&l1===rows;
+      const x=p.meta.input_profile||{},rows=x.reach_scope_rows??0;
+      const l1=x.l1_ready_rows||0,reach=x.supplied_reach_rows||0,ifRows=x.impressions_frequency_rows||0;
+      const hardTA=!!p.meta.source_ta_mismatch;
+      const ready=rows>0&&l1===rows&&!hardTA;
       return `<div class="v16-audit-card">
-        <div class="v16-audit-title">${ready?badge('L1 готов','ok'):badge('проверить входы','warn')}<strong>${esc(p.meta.label||p.id)}</strong></div>
+        <div class="v16-audit-title">${ready?badge('готово к расчёту','ok'):badge('нужна проверка','warn')}<strong>${esc(p.meta.label||p.id)}</strong></div>
         <div class="v16-audit-stats">
-          <span>Строк: <b>${rows}</b></span><span>Supplied Reach: <b>${reach}</b></span>
-          <span>I + F: <b>${ifRows}</b></span><span>С датами: <b>${dates}</b></span>
-          <span>Площадок: <b>${x.platforms||0}</b></span><span>Каналов: <b>${x.channels||0}</b></span>
+          <span>Охватных строк: <b>${rows}</b></span>
+          <span>С готовым Technical Reach: <b>${reach}</b></span>
+          <span>Impressions + Frequency: <b>${ifRows}</b></span>
         </div>
-        <div class="v16-note">${ready?'Для каждой охватной строки есть supplied Reach либо пара Impressions + Frequency.':'Часть строк не позволяет получить Technical Reach. Ниже показаны необходимые проверки.'}</div>
+        <div class="v16-note">${hardTA?'Во флайтах разные ЦА — это блокирует объединение Line.':ready?'Все обязательные охватные входы есть. CPC/CPR/CPA и другие неохватные закупки автоматически исключены из Reach.':'Проверьте только отмеченные выше исключения. Технические сообщения исходного файла доступны в диагностике после расчёта.'}</div>
       </div>`;
     }).join('')+'</div>';
   }
