@@ -209,7 +209,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
       </div>
 
       <details class="card v16-section-card">
-        <summary><span class="v16-section-index">4</span><strong>Как получен результат</strong><span>Канонический путь Levels 1–7</span></summary>
+        <summary><span class="v16-section-index">4</span><strong>Как движок собирает итоговый охват</strong><span>От одной строки медиаплана до общего Reach бренда</span></summary>
         <div class="v16-details-body">
           <div id="v16AppliedTrace"></div>
           <div class="v16-method-divider"></div>
@@ -228,11 +228,11 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
       <div class="v16-details-body v16-expert-body">
         <div class="warning">Ручной override используется только когда у вас есть подтверждённый вход. Движок не требует заполнять эти поля для стандартного расчёта.</div>
         <div class="v16-grid v16-grid-5" style="margin-top:10px">
-          <div class="field"><label>Режим Level 2</label><select id="v16L2Mode"><option value="AUTO" selected>AUTO по данным</option><option value="ADVANCED">Принудительно Advanced</option><option value="QUICK">Принудительно Quick</option></select></div>
-          <div class="field v16-quick-setting"><label>Quick K</label><input id="v16K" type="number" min="1" step="0.01" value="2.40"><div class="hint">Fallback; K≥1.</div></div>
-          <div class="field v16-advanced-setting"><label>Chromium L, дней</label><input id="v16L" type="number" min="1" step="1" value="68"></div>
-          <div class="field v16-advanced-setting"><label>Browser B</label><input id="v16B" type="number" min="1" step="0.01" placeholder="AUTO по ЦА"></div>
-          <div class="field v16-advanced-setting"><label>Device D</label><input id="v16D" type="number" min="1" step="0.01" placeholder="AUTO по ЦА"></div>
+          <div class="field"><label>Способ перевода технических ID в людей</label><select id="v16L2Mode"><option value="AUTO" selected>Автоматически по доступным данным</option><option value="ADVANCED">Только детальный расчёт по устройствам</option><option value="QUICK">Только стандартная модель</option></select></div>
+          <div class="field v16-quick-setting"><label>Технических ID на одного человека (K)</label><input id="v16K" type="number" min="1" step="0.01" value="2.40"><div class="hint">Используется только в стандартной модели: Human Reach = Technical Reach ÷ K.</div></div>
+          <div class="field v16-advanced-setting"><label>Стабильность browser ID Chromium, дней (L)</label><input id="v16L" type="number" min="1" step="1" value="68"><div class="hint">Поправка на смену browser ID во времени.</div></div>
+          <div class="field v16-advanced-setting"><label>Browser ID на одно web-устройство (B)</label><input id="v16B" type="number" min="1" step="0.01" placeholder="Автоматически по ЦА"><div class="hint">Нужно для объединения нескольких browser ID одного устройства.</div></div>
+          <div class="field v16-advanced-setting"><label>Устройств на одного человека (D)</label><input id="v16D" type="number" min="1" step="0.01" placeholder="Автоматически по ЦА"><div class="hint">Нужно для объединения нескольких устройств одного человека.</div></div>
         </div>
         <div class="field" style="margin-top:12px">
           <label>Canonical measured inputs · JSON (опционально)</label>
