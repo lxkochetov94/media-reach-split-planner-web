@@ -14,7 +14,7 @@
     await corePromise;
     if(!coreReady) throw new Error('Базовый парсер не готов');
     if(v16ModuleReady) return;
-    const resp=await fetch('reach_v16.py?v=1.6.3');
+    const resp=await fetch('reach_v16.py?v=1.6.4');
     if(!resp.ok) throw new Error('Не удалось загрузить Reach Engine v1.6');
     const txt=await resp.text();
     pyodide.FS.writeFile('/app/reach_v16.py',txt,{encoding:'utf8'});
@@ -190,16 +190,20 @@
     const c=modelCatalog(), plans=selectedPlans();
     if(!c.level2){wrap.innerHTML='<div class="hint">Каталог модели загрузится вместе с медиапланом.</div>';return}
     const selectedRec=plans[0]?.meta?.advanced_recommended||{};
-    const l3=c.level3||{},l5=c.level5||{},l6=c.level6||{};
+    const l2=c.level2||{},l3=c.level3||{},l5=c.level5||{},l6=c.level6||{};
     const rho=l3.temporal_rho_profiles||{};
     const q=(l6.gap_curve||[]).map(x=>`${x.days}д=${(100*x.overlap).toFixed(x.overlap*100%1?1:0)}%`).join(' · ');
     const mu=(l6.universe_multiplier_points||[]).map(x=>`${x.universe/1e6}м→${num(x.multiplier,2)}`).join(' · ');
+    const bdev=(l2.browser_by_device||[]).map(x=>`${x.segment}: ${x.value==null?'N/A':num(x.value,2)}`).join(' · ');
+    const churn=(l2.churn_reference||[]).map(x=>`${x.days}д: ${pct(x.probability,1)}`).join(' · ');
     wrap.innerHTML=`
       <div class="v16-model-card emphasis">
         <div class="v16-model-level">LEVEL 2</div><strong>Technical Reach → люди</strong>
         <div class="v16-model-main">B ${num(selectedRec.B,2)} <small>(${fmtRange(selectedRec.B_min,selectedRec.B_max)})</small> · D ${num(selectedRec.D,2)} <small>(${fmtRange(selectedRec.D_min,selectedRec.D_max)})</small></div>
         <p>Advanced: churn → browser saturation → device saturation. Quick K=${num(c.level2.quick_k,2)} остаётся только fallback.</p>
         <div class="v16-model-scale"><span>L=68д</span><span>Browser age: 1,60–1,90</span><span>Device age: 1,74–2,45</span></div>
+        <p class="v16-micro"><b>Browser по устройствам:</b> ${esc(bdev)}</p>
+        <p class="v16-micro"><b>Churn reference:</b> ${esc(churn)}</p>
       </div>
       <div class="v16-model-card">
         <div class="v16-model-level">LEVEL 3</div><strong>Время + Effective Reach</strong>
@@ -214,7 +218,7 @@
       </div>
       <div class="v16-model-card">
         <div class="v16-model-level">LEVEL 5</div><strong>Каналы → флайт</strong>
-        <div class="v16-model-main">ρ target = ${num(l5.rho_channel_target,-2)||'-0,35'}</div>
+        <div class="v16-model-main">ρ target = ${num(l5.rho_channel_target,2)||'-0,35'}</div>
         <p>Для 3+ каналов один общий λ ослабляет MODEL_DEFAULT к 0 только если этого требует global feasibility.</p>
       </div>
       <div class="v16-model-card">
