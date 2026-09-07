@@ -159,7 +159,7 @@ _AGE_D = [(12, 24, 2.45), (25, 34, 2.35), (35, 44, 2.25), (45, 54, 2.15), (55, 1
 
 
 def _age_range(ta_name: str) -> Optional[Tuple[int, int]]:
-    m = re.search(r"(?<!\\d)(\\d{1,2})\\s*[-–—]\\s*(\\d{1,2})(?!\\d)", str(ta_name or ""))
+    m = re.search(r"(?<!\d)(\d{1,2})\s*[-–—]\s*(\d{1,2})(?!\d)", str(ta_name or ""))
     if not m:
         return None
     lo, hi = int(m.group(1)), int(m.group(2))
