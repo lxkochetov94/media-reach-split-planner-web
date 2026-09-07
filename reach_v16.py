@@ -1244,7 +1244,7 @@ def discover(path: str) -> str:
             ),
             "input_profile": _plan_input_profile(plan),
         })
-    return _json({"version": VERSION, "plans": out})
+    return _json({"version": VERSION, "plans": out, "model_catalog": model_catalog()})
 
 
 def calculate(path: str, params_json: str = "{}") -> str:
