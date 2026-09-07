@@ -358,11 +358,78 @@ def _plan_input_profile(plan) -> dict:
     }
 
 
+
+def _platform_scope_id(row) -> str:
+    """Stable Level-3 platform-flight scope id.
+
+    Different source rows of the same platform/channel inside one Flight are fragments
+    of one Level-3 scope, not independent Level-4 entities.
+    """
+    flight_id = str(getattr(row, "flight", "") or "F?")
+    channel = str(getattr(row, "channel", "") or "Other").strip()
+    platform = _platform_label(row).strip()
+    return f"{flight_id}::{channel}::{platform}"
+
+
+def _scope_map_value(
+    mapping: Mapping[str, Any],
+    plan_id: str,
+    scope_id: str,
+    row_ids: Sequence[str],
+    *,
+    default=None,
+    allow_zero: bool = False,
+):
+    """Read group-level input first, then a unique consistent row-level value."""
+    if not isinstance(mapping, Mapping):
+        return default
+    direct = _lookup_unit_map(mapping, plan_id, scope_id, None)
+    if direct not in (None, ""):
+        if allow_zero or direct not in (0, "0"):
+            return direct
+
+    values = []
+    for uid in row_ids:
+        v = _lookup_unit_map(mapping, plan_id, uid, None)
+        if v in (None, "") or (not allow_zero and v in (0, "0")):
+            continue
+        values.append(v)
+    if not values:
+        return default
+
+    def key(v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
+        return str(v).strip().upper()
+
+    unique = {}
+    for v in values:
+        unique[key(v)] = v
+    if len(unique) > 1:
+        raise V16Error(
+            f"{scope_id}: conflicting row-level inputs inside one Level-3 platform scope."
+        )
+    return next(iter(unique.values()))
+
+
+def _platform_groups(rows: Sequence[Any]) -> List[List[Any]]:
+    grouped: Dict[Tuple[str, str], List[Any]] = defaultdict(list)
+    for row in rows:
+        grouped[(str(row.channel or "Other"), norm(_platform_label(row)))].append(row)
+    return list(grouped.values())
+
+
+
 def _inventory_units(plan) -> List[dict]:
+    rows = list(plan.detail_rows())
+    counts = Counter(_platform_scope_id(row) for row in rows)
     units = []
-    for row in plan.detail_rows():
+    for row in rows:
+        sid = _platform_scope_id(row)
         units.append({
             "id": _unit_id(row),
+            "platform_scope_id": sid,
+            "platform_scope_fragments": counts[sid],
             "label": _unit_label(row),
             "sheet": row.sheet,
             "row": row.source_row + 1,
@@ -379,9 +446,9 @@ def _inventory_units(plan) -> List[dict]:
             "has_impressions": row.impressions is not None,
             "has_frequency": row.frequency is not None,
             "has_technical_reach": row.tech_reach is not None,
+            "l3a_temporal_input_required_if_no_aggregate": counts[sid] > 1,
         })
     return units
-
 
 def _duplicate_warnings(rows: Sequence[Any]) -> List[dict]:
     signatures: Dict[tuple, List[dict]] = defaultdict(list)
@@ -632,28 +699,62 @@ def _parse_scope_date(value: Any, label: str) -> dt.date:
         raise V16Error(f"{label} должен быть YYYY-MM-DD.") from exc
 
 
-def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
-    l1 = m.level1_technical(row.impressions, row.frequency, row.tech_reach, frequency_precision=None)
-    for d in l1["diagnostics"]:
-        diagnostics.append({**d, "level": 1, "sheet": row.sheet, "row": row.source_row + 1})
-    rtech = l1["R_tech"]
-    uid = _unit_id(row)
-    requested = cfg["requested_mode"]
 
-    environment = str(_lookup_unit_map(cfg["environments"], cfg["plan_id"], uid, "UNKNOWN") or "UNKNOWN").upper()
-    browser_family = str(_lookup_unit_map(cfg["browser_families"], cfg["plan_id"], uid, "UNKNOWN") or "UNKNOWN").upper()
-    unit_ud = _lookup_unit_map(cfg["unit_web_device_universes"], cfg["plan_id"], uid, None)
+def _l2_for_scope(
+    *,
+    rtech: float,
+    impressions: Optional[float],
+    frequency: Optional[float],
+    start: Optional[dt.date],
+    end: Optional[dt.date],
+    U: float,
+    cfg: dict,
+    diagnostics: List[dict],
+    scope_id: str,
+    source_refs: Sequence[dict],
+    l1: Optional[dict] = None,
+    row_ids: Optional[Sequence[str]] = None,
+) -> dict:
+    if l1 is None:
+        l1 = m.level1_technical(impressions, frequency, rtech, frequency_precision=None)
+        for d in l1["diagnostics"]:
+            diagnostics.append({
+                **d, "level": 1, "scope_id": scope_id,
+                "source_refs": list(source_refs),
+            })
+    rtech = l1["R_tech"]
+    requested = cfg["requested_mode"]
+    row_ids = list(row_ids or [])
+
+    environment = str(_scope_map_value(
+        cfg["environments"], cfg["plan_id"], scope_id, row_ids, default="UNKNOWN"
+    ) or "UNKNOWN").upper()
+    browser_family = str(_scope_map_value(
+        cfg["browser_families"], cfg["plan_id"], scope_id, row_ids, default="UNKNOWN"
+    ) or "UNKNOWN").upper()
+    unit_ud = _scope_map_value(
+        cfg["unit_web_device_universes"], cfg["plan_id"], scope_id, row_ids, default=None
+    )
     line_ud = cfg["web_device_universes"].get(cfg["plan_id"])
     U_D = unit_ud if unit_ud not in (None, "", 0, "0") else line_ud
-    device_reach = _lookup_unit_map(cfg["device_reaches"], cfg["plan_id"], uid, None)
-    browser_segments = _lookup_unit_map(cfg.get("browser_segments") or {}, cfg["plan_id"], uid, None)
-    device_segments = _lookup_unit_map(cfg.get("device_segments") or {}, cfg["plan_id"], uid, None)
+    device_reach = _scope_map_value(
+        cfg["device_reaches"], cfg["plan_id"], scope_id, row_ids, default=None
+    )
+    browser_segments = _scope_map_value(
+        cfg.get("browser_segments") or {}, cfg["plan_id"], scope_id, row_ids, default=None
+    )
+    device_segments = _scope_map_value(
+        cfg.get("device_segments") or {}, cfg["plan_id"], scope_id, row_ids, default=None
+    )
 
     reason = None
     use_advanced = requested == "ADVANCED"
     if requested == "AUTO":
         if environment == "WEB":
-            use_advanced = bool(U_D not in (None, "", 0, "0") and row.start and row.end and row.frequency is not None)
+            use_advanced = bool(
+                U_D not in (None, "", 0, "0")
+                and start and end and frequency is not None
+            )
             if not use_advanced:
                 reason = "INSUFFICIENT_WEB_ADVANCED_INPUTS"
         elif environment in {"MOBILE_APP", "CTV"}:
@@ -669,8 +770,8 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
         diagnostics.append({
             "code": "L2_QUICK",
             "level": 2,
-            "sheet": row.sheet, "row": row.source_row + 1,
-            "unit_id": uid,
+            "scope_id": scope_id,
+            "source_refs": list(source_refs),
             "requested_mode": requested,
             "effective_mode": "QUICK",
             "reason": reason or ("USER_SELECTED_QUICK" if requested == "QUICK" else None),
@@ -687,20 +788,20 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
         }
 
     if environment == "UNKNOWN":
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Advanced требует подтверждённую environment.")
+        raise V16Error(f"{scope_id}: Advanced требует подтверждённую environment.")
     if environment == "WEB" and U_D in (None, "", 0, "0"):
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Web Advanced требует U_D.")
-    if environment == "WEB" and (not row.start or not row.end or row.frequency is None):
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Web Advanced требует dates и Frequency.")
+        raise V16Error(f"{scope_id}: Web Advanced требует U_D.")
+    if environment == "WEB" and (not start or not end or frequency is None):
+        raise V16Error(f"{scope_id}: Web Advanced требует dates и Frequency.")
     if environment in {"MOBILE_APP", "CTV"} and device_reach in (None, ""):
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: {environment} Advanced требует device-level Reach.")
+        raise V16Error(f"{scope_id}: {environment} Advanced требует device-level Reach.")
 
     try:
         adv = m.level2_advanced(
             rtech, U,
             environment=environment,
-            duration_days=_duration_days(row.start, row.end) if row.start and row.end else None,
-            frequency=row.frequency,
+            duration_days=_duration_days(start, end) if start and end else None,
+            frequency=frequency,
             web_device_universe=U_D,
             device_reach=device_reach,
             B=cfg["B"], D=cfg["D"], L=cfg["L"],
@@ -711,12 +812,12 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
             B_source=cfg["B_source"], D_source=cfg["D_source"],
         )
     except (m.ReachValidationError, m.ReachCalculationError) as exc:
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: {exc}") from exc
+        raise V16Error(f"{scope_id}: {exc}") from exc
     diagnostics.append({
         "code": "L2_ADVANCED",
         "level": 2,
-        "sheet": row.sheet, "row": row.source_row + 1,
-        "unit_id": uid,
+        "scope_id": scope_id,
+        "source_refs": list(source_refs),
         "requested_mode": requested,
         "effective_mode": "ADVANCED",
         "environment": environment,
@@ -733,10 +834,7 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
     })
     for d in adv.get("diagnostics", []):
         diagnostics.append({
-            **d,
-            "sheet": row.sheet,
-            "row": row.source_row + 1,
-            "unit_id": uid,
+            **d, "scope_id": scope_id, "source_refs": list(source_refs),
         })
     return {
         "R_people": adv["R_people"],
@@ -748,31 +846,277 @@ def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
     }
 
 
-def _l3_for_row(row, U: float, l2out: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
-    uid = _unit_id(row)
-    weekly_map = q.get("weekly_human_reaches") or {}
-    weekly = _lookup_unit_map(weekly_map, plan_id, uid, None)
-    up_map = q.get("platform_universes") or {}
-    U_p = _lookup_unit_map(up_map, plan_id, uid, None)
-    temporal_profiles = q.get("temporal_profiles") or {}
-    prof = str(_lookup_unit_map(temporal_profiles, plan_id, uid, "BASE") or "BASE").upper()
-    custom_rhos = q.get("temporal_rhos") or {}
-    custom_rho = _lookup_unit_map(custom_rhos, plan_id, uid, None)
+def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
+    l1 = m.level1_technical(
+        row.impressions, row.frequency, row.tech_reach, frequency_precision=None
+    )
+    for d in l1["diagnostics"]:
+        diagnostics.append({
+            **d, "level": 1, "sheet": row.sheet, "row": row.source_row + 1,
+        })
+    return _l2_for_scope(
+        rtech=l1["R_tech"],
+        impressions=row.impressions,
+        frequency=row.frequency,
+        start=row.start,
+        end=row.end,
+        U=U,
+        cfg=cfg,
+        diagnostics=diagnostics,
+        scope_id=_unit_id(row),
+        source_refs=[{"sheet": row.sheet, "row": row.source_row + 1}],
+        l1=l1,
+        row_ids=[_unit_id(row)],
+    )
 
+
+
+def _lookup_platform_input(
+    q: Mapping[str, Any],
+    key: str,
+    plan_id: str,
+    flight_id: str,
+    scope_id: str,
+    platform_name: str,
+    row_ids: Sequence[str],
+    *,
+    default=None,
+):
+    root = q.get(key) or {}
+    if not isinstance(root, Mapping):
+        return default
+
+    # Preferred direct/group key path.
+    value = _scope_map_value(root, plan_id, scope_id, row_ids, default=None, allow_zero=True)
+    if value not in (None, ""):
+        return value
+
+    # Structured plan -> flight -> scope/platform aliases.
+    p = root.get(plan_id)
+    if isinstance(p, Mapping):
+        f = p.get(flight_id)
+        if isinstance(f, Mapping):
+            for alias in (scope_id, platform_name):
+                if alias in f:
+                    return f[alias]
+        for alias in (scope_id, platform_name):
+            if alias in p:
+                return p[alias]
+    return default
+
+
+def _platform_entity(
+    rows: Sequence[Any],
+    U: float,
+    cfg: dict,
+    q: dict,
+    plan_id: str,
+    flight_id: str,
+    diagnostics: List[dict],
+) -> dict:
+    if not rows:
+        raise V16Error("Level 3 platform scope is empty.")
+
+    rows = list(rows)
+    platform = _platform_label(rows[0])
+    channel = rows[0].channel or "Other"
+    scope_id = _platform_scope_id(rows[0])
+    row_ids = [_unit_id(row) for row in rows]
+    source_refs = [{"sheet": row.sheet, "row": row.source_row + 1} for row in rows]
+
+    # Same Level-3 entity cannot straddle channels/platforms.
+    if any((row.channel or "Other") != channel or norm(_platform_label(row)) != norm(platform) for row in rows):
+        raise V16Error(f"{scope_id}: mixed platform/channel inside one Level-3 scope.")
+
+    family_map = _mapping_for_plan(q, plan_id)
+    families = []
+    for row in rows:
+        uid = _unit_id(row)
+        fam = str(family_map.get(uid) or "").strip()
+        if not fam:
+            raise V16Error(
+                f"AUDIENCE_FAMILY_MAPPING_REQUIRED: {uid} ({_unit_label(row)}). "
+                "Движок не назначает Audience Family автоматически."
+            )
+        families.append(fam)
+    if not _mapping_confirmed(q, plan_id):
+        raise V16Error(
+            f"AUDIENCE_FAMILY_MAPPING_CONFIRMATION_REQUIRED: Line {plan_id}. "
+            "Подтвердите mapping перед расчётом."
+        )
+    if len({_norm_ta(x) for x in families}) != 1:
+        raise V16Error(
+            f"AUDIENCE_FAMILY_MAPPING_CONFLICT: {scope_id} имеет разные Family "
+            "внутри одной platform-flight entity."
+        )
+    family = families[0]
+
+    # Validate every source row independently at Level 1. This is source QA only;
+    # Reach is not merged row-by-row after this point.
+    row_l1: Dict[str, dict] = {}
+    for row in rows:
+        try:
+            l1 = m.level1_technical(
+                row.impressions, row.frequency, row.tech_reach, frequency_precision=None
+            )
+        except m.ReachValidationError as exc:
+            raise V16Error(f"{row.sheet}:{row.source_row+1}: {exc}") from exc
+        row_l1[_unit_id(row)] = l1
+        for d in l1.get("diagnostics", []):
+            diagnostics.append({
+                **d, "level": 1, "sheet": row.sheet, "row": row.source_row + 1,
+                "scope_id": scope_id,
+            })
+
+    if any(row.impressions is None for row in rows):
+        raise V16Error(
+            f"{scope_id}: Level 3B требует Impressions для всех fragments "
+            "или direct human frequency buckets того же platform-flight scope."
+        )
+    source_impressions = sum(float(row.impressions or 0.0) for row in rows)
+    explicit_I = _lookup_platform_input(
+        q, "aggregate_flight_impressions", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
+    )
+    I_scope = source_impressions if explicit_I in (None, "") else m.finite(
+        explicit_I, f"{scope_id} aggregate Flight Impressions"
+    )
+    if explicit_I not in (None, ""):
+        tol = max(1e-6, m.SOLVER_TOL * max(1.0, I_scope))
+        if abs(I_scope - source_impressions) > tol:
+            diagnostics.append({
+                "code": "AGGREGATE_IMPRESSIONS_OVERRIDE",
+                "level": 3,
+                "scope_id": scope_id,
+                "source_rows_sum": source_impressions,
+                "aggregate_impressions": I_scope,
+                "source": "USER_INPUT",
+            })
+
+    weekly = _lookup_platform_input(
+        q, "weekly_human_reaches", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
+    )
+    U_p = _lookup_platform_input(
+        q, "platform_universes", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
+    )
+    prof = str(_lookup_platform_input(
+        q, "temporal_profiles", plan_id, flight_id,
+        scope_id, platform, row_ids, default="BASE",
+    ) or "BASE").upper()
+    custom_rho = _lookup_platform_input(
+        q, "temporal_rhos", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
+    )
+
+    l2out = None
     if weekly:
-        l3a = m.temporal_platform_reach(
-            weekly, U, platform_universe=U_p,
-            profile=prof, custom_rho=custom_rho,
-        )
+        try:
+            l3a = m.temporal_platform_reach(
+                weekly, U, platform_universe=U_p,
+                profile=prof, custom_rho=custom_rho,
+            )
+        except (m.ReachValidationError, m.ReachCalculationError) as exc:
+            raise V16Error(f"{scope_id}: {exc}") from exc
+        l2_summary = {
+            "mode": "UPSTREAM_WEEKLY_HUMAN",
+            "environment": "UPSTREAM_HUMAN",
+            "fallback_reason": None,
+            "source": "USER_INPUT_WEEKLY_HUMAN_REACH",
+        }
     else:
-        l3a = m.aggregate_flight_reach_mode(
-            l2out["R_people"], U, platform_universe=U_p,
+        explicit_Rtech = _lookup_platform_input(
+            q, "aggregate_flight_technical_reaches", plan_id, flight_id,
+            scope_id, platform, row_ids, default=None,
         )
+        if len(rows) > 1 and explicit_Rtech in (None, ""):
+            raise V16Error(
+                "L3A_TEMPORAL_INPUT_REQUIRED: "
+                f"{scope_id} содержит {len(rows)} source rows одной площадки внутри одного Flight. "
+                "Нельзя считать их независимыми Level-4 entities и нельзя искусственно "
+                "дедуплицировать technical Reach. Передайте weekly_human_reaches либо "
+                "aggregate_flight_technical_reaches за весь platform-flight scope."
+            )
+
+        if explicit_Rtech in (None, ""):
+            only = rows[0]
+            l1 = row_l1[_unit_id(only)]
+            Rtech_scope = l1["R_tech"]
+            F_scope = only.frequency
+            l2out = _l2_for_scope(
+                rtech=Rtech_scope,
+                impressions=only.impressions,
+                frequency=F_scope,
+                start=only.start,
+                end=only.end,
+                U=U,
+                cfg=cfg,
+                diagnostics=diagnostics,
+                scope_id=scope_id,
+                source_refs=source_refs,
+                l1=l1,
+                row_ids=row_ids,
+            )
+            aggregate_source = "SINGLE_SOURCE_ROW_COMPLETE_PLATFORM_SCOPE"
+        else:
+            Rtech_scope = m.finite(
+                explicit_Rtech, f"{scope_id} aggregate Flight Technical Reach"
+            )
+            if Rtech_scope < 0:
+                raise V16Error(f"{scope_id}: aggregate technical Reach < 0.")
+            if Rtech_scope == 0 and I_scope > 0:
+                raise V16Error(f"{scope_id}: aggregate technical Reach=0 при Impressions>0.")
+            F_scope = (I_scope / Rtech_scope) if Rtech_scope > 0 else 1.0
+            if F_scope < 1 - m.NUMERICAL_TOL:
+                raise V16Error(
+                    f"{scope_id}: aggregate Impressions/Technical Reach даёт Frequency<1."
+                )
+            try:
+                l1 = m.level1_technical(
+                    I_scope, F_scope, Rtech_scope, frequency_precision=12
+                )
+            except m.ReachValidationError as exc:
+                raise V16Error(f"{scope_id}: {exc}") from exc
+            l2out = _l2_for_scope(
+                rtech=Rtech_scope,
+                impressions=I_scope,
+                frequency=F_scope,
+                start=min((r.start for r in rows if r.start), default=None),
+                end=max((r.end for r in rows if r.end), default=None),
+                U=U,
+                cfg=cfg,
+                diagnostics=diagnostics,
+                scope_id=scope_id,
+                source_refs=source_refs,
+                l1=l1,
+                row_ids=row_ids,
+            )
+            aggregate_source = "USER_INPUT_AGGREGATE_FLIGHT_TECHNICAL_REACH"
+
+        try:
+            l3a = m.aggregate_flight_reach_mode(
+                l2out["R_people"], U, platform_universe=U_p,
+            )
+        except (m.ReachValidationError, m.ReachCalculationError) as exc:
+            raise V16Error(f"{scope_id}: {exc}") from exc
+        l2_summary = {
+            "mode": l2out["mode"],
+            "environment": l2out["environment"],
+            "fallback_reason": l2out["fallback_reason"],
+            "aggregate_scope_source": aggregate_source,
+            **{k: v for k, v in l2out["details"].items() if k != "diagnostics"},
+        }
+
     diagnostics.append({
         "code": "L3A_PLATFORM_FLIGHT",
         "level": 3,
-        "unit_id": uid,
-        "sheet": row.sheet, "row": row.source_row + 1,
+        "scope_id": scope_id,
+        "platform": platform,
+        "channel": channel,
+        "flight_id": flight_id,
+        "source_refs": source_refs,
+        "fragment_count": len(rows),
         "model_path": l3a["model_path"],
         "U": U, "U_p": l3a["U_p"],
         "platform_universe_assumed": l3a["platform_universe_assumed"],
@@ -782,26 +1126,35 @@ def _l3_for_row(row, U: float, l2out: dict, q: dict, plan_id: str, diagnostics: 
         "incremental": l3a.get("incremental"),
     })
 
-    measured_freq = _lookup_unit_map(q.get("measured_exact_frequency") or {}, plan_id, uid, None)
-    cap = _lookup_unit_map(q.get("human_frequency_caps") or {}, plan_id, uid, None)
-    sigma = _lookup_unit_map(q.get("sigmas") or {}, plan_id, uid, m.SIGMA_DEFAULT)
-    sigma_source = "CUSTOM" if sigma != m.SIGMA_DEFAULT else "MODEL_DEFAULT"
-    if row.impressions is None:
-        raise V16Error(
-            f"{row.sheet}:{row.source_row+1}: Level 3B требует Impressions того же scope "
-            "или direct human frequency buckets."
-        )
-    l3b = m.level3_effective_reach(
-        l3a["R_1p"], float(row.impressions),
-        sigma=float(sigma), sigma_source=sigma_source,
-        hard_cap=None if cap in (None, "") else int(cap),
-        measured_exact=measured_freq,
+    measured_freq = _lookup_platform_input(
+        q, "measured_exact_frequency", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
     )
+    cap = _lookup_platform_input(
+        q, "human_frequency_caps", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
+    )
+    sigma = _lookup_platform_input(
+        q, "sigmas", plan_id, flight_id,
+        scope_id, platform, row_ids, default=m.SIGMA_DEFAULT,
+    )
+    sigma_source = "CUSTOM" if float(sigma) != m.SIGMA_DEFAULT else "MODEL_DEFAULT"
+    try:
+        l3b = m.level3_effective_reach(
+            l3a["R_1p"], I_scope,
+            sigma=float(sigma), sigma_source=sigma_source,
+            hard_cap=None if cap in (None, "") else int(cap),
+            measured_exact=measured_freq,
+        )
+    except (m.ReachValidationError, m.ReachCalculationError) as exc:
+        raise V16Error(f"{scope_id}: {exc}") from exc
     diagnostics.append({
         "code": "L3B_EFFECTIVE_REACH",
         "level": 3,
-        "unit_id": uid,
-        "sheet": row.sheet, "row": row.source_row + 1,
+        "scope_id": scope_id,
+        "platform": platform,
+        "flight_id": flight_id,
+        "source_refs": source_refs,
         "I_scope": l3b["impressions"],
         "R_1p": l3b["reach_1p"],
         "F_human": l3b["avg_frequency"],
@@ -814,47 +1167,29 @@ def _l3_for_row(row, U: float, l2out: dict, q: dict, plan_id: str, diagnostics: 
         "frequency_model_assumed": l3b["frequency_model_assumed"],
         "cap": l3b["cap"],
     })
-    return {"l3a": l3a, "l3b": l3b}
 
+    U_i_raw = _lookup_platform_input(
+        q, "inventory_universes", plan_id, flight_id,
+        scope_id, platform, row_ids, default=None,
+    )
+    U_i = U if U_i_raw in (None, "", 0, "0") else m.positive(
+        U_i_raw, f"U_i {scope_id}"
+    )
+    if U_i > U + m.NUMERICAL_TOL or l3b["reach_1p"] > U_i + m.NUMERICAL_TOL:
+        raise V16Error(f"{scope_id}: требуется Reach ≤ U_i ≤ U.")
 
-def _mapping_for_plan(q: dict, plan_id: str) -> Mapping[str, str]:
-    all_maps = q.get("family_mapping") or {}
-    pmap = all_maps.get(plan_id)
-    return pmap if isinstance(pmap, Mapping) else {}
-
-
-def _mapping_confirmed(q: dict, plan_id: str) -> bool:
-    flags = q.get("family_mapping_confirmed") or {}
-    if isinstance(flags, Mapping):
-        return bool(flags.get(plan_id))
-    return False
-
-
-def _inventory_entity(
-    row, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict],
-) -> dict:
-    uid = _unit_id(row)
-    family_map = _mapping_for_plan(q, plan_id)
-    if uid not in family_map or not str(family_map.get(uid) or "").strip():
-        raise V16Error(
-            f"AUDIENCE_FAMILY_MAPPING_REQUIRED: {uid} ({_unit_label(row)}). "
-            "Движок не назначает Audience Family по названию площадки автоматически."
-        )
-    if not _mapping_confirmed(q, plan_id):
-        raise V16Error(
-            f"AUDIENCE_FAMILY_MAPPING_CONFIRMATION_REQUIRED: Line {plan_id}. "
-            "Подтвердите mapping перед расчётом."
-        )
-
-    l2out = _l2_for_row(row, U, cfg, diagnostics)
-    l3 = _l3_for_row(row, U, l2out, q, plan_id, diagnostics)
-    l3b = l3["l3b"]
+    start = min((r.start for r in rows if r.start), default=None)
+    end = max((r.end for r in rows if r.end), default=None)
     return {
-        "name": _unit_label(row),
-        "unit_id": uid,
-        "family": str(family_map[uid]).strip(),
-        "platform": _platform_label(row),
-        "channel": row.channel or "Other",
+        "name": platform,
+        "unit_id": scope_id,
+        "platform_scope_id": scope_id,
+        "source_row_ids": row_ids,
+        "source_refs": source_refs,
+        "fragment_count": len(rows),
+        "family": family,
+        "platform": platform,
+        "channel": channel,
         "reach_1p": l3b["reach_1p"],
         "reach_2p": l3b["reach_2p"],
         "reach_3p": l3b["reach_3p"],
@@ -865,18 +1200,10 @@ def _inventory_entity(
         "freq_dist": l3b["freq_dist"],
         "exact_counts": l3b["exact_counts"],
         "avg_frequency": l3b["avg_frequency"],
-        "source_row": row.source_row + 1,
-        "sheet": row.sheet,
-        "start": row.start,
-        "end": row.end,
-        "l1": l2out["l1"],
-        "l2": {
-            "mode": l2out["mode"],
-            "environment": l2out["environment"],
-            "fallback_reason": l2out["fallback_reason"],
-            **{k: v for k, v in l2out["details"].items() if k != "diagnostics"},
-        },
-        "l3a": l3["l3a"],
+        "start": start,
+        "end": end,
+        "l2": l2_summary,
+        "l3a": l3a,
         "l3b": {
             k: l3b.get(k)
             for k in (
@@ -884,18 +1211,16 @@ def _inventory_entity(
                 "mu", "solver_iterations_frequency", "solver_residual_frequency", "cap",
             )
         },
-        "addressable_universe": (
-            float(_lookup_unit_map(q.get("inventory_universes") or {}, plan_id, uid, U))
-        ),
-        "addressable_universe_assumed": (
-            _lookup_unit_map(q.get("inventory_universes") or {}, plan_id, uid, None) in (None, "", 0, "0")
-        ),
+        "addressable_universe": U_i,
+        "addressable_universe_assumed": U_i_raw in (None, "", 0, "0"),
         "inventory_universe_source": (
             "MODEL_DEFAULT_ASSUMED_FAMILY_OR_U"
-            if _lookup_unit_map(q.get("inventory_universes") or {}, plan_id, uid, None) in (None, "", 0, "0")
-            else "USER_INPUT"
+            if U_i_raw in (None, "", 0, "0") else "USER_INPUT"
         ),
     }
+
+
+
 
 
 def _build_level4_channels(
@@ -903,8 +1228,8 @@ def _build_level4_channels(
     flight_id: str, diagnostics: List[dict],
 ) -> List[dict]:
     units = [
-        _inventory_entity(row, U, cfg, q, plan_id, diagnostics)
-        for row in rows
+        _platform_entity(group, U, cfg, q, plan_id, flight_id, diagnostics)
+        for group in _platform_groups(rows)
     ]
     by_channel: Dict[str, List[dict]] = defaultdict(list)
     for unit in units:
@@ -923,26 +1248,23 @@ def _build_level4_channels(
                 q, "family_universes", plan_id,
                 flight_id=flight_id, name=family_name, default=None,
             )
-            U_F = U if U_F_raw in (None, "", 0, "0") else m.positive(U_F_raw, f"U_F {family_name}")
+            U_F = U if U_F_raw in (None, "", 0, "0") else m.positive(
+                U_F_raw, f"U_F {family_name}"
+            )
             if U_F > U + m.NUMERICAL_TOL:
                 raise V16Error(f"Audience Family {family_name}: U_F > U.")
             for ent in fam_units:
                 explicit_ui = not bool(ent.get("addressable_universe_assumed"))
-                if explicit_ui:
-                    if float(ent["addressable_universe"]) > U_F + m.NUMERICAL_TOL:
-                        raise V16Error(
-                            f"Audience Family {family_name}: Inventory Unit U_i превышает U_F."
-                        )
-                    if ent["reach_1p"] > float(ent["addressable_universe"]) + m.NUMERICAL_TOL:
-                        raise V16Error(
-                            f"Audience Family {family_name}: Inventory Unit Reach превышает U_i."
-                        )
-                else:
-                    ent["addressable_universe"] = U_F
-                if ent["reach_1p"] > U_F + m.NUMERICAL_TOL:
+                if explicit_ui and float(ent["addressable_universe"]) > U_F + m.NUMERICAL_TOL:
                     raise V16Error(
-                        f"Audience Family {family_name}: Inventory Unit Reach превышает U_F."
+                        f"Audience Family {family_name}: Inventory Unit U_i превышает U_F."
                     )
+                if ent["reach_1p"] > min(U_F, float(ent["addressable_universe"])) + m.NUMERICAL_TOL:
+                    raise V16Error(
+                        f"Audience Family {family_name}: Inventory Unit Reach превышает addressable capacity."
+                    )
+                if not explicit_ui:
+                    ent["addressable_universe"] = U_F
 
             specs = _pair_specs(
                 q, "L4A", plan_id=plan_id, flight_id=flight_id, parent=family_name,
@@ -961,7 +1283,10 @@ def _build_level4_channels(
                 "family_id": family_name,
                 "universe": U_F,
                 "addressable_universe": U_F,
-                "U_F_source": "MODEL_DEFAULT_ASSUMED_U" if U_F_raw in (None, "", 0, "0") else "USER_INPUT",
+                "U_F_source": (
+                    "MODEL_DEFAULT_ASSUMED_U"
+                    if U_F_raw in (None, "", 0, "0") else "USER_INPUT"
+                ),
                 "inventory_units": fam_units,
                 "D_family": fm["dedup_rate"],
             })
@@ -993,7 +1318,9 @@ def _build_level4_channels(
             q, "channel_universes", plan_id,
             flight_id=flight_id, name=channel_name, default=None,
         )
-        U_c = U if U_c_raw in (None, "", 0, "0") else m.positive(U_c_raw, f"U_c {channel_name}")
+        U_c = U if U_c_raw in (None, "", 0, "0") else m.positive(
+            U_c_raw, f"U_c {channel_name}"
+        )
         if U_c > U + m.NUMERICAL_TOL or cm["reach_1p"] > U_c + m.NUMERICAL_TOL:
             raise V16Error(f"Channel {channel_name}: требуется Reach ≤ U_c ≤ U.")
         cm.update({
@@ -1001,7 +1328,10 @@ def _build_level4_channels(
             "families": families,
             "addressable_universe": U_c,
             "addressable_universe_assumed": U_c_raw in (None, "", 0, "0"),
-            "U_c_source": "MODEL_DEFAULT_ASSUMED_U" if U_c_raw in (None, "", 0, "0") else "USER_INPUT",
+            "U_c_source": (
+                "MODEL_DEFAULT_ASSUMED_U"
+                if U_c_raw in (None, "", 0, "0") else "USER_INPUT"
+            ),
             "D_cross": 1.0 - cm["reach_1p"] / sum(f["reach_1p"] for f in families)
                 if sum(f["reach_1p"] for f in families) > 0 else 0.0,
             "D_overall": 1.0 - cm["reach_1p"] / sum(u["reach_1p"] for u in ch_units)
@@ -1016,7 +1346,12 @@ def _build_level4_channels(
             "U_c": U_c,
             "U_c_source": cm["U_c_source"],
             "audience_family_mapping": [
-                {"unit_id": u["unit_id"], "family": u["family"], "source": "USER_CONFIRMED"}
+                {
+                    "unit_id": u["unit_id"],
+                    "family": u["family"],
+                    "source": "USER_CONFIRMED",
+                    "fragment_count": u.get("fragment_count", 1),
+                }
                 for u in ch_units
             ],
             "families": family_diagnostics,
@@ -1030,7 +1365,6 @@ def _build_level4_channels(
         })
         channels.append(cm)
     return channels
-
 
 def _flight_groups(plan) -> List[dict]:
     groups: List[dict] = []
