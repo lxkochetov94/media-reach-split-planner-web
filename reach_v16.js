@@ -355,7 +355,7 @@
 
       wrap.appendChild(box);
     }
-    wrap.querySelectorAll('input,select').forEach(el=>el.addEventListener('change',()=>{syncBrandUniverse?.();markDirty();}));
+    wrap.querySelectorAll('input,select').forEach(el=>el.addEventListener('change',()=>{markDirty();renderPrecalc();}));
     renderPrecalc();
   }
 
