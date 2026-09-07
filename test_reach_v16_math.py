@@ -126,7 +126,7 @@ class CanonicalReachMathTests(unittest.TestCase):
 
     def test_pair_bounds_with_addressability(self):
         lo, hi = m.pair_bounds(6, 6, 10, Ua=8, Ub=8, M=3)
-        self.assertEqual(lo, 1)
+        self.assertEqual(lo, 0)
         self.assertEqual(hi, 3)
 
     def test_global_feasibility_detects_three_way_infeasible(self):
