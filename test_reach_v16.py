@@ -1,0 +1,131 @@
+import datetime as dt
+import math
+import unittest
+
+import reach_v16 as r
+
+
+def ent(name, reach, impressions=None, start=None, end=None, common=False):
+    if impressions is None:
+        impressions = reach * 2.0
+    f = impressions / reach if reach else 1.0
+    return {
+        "name": name,
+        "reach_1p": float(reach),
+        "impressions": float(impressions),
+        "freq_dist": r.poisson_lognormal_exact(f),
+        "start": start,
+        "end": end,
+        "is_common": common,
+    }
+
+
+class FakeRow:
+    def __init__(self, impressions=None, frequency=None, tech_reach=None, row=1):
+        self.impressions = impressions
+        self.frequency = frequency
+        self.tech_reach = tech_reach
+        self.sheet = "Test"
+        self.source_row = row - 1
+
+
+class ReachV16Tests(unittest.TestCase):
+    def test_l1_frequency_below_one_is_error(self):
+        row = FakeRow(impressions=1000, frequency=0.8, tech_reach=None)
+        with self.assertRaises(r.V16Error):
+            r.level1_technical(row, [])
+
+    def test_l1_inconsistent_triad_is_error(self):
+        row = FakeRow(impressions=1000, frequency=2.0, tech_reach=800)
+        with self.assertRaises(r.V16Error):
+            r.level1_technical(row, [])
+
+    def test_l2_k_domain_and_universe(self):
+        with self.assertRaises(r.V16Error):
+            r.level2_quick(1000, 1000, 0.99)
+        with self.assertRaises(r.V16Error):
+            r.level2_quick(2500, 1000, 2.0)
+        self.assertAlmostEqual(r.level2_quick(2400, 1000, 2.4), 1000)
+
+    def test_frequency_exactly_one_is_degenerate(self):
+        self.assertEqual(r.poisson_lognormal_exact(1.0), [1, 0, 0, 0, 0, 0])
+
+    def test_frequency_curve_is_valid(self):
+        g = r.poisson_lognormal_exact(3.0)
+        self.assertAlmostEqual(sum(g), 1.0, places=8)
+        self.assertTrue(all(x >= 0 for x in g))
+        cumulative = [sum(g[i:]) for i in range(6)]
+        self.assertTrue(all(cumulative[i] >= cumulative[i+1] for i in range(5)))
+
+    def test_l5_common_lambda_relaxation(self):
+        U = 10_000_000
+        channels = [ent("A", 5_000_000), ent("B", 5_000_000), ent("C", 5_000_000)]
+        diagnostics = []
+        out = r.level5_flight(channels, U, diagnostics)
+        self.assertLessEqual(out["reach_1p"], U + 1e-6)
+        self.assertGreaterEqual(out["relaxation_lambda"], 0)
+        self.assertLessEqual(out["relaxation_lambda"], 1)
+        if out["relaxation_lambda"] < 1 - 1e-6:
+            self.assertTrue(any(d.get("code") == "DEFAULT_RELAXED_FOR_GLOBAL_FEASIBILITY" and d.get("level") == 5 for d in diagnostics))
+
+    def test_l6_long_gap_has_nonzero_residual_but_cap(self):
+        U = 15_000_000
+        a = ent("A", 3_000_000, start=dt.date(2026,1,1), end=dt.date(2026,1,31))
+        b = ent("B", 3_000_000, start=dt.date(2026,5,1), end=dt.date(2026,5,31))
+        j, meta = r._l6_pair_basic(a, b, U)
+        self.assertEqual(meta["q_temporal"], 0.0)
+        self.assertGreater(j, 0.0)
+        self.assertLessEqual(meta["J_residual"], 0.10 * 3_000_000 + 1e-6)
+        self.assertAlmostEqual(j, 300_000, delta=1)
+
+    def test_l6_three_flights_can_override_residual_cap_only_for_feasibility(self):
+        U = 10_000_000
+        flights = [
+            ent("F1", 4_000_000, start=dt.date(2026,1,1), end=dt.date(2026,1,31)),
+            ent("F2", 4_000_000, start=dt.date(2026,5,1), end=dt.date(2026,5,31)),
+            ent("F3", 4_000_000, start=dt.date(2026,9,1), end=dt.date(2026,9,30)),
+        ]
+        diagnostics = []
+        out = r.level6_line(flights, U, diagnostics)
+        self.assertLessEqual(out["reach_1p"], U + 1e-5)
+        self.assertGreater(out["flight_relaxation_lambda"], 1.0)
+        self.assertTrue(any(d.get("code") == "RESIDUAL_CAP_OVERRIDDEN_BY_GLOBAL_FEASIBILITY" for d in diagnostics))
+
+    def test_two_aon_are_normal_simultaneous_pair(self):
+        U = 10_000_000
+        a = ent("AON1", 3_000_000, start=dt.date(2026,1,1), end=dt.date(2026,12,31), common=True)
+        b = ent("AON2", 2_000_000, start=dt.date(2026,1,1), end=dt.date(2026,12,31), common=True)
+        diagnostics = []
+        _, meta = r._l6_pair(a, b, U, diagnostics)
+        self.assertFalse(meta.get("aon_staged", False))
+        self.assertFalse(any(d.get("code") == "AON_STAGED_MERGE" for d in diagnostics))
+
+    def test_aon_burst_is_staged_and_flagged(self):
+        U = 10_000_000
+        aon = ent("AON", 5_000_000, start=dt.date(2026,1,1), end=dt.date(2026,12,31), common=True)
+        burst = ent("Burst", 2_000_000, start=dt.date(2026,2,1), end=dt.date(2026,2,28), common=False)
+        diagnostics = []
+        j, meta = r._l6_pair(aon, burst, U, diagnostics)
+        self.assertGreaterEqual(j, 0)
+        self.assertTrue(meta.get("aon_staged"))
+        self.assertTrue(any(d.get("code") == "AON_STAGED_MERGE" for d in diagnostics))
+
+    def test_maxent_merge_preserves_invariants(self):
+        U = 10_000_000
+        es = [ent("A", 2_000_000), ent("B", 2_500_000), ent("C", 1_500_000)]
+        pt = {(0,1): 500_000, (0,2): 300_000, (1,2): 375_000}
+        out = r.merge_entities(es, U, pair_targets=pt, model_path="TEST")
+        self.assertLessEqual(out["reach_1p"], U + 1e-6)
+        vals = [out[f"reach_{i}p"] for i in range(1,7)]
+        self.assertTrue(all(vals[i] >= vals[i+1] - 1e-6 for i in range(5)))
+
+    def test_ta_mismatch_blocks_brand_total(self):
+        U = 10_000_000
+        a = ent("L1", 3_000_000); a.update({"ta_name":"Women 25-55","brand":"X"})
+        b = ent("L2", 2_000_000); b.update({"ta_name":"Women 18-34","brand":"X"})
+        with self.assertRaises(r.V16Error):
+            r._brand_merge([a,b], U, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
