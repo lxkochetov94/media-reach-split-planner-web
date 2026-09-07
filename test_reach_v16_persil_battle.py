@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import unittest
+from types import SimpleNamespace
 
 import reach_v16 as r
 import reach_v16_math as m
@@ -273,6 +274,104 @@ class PersilBattlePlanTests(unittest.TestCase):
             _campaign_line_name("Персил Свежесть Апрель-Май'26"),
             _campaign_line_name("Персил Core Сентябрь'26"),
         )
+
+    def test_line_identity_review_detects_capsules_and_core_header_conflicts(self):
+        groups = [
+            SimpleNamespace(
+                id="P1", line="Персил Для Цветного", label="Персил Для Цветного",
+                sheet_names=("MP Персил Капсулы 1 флайт",),
+            ),
+            SimpleNamespace(
+                id="P2", line="Персил Капсулы", label="Персил Капсулы",
+                sheet_names=("Mediaplan Капсулы 2 флайт", "Mediaplan Капсулы 3 флайт"),
+            ),
+            SimpleNamespace(
+                id="P3", line="Персил Core", label="Персил Core",
+                sheet_names=("Mediaplan Core 3 флайт",),
+            ),
+        ]
+        conflicts = r._line_identity_conflicts(groups)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["group_ids"], ["P1", "P2"])
+        self.assertIn("капсулы", conflicts[0]["shared_sheet_markers"])
+
+        core_groups = [
+            SimpleNamespace(
+                id="C1", line="Персил Свежесть", label="Персил Свежесть",
+                sheet_names=("Mediaplaт Core 1флайт (свеж.)",),
+            ),
+            SimpleNamespace(
+                id="C2", line="Персил Core", label="Персил Core",
+                sheet_names=("Mediaplan Core 2 флайт", "Mediaplan Core 3 флайт", "Mediaplan Core 4 флайт"),
+            ),
+        ]
+        core_conflicts = r._line_identity_conflicts(core_groups)
+        self.assertEqual(len(core_conflicts), 1)
+        self.assertIn("core", core_conflicts[0]["shared_sheet_markers"])
+
+    def test_file2_core_and_capsules_are_not_false_identity_conflict(self):
+        groups = [
+            SimpleNamespace(
+                id="P1", line="Персил Core", label="Персил Core",
+                sheet_names=("Mediaplan Core",),
+            ),
+            SimpleNamespace(
+                id="P2", line="Персил Капсулы", label="Персил Капсулы",
+                sheet_names=("Mediaplan Капсулы",),
+            ),
+        ]
+        self.assertEqual(r._line_identity_conflicts(groups), [])
+
+    def test_line_source_universe_mismatch_requires_confirmation(self):
+        groups = [
+            {
+                "id":"F1","label":"Flight 1","ta_name":"Ж 25-44 ВС",
+                "source_universe":15_900_000.0,"source_universe_source":"mp","is_common":False,
+            },
+            {
+                "id":"F2","label":"Flight 2","ta_name":"Ж 25-44 ВС",
+                "source_universe":15_182_450.0,"source_universe_source":"mp","is_common":False,
+            },
+        ]
+        with self.assertRaisesRegex(r.V16Error, "L6_SCOPE_UNIVERSE_MISMATCH"):
+            r._validate_line_source_scope(groups, 15_182_450.0, {}, "P1", [])
+        diagnostics = []
+        out = r._validate_line_source_scope(
+            groups, 15_182_450.0,
+            {"line_scope_confirmed":{"P1":True}},
+            "P1", diagnostics,
+        )
+        self.assertTrue(out["universe_mismatch"])
+        self.assertTrue(any(
+            d.get("code") == "LINE_UNIVERSE_NORMALIZED_USER_CONFIRMED"
+            for d in diagnostics
+        ))
+
+    def test_line_source_ta_mismatch_cannot_be_confirmed_away(self):
+        groups = [
+            {
+                "id":"F1","label":"Flight 1","ta_name":"Ж 25-44 ВС",
+                "source_universe":15_182_450.0,"source_universe_source":"mp","is_common":False,
+            },
+            {
+                "id":"F2","label":"Flight 2","ta_name":"Ж 25-45 ВС",
+                "source_universe":15_182_450.0,"source_universe_source":"mp","is_common":False,
+            },
+        ]
+        with self.assertRaisesRegex(r.V16Error, "TA_NORMALIZATION_REQUIRED"):
+            r._validate_line_source_scope(
+                groups, 15_182_450.0,
+                {"line_scope_confirmed":{"P1":True}},
+                "P1", [],
+            )
+
+    def test_line_universe_override_needs_scope_confirmation_even_with_one_source_u(self):
+        groups = [{
+            "id":"F1","label":"Flight 1","ta_name":"Ж 25-44 ВС",
+            "source_universe":15_900_000.0,"source_universe_source":"mp","is_common":False,
+        }]
+        with self.assertRaisesRegex(r.V16Error, "LINE_MASTER_UNIVERSE_OVERRIDE_CONFIRMATION_REQUIRED"):
+            r._validate_line_source_scope(groups, 15_182_450.0, {}, "P1", [])
 
 
 if __name__ == "__main__":
