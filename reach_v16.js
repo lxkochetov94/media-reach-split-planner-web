@@ -214,7 +214,7 @@
       </div>
       <div class="v16-model-card">
         <div class="v16-model-level">LEVEL 5</div><strong>Каналы → флайт</strong>
-        <div class="v16-model-main">ρ target = ${num(l5.rho_channel_target,-2)||'-0,35'}</div>
+        <div class="v16-model-main">ρ target = ${num(l5.rho_channel_target,2)||'-0,35'}</div>
         <p>Для 3+ каналов один общий λ ослабляет MODEL_DEFAULT к 0 только если этого требует global feasibility.</p>
       </div>
       <div class="v16-model-card">
