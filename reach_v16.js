@@ -382,33 +382,52 @@
           </label>
         </details>
 
-        <details class="v16-plan-advanced">
+        <details class="v16-plan-advanced" open>
           <summary>Как движок переводит браузеры и устройства в людей</summary>
           <div class="v16-human-intro">
-            <strong>Этот блок нужен только для более детального Web-расчёта.</strong>
-            <span>Если таких измерений у вас нет, ничего заполнять не нужно: движок использует стандартный Quick-путь.</span>
+            <strong>Зачем вообще нужны B, D, L и U_D?</strong>
+            <span>Technical Reach площадки — это технические идентификаторы, а не обязательно реальные люди. Один человек может иметь несколько browser ID и несколько устройств, а browser ID может меняться со временем. Эти параметры нужны, чтобы последовательно убрать такие технические дубли.</span>
+            <small>Если измеренного U_D нет, ничего придумывать не нужно: движок использует стандартный Quick-путь.</small>
           </div>
-          <div class="v16-auto-strip">
+          <div class="v16-auto-strip v16-parameter-explain">
             <div>
-              <span class="v16-auto-label">Автоматически по ЦА</span>
-              <strong>${num(rec.B,2)} browser ID на 1 web-устройство</strong>
-              <small><b>B</b> помогает объединить несколько браузеров/ID одного устройства. Диапазон модели: ${fmtRange(rec.B_min,rec.B_max)}.</small>
+              <span class="v16-auto-label">B · browser multiplicity</span>
+              <strong>B = ${num(rec.B,2)}</strong>
+              <small><b>Что это в жизни:</b> модельное среднее число browser ID / браузерных профилей на одно web-устройство.</small>
+              <small><b>Зачем:</b> чтобы разные браузеры и browser ID на одном ноутбуке/телефоне не считались разными устройствами.</small>
+              <small><b>Почему здесь ${num(rec.B,2)}:</b> движок рассчитывает коэффициент по возрастному составу ЦА «${esc(p.ta_name||'—')}». Для возрастных сегментов этой ЦА модель даёт диапазон ${fmtRange(rec.B_min,rec.B_max)}.</small>
             </div>
             <div>
-              <span class="v16-auto-label">Автоматически по ЦА</span>
-              <strong>${num(rec.D,2)} устройства на 1 человека</strong>
-              <small><b>D</b> помогает объединить телефон, ноутбук и другие устройства одного человека. Диапазон модели: ${fmtRange(rec.D_min,rec.D_max)}.</small>
+              <span class="v16-auto-label">D · device multiplicity</span>
+              <strong>D = ${num(rec.D,2)}</strong>
+              <small><b>Что это в жизни:</b> модельное среднее число устройств на одного человека.</small>
+              <small><b>Зачем:</b> чтобы телефон, ноутбук и планшет одного человека не считались несколькими людьми.</small>
+              <small><b>Почему здесь ${num(rec.D,2)}:</b> движок рассчитывает коэффициент по возрастному составу ЦА «${esc(p.ta_name||'—')}». Для возрастных сегментов этой ЦА модель даёт диапазон ${fmtRange(rec.D_min,rec.D_max)}.</small>
             </div>
             <div>
-              <span class="v16-auto-label">Только Chromium</span>
-              <strong>68 дней — срок жизни browser ID</strong>
-              <small><b>L</b> нужен для поправки на смену browser ID во времени. Не применяется автоматически к Safari, приложениям и CTV.</small>
+              <span class="v16-auto-label">L · browser ID stability</span>
+              <strong>L = 68 дней</strong>
+              <small><b>Что это в жизни:</b> параметр скорости смены browser ID в Chromium-классе браузеров.</small>
+              <small><b>Зачем:</b> в длинной кампании один и тот же браузер может получить новый ID; без этой поправки один пользователь может выглядеть как несколько технических пользователей.</small>
+              <small><b>Почему 68:</b> это фиксированный baseline методологии v1.6 для Chromium. Он не рассчитывается по ЦА и не переносится автоматически на Safari, приложения или CTV.</small>
             </div>
           </div>
           <div class="field v16-ud-human" style="margin-top:10px">
-            <label><strong>Есть измеренный размер базы web-устройств этой ЦА?</strong></label>
-            <input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если такого измерения нет">
-            <div class="hint"><b>U_D</b> — количество уникальных web-устройств, а не людей. Если U_D неизвестен, движок его не придумывает и остаётся на Quick-пути.</div>
+            <label><strong>U_D · измеренный Universe web-устройств этой ЦА</strong></label>
+            <input class="v16-line-ud" type="number" min="1" step="1" placeholder="Введите число устройств только если оно реально измерено">
+            <div class="v16-ud-explain">
+              <span><b>Что это в жизни:</b> количество уникальных web-устройств, относящихся к этой же ЦА, географии и периоду. Это устройства, не люди.</span>
+              <span><b>Откуда брать:</b> только из реального измерения площадки / adtech / исследования, если такой device universe доступен.</span>
+              <span><b>Какой порядок величины:</b> U_D не обязан равняться Human Universe и может быть выше или ниже него. Его нельзя получать простым умножением U × D — U × D является лишь модельной ёмкостью шага device → people, а не значением для ввода.</span>
+              <span><b>Если U_D неизвестен:</b> оставьте поле пустым. Это нормальный сценарий: движок перейдёт на Quick-путь и не будет выдумывать device universe.</span>
+            </div>
+          </div>
+          <div class="v16-human-flow v16-l2-order">
+            <div><b>1</b><span><strong>Technical Reach</strong><small>технические ID площадки</small></span></div>
+            <div><b>2</b><span><strong>L</strong><small>поправка на смену browser ID во времени</small></span></div>
+            <div><b>3</b><span><strong>B + U_D</strong><small>browser ID → уникальные web-устройства</small></span></div>
+            <div><b>4</b><span><strong>D</strong><small>устройства → уникальные люди</small></span></div>
+            <div><b>5</b><span><strong>Human Reach</strong><small>охват реальных людей для дальнейшего расчёта</small></span></div>
           </div>
         </details>
         ${aon}
@@ -508,8 +527,10 @@
         <details class="v16-technical-details">
           <summary>Показать технические параметры этого шага</summary>
           <div class="v16-param-row">
-            <span><b>B = ${num(rec.B,2)}</b><small>Среднее число browser ID на web-устройство для этой возрастной ЦА.</small></span>
-            <span><b>D = ${num(rec.D,2)}</b><small>Среднее число устройств на человека для этой возрастной ЦА.</small></span>
+            <span><b>B = ${num(rec.B,2)}</b><small>Browser ID на одно web-устройство. Используется на шаге browser → device.</small></span>
+            <span><b>D = ${num(rec.D,2)}</b><small>Устройств на одного человека. Используется на шаге device → people.</small></span>
+            <span><b>L = 68 дней</b><small>Параметр смены browser ID Chromium во времени.</small></span>
+            <span><b>U_D</b><small>Измеренный Universe web-устройств; без него Advanced Web не запускается.</small></span>
             <span><b>Группы площадок</b><small>${map.confirmed?'Проверены пользователем':'Ещё не подтверждены'}</small></span>
           </div>
         </details>
