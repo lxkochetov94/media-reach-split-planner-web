@@ -346,5 +346,90 @@ class ReachV16Tests(unittest.TestCase):
         self.assertTrue(any(d.get("code") == "AON_TEMPORAL_FOOTPRINT" for d in diagnostics))
 
 
+    def test_dedup_metrics_are_arithmetically_consistent(self):
+        U = 10_000_000
+        out = r.merge_entities(
+            [ent("A", 2_000_000), ent("B", 2_500_000)],
+            U,
+            pair_targets={(0, 1): 400_000},
+            model_path="TEST_DEDUP",
+        )
+        self.assertGreaterEqual(out["dedup_people"], 0)
+        self.assertLessEqual(out["dedup_people"], out["gross_reach_sum"])
+        self.assertAlmostEqual(
+            out["gross_reach_sum"] - out["dedup_people"],
+            out["reach_1p"],
+            delta=1e-6,
+        )
+        self.assertAlmostEqual(
+            out["dedup_rate"],
+            out["dedup_people"] / out["gross_reach_sum"],
+            delta=1e-12,
+        )
+
+    def test_single_line_brand_total_is_identity_without_brand_master_fields(self):
+        U = 10_000_000
+        line = r.merge_entities([ent("Flight 1", 3_000_000)], U, model_path="L6_LINE")
+        line.update({
+            "universe": U,
+            "label": "Line A",
+            "name": "Line A",
+            "brand": "Brand A",
+            "ta_name": "Ж 25-45 BC",
+            "start": dt.date(2026, 1, 1),
+            "end": dt.date(2026, 3, 31),
+        })
+        diagnostics = []
+        brand = r._brand_merge([line], U, diagnostics, {})
+        self.assertAlmostEqual(brand["reach_1p"], line["reach_1p"], delta=1e-6)
+        self.assertEqual(brand["brand_master_ta"], "Ж 25-45 BC")
+        self.assertTrue(any(d.get("code") == "L7_BRAND_SINGLE_LINE_IDENTITY" for d in diagnostics))
+
+    def test_contribution_rows_follow_channel_platform_format_then_subtotal(self):
+        lines = [{
+            "label": "Line A",
+            "flights": [{
+                "name": "Flight 1",
+                "reach_1p": 3_000_000.0,
+                "contributions": [
+                    {"name": "OLV", "shapley_people": 1_800_000.0, "exclusive_people": 1_500_000.0},
+                    {"name": "Banners", "shapley_people": 1_200_000.0, "exclusive_people": 900_000.0},
+                ],
+                "channels": [{
+                    "name": "OLV",
+                    "reach_1p": 1_800_000.0,
+                    "contributions": [
+                        {"name": "VK", "shapley_people": 1_000_000.0, "exclusive_people": 800_000.0},
+                        {"name": "Rutube", "shapley_people": 800_000.0, "exclusive_people": 650_000.0},
+                    ],
+                    "families": [
+                        {"name": "VK", "inventory_units": [{"platform": "VK", "format": "Pre-roll"}]},
+                        {"name": "Rutube", "inventory_units": [{"platform": "Rutube", "format": "In-stream"}]},
+                    ],
+                },{
+                    "name": "Banners",
+                    "reach_1p": 1_200_000.0,
+                    "contributions": [
+                        {"name": "Avito", "shapley_people": 1_200_000.0, "exclusive_people": 1_200_000.0},
+                    ],
+                    "families": [
+                        {"name": "Avito", "inventory_units": [{"platform": "Avito", "format": "Медийный премиум"}]},
+                    ],
+                }],
+            }],
+        }]
+        rows = r._contribution_rows(lines, None)
+        self.assertEqual(
+            [(x["kind"], x["channel"], x["platform"], x["format"]) for x in rows],
+            [
+                ("platform", "OLV", "VK", "Pre-roll"),
+                ("platform", "OLV", "Rutube", "In-stream"),
+                ("channel_subtotal", "OLV", "", ""),
+                ("platform", "Banners", "Avito", "Медийный премиум"),
+                ("channel_subtotal", "Banners", "", ""),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
