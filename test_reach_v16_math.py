@@ -219,6 +219,107 @@ class CanonicalReachMathTests(unittest.TestCase):
         out = m.audience_merge(es, U)
         self.assertEqual(out["impressions"], 7e6)
 
+    def test_normalize_pair_input_union_and_hard_bounds(self):
+        out = m.normalize_pair_input(
+            {"union": 7_000_000, "source": "MEASURED"},
+            4_000_000, 4_000_000, 10_000_000,
+        )
+        self.assertEqual(out["J"], 1_000_000)
+        self.assertEqual(out["source"], "MEASURED")
+        with self.assertRaises(m.ReachValidationError):
+            m.normalize_pair_input(
+                {"J": 5_000_000, "source": "CUSTOM"},
+                4_000_000, 4_000_000, 10_000_000,
+            )
+
+    def test_l5_measured_addressability_source_is_preserved(self):
+        U = 10_000_000
+        a = entity("A", 2_000_000, addressable_universe=6_000_000,
+                   addressable_intersections={"B": 3_000_000})
+        b = entity("B", 2_000_000, addressable_universe=5_000_000)
+        pairs, _lam, _diag = m.level5_channel_pairs([a, b], U)
+        self.assertEqual(pairs[(0, 1)]["source"], "MEASURED_ADDRESSABLE")
+        self.assertEqual(pairs[(0, 1)]["M_source"], "MEASURED_ADDRESSABLE")
+
+    def test_l6_custom_pair_overrides_temporal_default_without_clipping(self):
+        U = 10_000_000
+        a = entity("A", 3e6, start=dt.date(2026,1,1), end=dt.date(2026,1,31), is_common=False)
+        b = entity("B", 3e6, start=dt.date(2026,2,1), end=dt.date(2026,2,28), is_common=False)
+        out = m.level6_line(
+            [a, b], U,
+            custom_pairs={(0,1): {"J": 1_000_000, "source": "MEASURED"}},
+        )
+        meta = next(iter(out["pair_details"].values()))
+        self.assertEqual(meta["J"], 1_000_000)
+        self.assertEqual(meta["source"], "MEASURED")
+        self.assertAlmostEqual(out["reach_1p"], 5_000_000, delta=1e-5)
+
+    def test_l6_invalid_hard_pair_is_validation_error(self):
+        U = 10_000_000
+        a = entity("A", 3e6, start=dt.date(2026,1,1), end=dt.date(2026,1,31), is_common=False)
+        b = entity("B", 3e6, start=dt.date(2026,2,1), end=dt.date(2026,2,28), is_common=False)
+        with self.assertRaises(m.ReachValidationError):
+            m.level6_line(
+                [a, b], U,
+                custom_pairs={(0,1): {"J": 4_000_000, "source": "CUSTOM"}},
+            )
+
+    def test_l6_overlap_marks_start_order_attribution(self):
+        U = 10_000_000
+        a = entity("A", 2e6, start=dt.date(2026,1,1), end=dt.date(2026,1,31), is_common=False)
+        b = entity("B", 2e6, start=dt.date(2026,1,15), end=dt.date(2026,2,15), is_common=False)
+        out = m.level6_line([a, b], U)
+        self.assertTrue(any(d.get("code") == "START_ORDER_ATTRIBUTION" for d in out["diagnostics"]))
+
+    def test_level7_brand_addressability_cells_derive_hard_universes(self):
+        U = 10_000_000
+        lines = [
+            entity("L1", 3_000_000, addressable_universe=U, addressable_universe_assumed=True),
+            entity("L2", 2_000_000, addressable_universe=U, addressable_universe_assumed=True),
+            entity("L3", 1_000_000, addressable_universe=U, addressable_universe_assumed=True),
+        ]
+        amap = {"cells": [
+            {"cell_id":"all", "population":4_000_000, "eligible_line_mask":["L1","L2","L3"]},
+            {"cell_id":"l1", "population":2_000_000, "eligible_line_mask":["L1"]},
+            {"cell_id":"l2", "population":1_000_000, "eligible_line_mask":["L2"]},
+            {"cell_id":"l3", "population":1_000_000, "eligible_line_mask":["L3"]},
+            {"cell_id":"none", "population":2_000_000, "eligible_line_mask":[]},
+        ]}
+        out = m.level7_brand(lines, U, addressability_map=amap)
+        self.assertEqual(out["brand_addressability_status"], "STRUCTURED_CELLS")
+        self.assertAlmostEqual(out["derived_line_universes"]["L1"], 6_000_000)
+        self.assertAlmostEqual(out["derived_line_universes"]["L2"], 5_000_000)
+        self.assertAlmostEqual(out["derived_line_universes"]["L3"], 5_000_000)
+        self.assertTrue(out["feasibility"]["feasible"])
+        self.assertTrue(str(out["solver_status"]).startswith("CONVERGED"))
+
+    def test_level7_brand_addressability_cells_population_must_equal_brand_u(self):
+        lines = [
+            entity("L1", 1_000_000, addressable_universe=10_000_000, addressable_universe_assumed=True),
+            entity("L2", 1_000_000, addressable_universe=10_000_000, addressable_universe_assumed=True),
+        ]
+        with self.assertRaises(m.ReachValidationError):
+            m.level7_brand(
+                lines, 10_000_000,
+                addressability_map={"cells":[
+                    {"cell_id":"both", "population":5_000_000, "eligible_line_mask":["L1","L2"]},
+                ]},
+            )
+
+    def test_level7_brand_addressability_cells_reject_reach_above_derived_ul(self):
+        U = 10_000_000
+        lines = [
+            entity("L1", 6_000_000, addressable_universe=U, addressable_universe_assumed=True),
+            entity("L2", 1_000_000, addressable_universe=U, addressable_universe_assumed=True),
+        ]
+        amap = {"cells":[
+            {"cell_id":"l1", "population":5_000_000, "eligible_line_mask":["L1"]},
+            {"cell_id":"l2", "population":2_000_000, "eligible_line_mask":["L2"]},
+            {"cell_id":"none", "population":3_000_000, "eligible_line_mask":[]},
+        ]}
+        with self.assertRaises(m.ReachValidationError):
+            m.level7_brand(lines, U, addressability_map=amap)
+
 
 if __name__ == "__main__":
     unittest.main()
