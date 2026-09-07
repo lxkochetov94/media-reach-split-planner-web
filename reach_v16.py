@@ -141,11 +141,19 @@ def _plan_input_profile(plan) -> dict:
     if durations:
         m = len(durations) // 2
         median_duration = durations[m] if len(durations) % 2 else (durations[m - 1] + durations[m]) / 2
+    supplied = sum(1 for r in rows if r.tech_reach is not None)
+    if_rows = sum(1 for r in rows if r.impressions is not None and r.frequency is not None)
+    l1_ready = sum(
+        1 for r in rows
+        if r.tech_reach is not None or (r.impressions is not None and r.frequency is not None)
+    )
     return {
         "rows": len(rows),
-        "supplied_reach_rows": sum(1 for r in rows if r.tech_reach is not None),
+        "supplied_reach_rows": supplied,
         "impressions_rows": sum(1 for r in rows if r.impressions is not None),
         "frequency_rows": sum(1 for r in rows if r.frequency is not None),
+        "impressions_frequency_rows": if_rows,
+        "l1_ready_rows": l1_ready,
         "dated_rows": sum(1 for r in rows if r.start and r.end),
         "duration_days_min": min(durations) if durations else None,
         "duration_days_median": median_duration,
