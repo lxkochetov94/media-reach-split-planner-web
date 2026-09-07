@@ -541,38 +541,104 @@
   function renderModelMap(){
     const wrap=$(ids.modelMap);if(!wrap)return;
     const c=modelCatalog();
-    if(!c.level2){wrap.innerHTML='<div class="hint">Каталог модели загрузится после медиаплана.</div>';return}
+    if(!c.level2){wrap.innerHTML='<div class="hint">Описание методики появится после загрузки медиаплана.</div>';return}
     const l2=c.level2||{},l3=c.level3||{},l5=c.level5||{},l6=c.level6||{},eng=c.engineering||{};
     const rho=l3.temporal_rho_profiles||{};
-    const q=(l6.gap_curve||[]).map(x=>`${x.days}д=${pct(x.overlap,1)}`).join(' · ');
-    wrap.innerHTML=`
-      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 1</div><strong>Placement → Technical Uniques</strong>
-        <p>Supplied Reach либо I÷F. Если I/Reach/F заданы вместе — precision-aware arithmetic validation; fixed 3% tolerance больше не используется.</p>
-      </div>
-      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Технические идентификаторы → реальные люди</strong>
-        <p>Quick: делим Technical Reach на K=${num(l2.quick_k,2)}. Advanced Web считает подробнее: сначала поправка на смену browser ID во времени (L), затем browser ID → устройства (B и U_D), затем устройства → люди (D). Для App/CTV браузерные поправки не применяются.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3A</div><strong>Weeks → Platform Flight</strong>
-        <p>ρ LOW ${num(rho.LOW,2)} · BASE ${num(rho.BASE,2)} · HIGH ${num(rho.HIGH,2)}; gap decay ρ<sup>1+G</sup>. Без weekly Human Reach — explicit AGGREGATE_FLIGHT_REACH_MODE.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3B</div><strong>Effective Reach</strong>
-        <p>Poisson-Lognormal σ=${num(l3.sigma_default,2)} model default; μ решается под фактическую Human F. F&lt;1 = validation error, не repair.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 4</div><strong>Inventory Unit → Audience Family → Channel</strong>
-        <p>Family не угадывается. Neutral unstructured — closed form; structured/dependent — global feasibility → MaxEnt.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 5</div><strong>Channels → Flight</strong>
-        <p>ρ target=${num(l5.rho_channel_target,2)}. Для 3+ MODEL_DEFAULT один общий λ к 0 только при необходимости global feasibility.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 6</div><strong>Flights → Line</strong>
-        <p>${esc(q)}. Residual ≤${pct(l6.residual_cap??.10,0)} до global feasibility. AON↔burst требует temporal slice.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 7</div><strong>Lines → Brand</strong>
-        <p>Brand Master U_B и единая Brand TA обязательны. BrandAddressabilityMap применяется только к реальной geo/CRM/pool structure.</p>
-      </div>
-      <div class="v16-model-card"><div class="v16-model-level">SOLVER</div><strong>Feasibility отдельно от MaxEnt</strong>
-        <p>Guard ≤${eng.max_entities||12} entities. Feasibility tol ${eng.feasibility_tolerance||'1e-9'}; solver tol ${eng.solver_constraint_tolerance||'1e-8'}; max ${eng.max_iterations||10000} iterations.</p>
+    const q=(l6.gap_curve||[]).map(x=>`${x.days} дней → ${pct(x.overlap,1)} пересечения`).join(' · ');
+
+    const step=(level,title,real,action,result,tech)=>`
+      <div class="v16-real-step">
+        <div class="v16-real-step-head">
+          <span class="v16-real-level">${esc(level)}</span>
+          <strong>${esc(title)}</strong>
+        </div>
+        <div class="v16-real-step-grid">
+          <div><b>Что это в реальности</b><span>${real}</span></div>
+          <div><b>Что делает движок</b><span>${action}</span></div>
+          <div><b>Что получаем</b><span>${result}</span></div>
+        </div>
+        <details class="v16-real-tech">
+          <summary>Технические детали этого шага</summary>
+          <div>${tech}</div>
+        </details>
       </div>`;
+
+    wrap.innerHTML=`
+      <div class="v16-human-intro">
+        <strong>Как читать этот блок</strong>
+        <span>Движок идёт от одной строки медиаплана к итоговому охвату бренда. На каждом следующем шаге он объединяет аудитории и убирает повторных людей, чтобы один человек не посчитался несколько раз.</span>
+        <small>Буквы ρ, λ, MaxEnt и другие математические параметры не нужны для обычной работы. Они оставлены только внутри «Технических деталей».</small>
+      </div>
+      <div class="v16-real-steps">
+        ${step(
+          'LEVEL 1',
+          'Одно размещение в медиаплане',
+          'Это одна конкретная строка размещения: например, VK Video / OLV / июнь. У строки есть показы, частота и/или Technical Reach.',
+          'Проверяет, согласуются ли показы, частота и Reach. Если Technical Reach не указан, получает его как Impressions ÷ Frequency.',
+          'Technical Reach этой строки — число технических уникальных идентификаторов, а не обязательно людей.',
+          'Если одновременно заданы Impressions, Frequency и Reach, движок проверяет их арифметическую согласованность с учётом точности Frequency.'
+        )}
+        ${step(
+          'LEVEL 2',
+          'Технические ID превращаем в реальных людей',
+          'Площадка может считать cookie, browser ID или device ID. Один человек может иметь несколько таких ID, поэтому Technical Reach может быть выше реального количества людей.',
+          'Если есть измеренные данные по устройствам, движок учитывает смену browser ID во времени, несколько browser ID на устройстве и несколько устройств у человека. Если данных нет — использует стандартную модель K='+num(l2.quick_k,2)+'.',
+          'Human Reach площадки — оценка уникальных людей, которых реально достигло размещение.',
+          'Quick: R_people = R_tech / K. Advanced Web: L → B + U_D → D. App/CTV не получают браузерную поправку автоматически.'
+        )}
+        ${step(
+          'LEVEL 3A',
+          'Объединяем одну площадку во времени внутри одного флайта',
+          'Например, VK Video шёл в июне и июле. Это не две независимые аудитории: часть людей могла увидеть рекламу в обоих месяцах.',
+          'Объединяет периоды одной площадки и учитывает повторных людей между неделями/периодами. Если есть weekly Human Reach — использует его. Если есть только общий Reach площадки за весь флайт — берёт его один раз.',
+          'Один Human Reach площадки за весь флайт, без простого сложения месячных Reach.',
+          'Временная зависимость задаётся профилем ρ: LOW '+num(rho.LOW,2)+', BASE '+num(rho.BASE,2)+', HIGH '+num(rho.HIGH,2)+'. Чем больше разрыв между периодами, тем меньше ожидаемое пересечение.'
+        )}
+        ${step(
+          'LEVEL 3B',
+          'Понимаем, сколько людей получили 1, 2, 3 и больше контактов',
+          'Средняя частота сама по себе не говорит, сколько людей увидели рекламу хотя бы 3 раза. Два плана с одинаковой средней частотой могут иметь разное распределение контактов.',
+          'Строит распределение контактов среди охваченных людей и из него получает Reach 1+, 2+, 3+, 4+, 5+, 6+.',
+          'Охват каждой частоты одновременно в людях и в % целевой аудитории.',
+          'Модель частоты: Poisson-Lognormal, σ='+num(l3.sigma_default,2)+' по умолчанию. Средняя Human Frequency = Impressions / Human Reach 1+.'
+        )}
+        ${step(
+          'LEVEL 4',
+          'Объединяем площадки внутри одного канала',
+          'Например, внутри OLV могут одновременно использоваться VK Video, Rutube и другие площадки. Один человек может быть охвачен сразу несколькими из них.',
+          'Сначала учитывает группы связанных аудиторий, затем дедуплицирует площадки внутри канала. Измеренные пересечения имеют приоритет; если их нет, используется нейтральная модель.',
+          'Уникальный Reach канала — без повторного счёта людей между площадками.',
+          'Для 2 сущностей расчёт аналитический. Для 3+ связанных сущностей сначала проверяется глобальная математическая совместимость, затем при необходимости используется Maximum Entropy.'
+        )}
+        ${step(
+          'LEVEL 5',
+          'Объединяем каналы внутри одного флайта',
+          'Например, один и тот же человек мог попасть и в OLV, и в баннеры, и в соцсети в рамках одного флайта.',
+          'Оценивает пересечение аудиторий каналов и убирает дубли. Поэтому общий Reach флайта меньше простой суммы Reach каналов.',
+          'Уникальный Reach всего флайта и вклад каждого канала в этот Reach.',
+          'Model-default зависимость каналов: ρ target='+num(l5.rho_channel_target,2)+'. Если модельные зависимости для 3+ каналов несовместимы, ослабляется только model-default часть; измеренные/custom inputs не меняются.'
+        )}
+        ${step(
+          'LEVEL 6',
+          'Объединяем несколько флайтов одной Line',
+          'Например, кампания шла весной, летом и осенью. Некоторые люди увидят рекламу повторно в разных флайтах, но доля повторов зависит от временного разрыва.',
+          'Учитывает временное пересечение между флайтами и остаточную повторяемость аудитории. Чем дальше флайты друг от друга, тем меньше ожидаемый overlap.',
+          'Уникальный Reach всей Line за весь период.',
+          q+'. Остаточная модельная дедупликация ограничена '+pct(l6.residual_cap??.10,0)+' от меньшего Reach пары. Always-on ↔ burst требует реального Reach-среза за burst-период.'
+        )}
+        ${step(
+          'LEVEL 7',
+          'Объединяем несколько Lines в общий Reach бренда',
+          'Например, бренд одновременно продвигает несколько продуктовых линий. Один человек может попасть в охват нескольких Lines.',
+          'Объединяет Lines только если они пересчитаны на одну и ту же целевую аудиторию, географию, период и одинаковое определение уникального человека.',
+          'Brand Total Reach — сколько уникальных людей охвачено брендом суммарно по всем выбранным Lines.',
+          'Нужен подтверждённый Brand Master Universe и единый Brand Master scope. Если Lines доступны разным подгруппам аудитории, BrandAddressabilityMap задаёт реальные ограничения доступности.'
+        )}
+      </div>
+      <details class="v16-solver-tech">
+        <summary>Технические ограничения математического решателя</summary>
+        <div class="v16-note">До ${eng.max_entities||12} сущностей в joint-state. Feasibility tolerance ${eng.feasibility_tolerance||'1e-9'}, solver tolerance ${eng.solver_constraint_tolerance||'1e-8'}, максимум ${eng.max_iterations||10000} итераций. Этот блок нужен для аудита, а не для ежедневной работы.</div>
+      </details>`;
   }
 
   function renderPrecalc(){renderInputAudit();renderL2Decision();renderModelMap()}
