@@ -417,7 +417,7 @@
     const W=620,H=190,L=46,R=16,T=18,B=36;
     const x=k=>L+(k-1)*(W-L-R)/5;
     const y=p=>T+(maxPct-p)*(H-T-B)/maxPct;
-    const poly=pts.map(p=>${x(p.k).toFixed(1)},${y(p.pct).toFixed(1)}).join(' ');
+    const poly=pts.map(p=>`${x(p.k).toFixed(1)},${y(p.pct).toFixed(1)}`).join(' ');
     const grid=[0,.25,.5,.75,1].map(f=>{
       const p=maxPct*f,yy=y(p);
       return `<g><line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="v16-chart-grid"/><text x="${L-6}" y="${yy+4}" text-anchor="end" class="v16-chart-axis">${num(p,0)}%</text></g>`;
