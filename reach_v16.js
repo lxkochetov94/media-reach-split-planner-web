@@ -147,10 +147,18 @@
     return raw?Number(raw):null;
   }
 
+  function collectLineScope(plan){
+    return {
+      scopeConfirmed:!!plan.root.querySelector('.v16-line-scope-confirm')?.checked,
+      identityConfirmed:!!plan.root.querySelector('.v16-line-identity-confirm')?.checked
+    };
+  }
+
   function allUserState(){
     const plans=selectedPlans();
     const family_mapping={},family_mapping_confirmed={},environments={},browser_families={},
-      unit_web_device_universes={},device_reaches={},web_device_universes={},aon_slices={};
+      unit_web_device_universes={},device_reaches={},web_device_universes={},aon_slices={},
+      line_scope_confirmed={},line_identity_confirmed={};
     plans.forEach(p=>{
       const x=collectFamilyMapping(p);
       family_mapping[p.id]=x.mapping;
@@ -161,9 +169,13 @@
       device_reaches[p.id]=x.deviceReach;
       const lud=lineUD(p); if(lud)web_device_universes[p.id]=lud;
       const aon=collectAonSlices(p); if(Object.keys(aon).length)aon_slices[p.id]=aon;
+      const lineScope=collectLineScope(p);
+      line_scope_confirmed[p.id]=lineScope.scopeConfirmed;
+      line_identity_confirmed[p.id]=lineScope.identityConfirmed;
     });
     return {plans,family_mapping,family_mapping_confirmed,environments,browser_families,
-      unit_web_device_universes,device_reaches,web_device_universes,aon_slices};
+      unit_web_device_universes,device_reaches,web_device_universes,aon_slices,
+      line_scope_confirmed,line_identity_confirmed};
   }
 
   function markDirty(){
@@ -218,6 +230,35 @@
           </div>
         </details>`: '';
 
+      const sourceFlights=(p.source_flights||[]).map(f=>`
+        <div class="v16-scope-flight">
+          <strong>${esc(f.label||f.id)}</strong>
+          <span>TA: ${esc(f.ta_name||'—')}</span>
+          <span>U: ${f.source_universe?num(f.source_universe,0):'—'}</span>
+          <span>${esc(f.start||'—')} — ${esc(f.end||'—')}</span>
+        </div>`).join('');
+
+      const lineScopeReview=`
+        <details class="v16-plan-advanced" ${(p.source_universe_mismatch||p.source_ta_mismatch)?'open':''}>
+          <summary>Line scope · source Flights и нормализация</summary>
+          <div class="v16-scope-flight-list">${sourceFlights||'<div class="v16-note">Source flight scope не распознан.</div>'}</div>
+          ${p.source_ta_mismatch?'<div class="warning" style="margin-top:8px"><strong>TA mismatch:</strong> Flights имеют разные ЦА. Это нельзя снять галочкой — нужны upstream inputs на одной Line Master TA.</div>':''}
+          ${p.source_universe_mismatch?'<div class="warning" style="margin-top:8px"><strong>Universe mismatch:</strong> движок не использует Universe последнего Flight автоматически. Можно пересчитать все Flights на Human Universe Line выше только после явного подтверждения одинакового TA/geo/human scope.</div>':''}
+          <label class="v16-confirm-line">
+            <input type="checkbox" class="v16-line-scope-confirm">
+            <span><strong>Подтверждаю Line Master Universe / scope</strong><small>Нужно, если Human Universe Line отличается от source U или source U различаются. Это не разрешает TA mismatch.</small></span>
+          </label>
+        </details>`;
+
+      const identityReview=p.line_identity_review_required?`
+        <div class="warning v16-line-identity-warning" style="margin-top:10px">
+          <strong>LINE IDENTITY HEADER CONFLICT.</strong> Названия листов имеют общий маркер с другой Line, но Campaign/Line headers расходятся. Движок не объединяет такие Lines автоматически.
+          <label class="v16-confirm-line" style="margin-top:8px">
+            <input type="checkbox" class="v16-line-identity-confirm">
+            <span><strong>Подтверждаю текущую разбивку на отдельные Lines</strong><small>Если это одна Line, сначала исправьте/нормализуйте Campaign/Line identity в исходном МП.</small></span>
+          </label>
+        </div>`: '';
+
       box.innerHTML=`
         <div class="v16-plan-head">
           <label class="v16-plan-title">
@@ -239,6 +280,8 @@
           <div><span class="v16-auto-label">L2 model fallback</span><strong>D = ${num(rec.D,2)}</strong><small>${sourceLabel(rec.D_source)} · ${fmtRange(rec.D_min,rec.D_max)}</small></div>
           <div class="field"><label>Line-level U_D, если замер одинаков для Web units</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Не выдумывать"></div>
         </div>
+        ${lineScopeReview}
+        ${identityReview}
 
         <details class="v16-mapping" open>
           <summary>Audience Family и technical environment · обязательная проверка перед расчётом</summary>
@@ -275,12 +318,16 @@
       const mapped=Object.values(mapping.mapping).filter(Boolean).length;
       const mappingReady=mapped===(p.meta.inventory_units||[]).length&&mapping.confirmed;
       const allU=Number.isFinite(p.universe)&&p.universe>0;
+      const scope=collectLineScope(p);
+      const scopeBadge=p.meta.source_ta_mismatch?badge('TA mismatch','err'):(p.meta.source_universe_mismatch?(scope.scopeConfirmed?badge('U normalized','ok'):badge('U mismatch','warn')):'');
+      const identityBadge=p.meta.line_identity_review_required?(scope.identityConfirmed?badge('Line split confirmed','ok'):badge('Line identity review','warn')):'';
       return `<div class="v16-audit-card">
-        <div class="v16-audit-title">${l1===rows?badge('L1 готов','ok'):badge('L1 проверить','warn')} ${mappingReady?badge('Family confirmed','ok'):badge('Family не подтверждена','warn')}<strong>${esc(p.meta.label||p.id)}</strong></div>
+        <div class="v16-audit-title">${l1===rows?badge('L1 готов','ok'):badge('L1 проверить','warn')} ${mappingReady?badge('Family confirmed','ok'):badge('Family не подтверждена','warn')} ${scopeBadge} ${identityBadge}<strong>${esc(p.meta.label||p.id)}</strong></div>
         <div class="v16-audit-stats">
           <span>Строк: <b>${rows}</b></span><span>L1 ready: <b>${l1}/${rows}</b></span>
           <span>Universe: <b>${allU?num(p.universe,0):'нет'}</b></span><span>Family mapping: <b>${mapped}/${(p.meta.inventory_units||[]).length}</b></span>
           <span>С датами: <b>${x.dated_rows||0}</b></span><span>I+F: <b>${x.impressions_frequency_rows||0}</b></span>
+          <span>Source U: <b>${(p.meta.source_flights||[]).map(f=>f.source_universe?num(f.source_universe,0):'—').join(' / ')||'—'}</b></span>
         </div>
       </div>`;
     }).join('')+'</div>';
@@ -552,6 +599,8 @@
       },
       family_mapping:state.family_mapping,
       family_mapping_confirmed:state.family_mapping_confirmed,
+      line_scope_confirmed:state.line_scope_confirmed,
+      line_identity_confirmed:state.line_identity_confirmed,
       aon_slices:state.aon_slices,
       brand_universe:brandRaw===''?null:Number(brandRaw),
       brand_universe_confirmed:!!$(ids.brandUConfirm)?.checked,
