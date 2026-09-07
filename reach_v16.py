@@ -1496,6 +1496,8 @@ def discover(path: str) -> str:
             "campaign": g.campaign,
             "universe": float(plan.universe) if plan.universe else None,
             "ta_name": ta,
+            "period_start": _date(plan.period_start),
+            "period_end": _date(plan.period_end),
             "flight_count": len(plan.flights),
             "placement_count": len(plan.detail_rows()),
             "advanced_recommended": recommended_advanced_factors(ta),
