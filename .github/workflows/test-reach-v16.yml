@@ -12,6 +12,7 @@ on:
       - "reach_v16.css"
       - "test_reach_v16.py"
       - "test_reach_v16_math.py"
+      - "test_reach_v16_lab_fixture.py"
       - "index.html"
       - ".github/workflows/test-reach-v16.yml"
   pull_request:
@@ -23,6 +24,7 @@ on:
       - "reach_v16.css"
       - "test_reach_v16.py"
       - "test_reach_v16_math.py"
+      - "test_reach_v16_lab_fixture.py"
       - "index.html"
       - ".github/workflows/test-reach-v16.yml"
 
@@ -40,13 +42,13 @@ jobs:
 
       - name: Python syntax
         run: |
-          PYTHONPATH=.debug_sources:. python -m py_compile reach_v16_math.py reach_v16.py test_reach_v16_math.py test_reach_v16.py
+          PYTHONPATH=.debug_sources:. python -m py_compile reach_v16_math.py reach_v16.py test_reach_v16_math.py test_reach_v16.py test_reach_v16_lab_fixture.py
 
       - name: JavaScript syntax
         run: node --check reach_v16.js
 
       - name: Reach Engine v1.6 regression suite
-        run: PYTHONPATH=.debug_sources:. python -m unittest -v test_reach_v16_math test_reach_v16
+        run: PYTHONPATH=.debug_sources:. python -m unittest -v test_reach_v16_math test_reach_v16 test_reach_v16_lab_fixture
 
       - name: Guard production 0.52 reach code
         shell: bash
