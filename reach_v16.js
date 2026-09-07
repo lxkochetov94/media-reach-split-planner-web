@@ -5,6 +5,9 @@
     dz:'v16Dropzone',fi:'v16FileInput',file:'v16FileName',status:'v16Status',
     plans:'v16PlanWrap',controls:'v16Controls',mode:'v16L2Mode',k:'v16K',L:'v16L',B:'v16B',D:'v16D',
     brandU:'v16BrandUniverse',brandUConfirm:'v16BrandUniverseConfirm',autoU:'v16BrandUniverseAuto',
+    brandTA:'v16BrandMasterTA',brandGeo:'v16BrandMasterGeo',
+    brandStart:'v16BrandHorizonStart',brandEnd:'v16BrandHorizonEnd',
+    brandScopeConfirm:'v16BrandScopeConfirm',expertJson:'v16ExpertJson',
     targetF:'v16TargetFrequency',calc:'v16Calc',
     metrics:'v16Metrics',table:'v16Table',warning:'v16Warning',diag:'v16Diagnostics',
     profile:'v16FrequencyProfile',exact:'v16ExactFrequency',contrib:'v16ContributionTable',
@@ -17,8 +20,8 @@
     if(!coreReady)throw new Error('Базовый парсер не готов');
     if(v16ModuleReady)return;
     const [mathResp,adapterResp]=await Promise.all([
-      fetch('reach_v16_math.py?v=1.6.5'),
-      fetch('reach_v16.py?v=1.6.5')
+      fetch('reach_v16_math.py?v=1.6.6'),
+      fetch('reach_v16.py?v=1.6.6')
     ]);
     if(!mathResp.ok||!adapterResp.ok)throw new Error('Не удалось загрузить канонический Reach Engine v1.6');
     const [mathTxt,adapterTxt]=await Promise.all([mathResp.text(),adapterResp.text()]);
@@ -46,6 +49,36 @@
   function nval(id){
     const raw=$(id)?.value?.trim?.()??'';
     return raw===''?null:Number(raw);
+  }
+  function deepMergeV16(base,extra){
+    if(Array.isArray(extra))return extra.slice();
+    if(!extra||typeof extra!=='object')return extra;
+    const out=(base&&typeof base==='object'&&!Array.isArray(base))?{...base}:{};
+    for(const [k,v] of Object.entries(extra)){
+      if(['__proto__','prototype','constructor'].includes(k))continue;
+      out[k]=(v&&typeof v==='object'&&!Array.isArray(v))?deepMergeV16(out[k],v):(Array.isArray(v)?v.slice():v);
+    }
+    return out;
+  }
+
+  function expertCanonicalInputs(){
+    const raw=$(ids.expertJson)?.value?.trim()||'';
+    if(!raw)return {};
+    let parsed;
+    try{parsed=JSON.parse(raw)}catch(e){throw new Error('Canonical measured inputs JSON: '+e.message)}
+    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw new Error('Canonical measured inputs JSON должен быть object.');
+    return parsed;
+  }
+
+  function prefillBrandScope(){
+    const plans=v16Meta?.plans||[];
+    const tas=[...new Set(plans.map(p=>(p.ta_name||'').trim()).filter(Boolean))];
+    if(tas.length===1&&$(ids.brandTA))$(ids.brandTA).value=tas[0];
+    const starts=plans.map(p=>p.period_start).filter(Boolean).sort();
+    const ends=plans.map(p=>p.period_end).filter(Boolean).sort();
+    if(starts.length&&$(ids.brandStart))$(ids.brandStart).value=starts[0];
+    if(ends.length&&$(ids.brandEnd))$(ids.brandEnd).value=ends[ends.length-1];
+    if($(ids.brandScopeConfirm))$(ids.brandScopeConfirm).checked=false;
   }
   function targetFrequency(){return Math.max(1,Math.min(6,Number($(ids.targetF)?.value||3)))}
   function reachAt(obj,k){return obj?.[`reach_${k}p`]}
@@ -503,7 +536,7 @@
     }
 
     const brandRaw=$(ids.brandU)?.value?.trim()||'';
-    const q={
+    let q={
       selected_plan_ids:plans.map(x=>x.id),
       universes:Object.fromEntries(plans.map(x=>[x.id,x.universe])),
       l2_mode:currentMode(),
@@ -521,10 +554,16 @@
       family_mapping_confirmed:state.family_mapping_confirmed,
       aon_slices:state.aon_slices,
       brand_universe:brandRaw===''?null:Number(brandRaw),
-      brand_universe_confirmed:!!$(ids.brandUConfirm)?.checked
+      brand_universe_confirmed:!!$(ids.brandUConfirm)?.checked,
+      brand_master_ta:$(ids.brandTA)?.value?.trim()||'',
+      brand_master_geo:$(ids.brandGeo)?.value?.trim()||'',
+      brand_horizon_start:$(ids.brandStart)?.value||'',
+      brand_horizon_end:$(ids.brandEnd)?.value||'',
+      brand_scope_confirmed:!!$(ids.brandScopeConfirm)?.checked
     };
 
     try{
+      q=deepMergeV16(q,expertCanonicalInputs());
       clearResults();
       setStatus(ids.status,'<span class="spinner"></span>Считаю канонические Levels 1–7…');
       const data=await v16Call('reach_v16.calculate(p,q)',{p:v16Path,q:JSON.stringify(q)});
@@ -553,6 +592,7 @@
       v16Meta=await v16Call('reach_v16.discover(p)',{p:v16Path});
       if(!v16Meta.plans?.length)throw new Error('В файле не найден рабочий медиаплан');
       renderPlanControls();
+      prefillBrandScope();
       $(ids.controls).classList.remove('hidden');
       setStatus(ids.status,`✓ Распознано ${v16Meta.plans.length} Line. Проверьте Family mapping, environment и Brand scope.`,'ok');
     }catch(e){
@@ -576,6 +616,8 @@
     $(ids.targetF)?.addEventListener('change',()=>{if(v16Data){renderMetrics();renderFrequencyProfile()}});
     $(ids.brandU)?.addEventListener('change',()=>{if($(ids.brandUConfirm))$(ids.brandUConfirm).checked=false;markDirty()});
     $(ids.brandUConfirm)?.addEventListener('change',markDirty);
+    [ids.brandTA,ids.brandGeo,ids.brandStart,ids.brandEnd,ids.expertJson].forEach(id=>$(id)?.addEventListener('change',markDirty));
+    $(ids.brandScopeConfirm)?.addEventListener('change',markDirty);
     $(ids.autoU)?.addEventListener('click',()=>{
       const vals=selectedPlans().map(x=>x.universe).filter(x=>Number.isFinite(x)&&x>0);
       if(vals.length){
