@@ -192,12 +192,55 @@ class ReachV16Tests(unittest.TestCase):
         vals = [out[f"reach_{i}p"] for i in range(1,7)]
         self.assertTrue(all(vals[i] >= vals[i+1] - 1e-6 for i in range(5)))
 
+    def test_pair_input_priority_and_normalization(self):
+        U = 10_000_000
+        es = [
+            {"name":"A", "reach_1p":3_000_000, "addressable_universe":U},
+            {"name":"B", "reach_1p":2_000_000, "addressable_universe":U},
+        ]
+        specs = [
+            {"a":"A","b":"B","source":"CUSTOM","J":700_000},
+            {"a":"A","b":"B","source":"MEASURED","union":4_600_000},
+        ]
+        raw = r._pair_raw_by_index(es, specs)
+        self.assertEqual(raw[(0,1)]["source"], "MEASURED")
+        norm = r._normalized_pair_details(es, U, specs, default_rho=0.0)
+        self.assertAlmostEqual(norm[(0,1)]["J"], 400_000)
+        self.assertEqual(norm[(0,1)]["source"], "MEASURED")
+
+    def test_brand_scope_contract_and_identity(self):
+        U = 10_000_000
+        a = ent("L1", 3_000_000, start=dt.date(2026,1,1), end=dt.date(2026,3,31))
+        a.update({
+            "ta_name":"Women 25-55","brand":"X","plan_id":"P1",
+            "addressable_universe":U,"addressable_universe_assumed":True,
+        })
+        q = {
+            "brand_scope_confirmed": True,
+            "brand_master_ta": "Women 25-55",
+            "brand_master_geo": "РФ",
+            "brand_horizon_start": "2026-01-01",
+            "brand_horizon_end": "2026-12-31",
+        }
+        out = r._brand_merge([a], U, [], q)
+        self.assertAlmostEqual(out["reach_1p"], a["reach_1p"])
+        self.assertEqual(out["brand_master_geo"], "РФ")
+
     def test_ta_mismatch_blocks_brand_total(self):
         U = 10_000_000
-        a = ent("L1", 3_000_000); a.update({"ta_name":"Women 25-55","brand":"X"})
-        b = ent("L2", 2_000_000); b.update({"ta_name":"Women 18-34","brand":"X"})
-        with self.assertRaises(r.V16Error):
-            r._brand_merge([a,b], U, [])
+        a = ent("L1", 3_000_000, start=dt.date(2026,1,1), end=dt.date(2026,3,31))
+        b = ent("L2", 2_000_000, start=dt.date(2026,4,1), end=dt.date(2026,6,30))
+        a.update({"ta_name":"Women 25-55","brand":"X","plan_id":"P1"})
+        b.update({"ta_name":"Women 18-34","brand":"X","plan_id":"P2"})
+        q = {
+            "brand_scope_confirmed": True,
+            "brand_master_ta": "Women 25-55",
+            "brand_master_geo": "РФ",
+            "brand_horizon_start": "2026-01-01",
+            "brand_horizon_end": "2026-12-31",
+        }
+        with self.assertRaisesRegex(r.V16Error, "TA_NORMALIZATION_REQUIRED"):
+            r._brand_merge([a,b], U, [], q)
 
 
 if __name__ == "__main__":
