@@ -213,89 +213,25 @@
     const wrap=$(ids.plans);wrap.innerHTML='';
     for(const p of v16Meta?.plans||[]){
       const rec=p.advanced_recommended||{},prof=p.input_profile||{};
-      const reachRows=prof.reach_scope_rows??prof.rows??0;
+      const reachRows=prof.reach_scope_rows??0;
       const readiness=reachRows?Math.round(100*(prof.l1_ready_rows||0)/reachRows):0;
       const box=document.createElement('div');
       box.className='v16-plan';
       box.dataset.planId=p.id;
 
-      const units=(p.inventory_units||[]).map(u=>`
-        <tr class="v16-unit-row" data-unit-id="${esc(u.id)}">
-          <td><strong>${esc(u.platform||'')}</strong><span class="v16-th-sub">${esc(u.channel||'—')} · ${esc(u.format||'—')}</span></td>
-          <td><input class="v16-family" value="${esc(u.suggested_family||'')}" aria-label="Группа аудитории"></td>
-          <td>
-            <select class="v16-env">
-              <option value="UNKNOWN" selected>Не определена → Quick</option>
-              <option value="WEB">Web / browser</option>
-              <option value="MOBILE_APP">Mobile app</option>
-              <option value="CTV">CTV / OTT</option>
-            </select>
-          </td>
-          <td>
-            <details class="v16-mini-details">
-              <summary>Доп. device-данные</summary>
-              <div class="v16-mini-grid">
-                <select class="v16-browser">
-                  <option value="UNKNOWN" selected>Браузер не определён</option>
-                  <option value="CHROMIUM">Chromium-class</option>
-                  <option value="SAFARI">Safari / WebKit</option>
-                </select>
-                <input class="v16-unit-ud" type="number" min="1" step="1" placeholder="U_D, если измерен">
-                <input class="v16-device-reach" type="number" min="0" step="1" placeholder="Device Reach, если измерен">
-              </div>
-            </details>
-          </td>
-        </tr>`).join('');
-
-      const platformScopes=(p.platform_scopes||[]).length?`
-        <details class="v16-plan-advanced v16-required-input" open>
-          <summary>Нужен общий Reach для площадок, разбитых на несколько периодов · ${p.platform_scopes.length}</summary>
-          <div class="v16-note" style="margin:7px 0">Reach разных месяцев одной площадки нельзя просто сложить: один человек мог попасть в несколько периодов. Если площадка дала общий Technical Reach за весь флайт — внесите его здесь.</div>
-          <div class="v16-compact-input-list">
-            ${p.platform_scopes.map(s=>`
-              <label><span><strong>${esc(s.platform||s.scope_id)}</strong><small>${esc(s.channel||'—')} · ${s.fragment_count||0} строк</small></span>
-                <input class="v16-aggregate-rtech" data-scope-id="${esc(s.scope_id)}" type="number" min="0" step="1" placeholder="Общий Technical Reach за флайт">
-              </label>`).join('')}
-          </div>
-        </details>`:'';
-
       const lineScope=(p.source_universe_mismatch||p.source_ta_mismatch)?`
         <details class="v16-plan-advanced v16-required-input" open>
           <summary>Проверка ЦА / Universe между флайтами</summary>
-          ${p.source_ta_mismatch?'<div class="warning">Во флайтах разные ЦА. Их нельзя объединить без пересчёта на одну Line Master TA.</div>':''}
-          ${p.source_universe_mismatch?'<div class="v16-note" style="margin:7px 0">Universe между флайтами различается. Подтвердите единый Line Universe только если это одна и та же ЦА, география и human-definition.</div>':''}
-          <label class="v16-confirm-line"><input type="checkbox" class="v16-line-scope-confirm"><span><strong>Подтверждаю единый Line Universe</strong></span></label>
+          ${p.source_ta_mismatch?'<div class="warning">Во флайтах разные целевые аудитории. Их нельзя объединить без пересчёта на одну и ту же ЦА.</div>':''}
+          ${p.source_universe_mismatch?'<div class="v16-note" style="margin:7px 0">ЦА совпадает, но Universe в исходнике различается. Подтвердите единый Line Universe только если это одна и та же ЦА и география.</div>':''}
+          ${p.source_universe_mismatch?'<label class="v16-confirm-line"><input type="checkbox" class="v16-line-scope-confirm"><span><strong>Подтверждаю единый Line Universe</strong></span></label>':''}
         </details>`:'';
 
       const identity=p.line_identity_review_required?`
         <details class="v16-plan-advanced v16-required-input" open>
           <summary>Нужно подтвердить разбивку на Lines</summary>
-          <div class="v16-note">Названия листов похожи, но Campaign/Line headers расходятся. Если это действительно разные Lines — подтвердите.</div>
-          <label class="v16-confirm-line"><input type="checkbox" class="v16-line-identity-confirm"><span><strong>Подтверждаю текущую разбивку на отдельные Lines</strong></span></label>
-        </details>`:'';
-
-      const excluded=(p.excluded_reach_rows||[]).length?`
-        <details class="v16-plan-advanced">
-          <summary>Строки вне расчёта Reach · ${p.excluded_reach_rows.length}</summary>
-          <div class="v16-note">Эти строки остаются в медиаплане, но для них нет достаточных охватных данных. Reach для них не моделируется.</div>
-        </details>`:'';
-
-      const sourceQa=(p.import_warnings||[]).filter(w=>String(w.code||'').startsWith('SOURCE_'));
-      const sourceQaBlock=sourceQa.length?`
-        <details class="v16-plan-advanced">
-          <summary>Замечания к исходному файлу · ${sourceQa.length}</summary>
-          <div class="v16-source-compact">${sourceQa.map(w=>`<div><strong>${esc(w.code||'SOURCE_QA')}</strong><span>${esc(w.message||'')}</span></div>`).join('')}</div>
-        </details>`:'';
-
-      const aon=(p.aon_pairs||[]).length?`
-        <details class="v16-plan-advanced">
-          <summary>Always-on ↔ burst · измеренный Reach за burst-период</summary>
-          <div class="v16-compact-input-list">
-            ${p.aon_pairs.map(x=>`
-              <label><span><strong>${esc(x.aon_label)} → ${esc(x.burst_label)}</strong><small>${esc(x.burst_start||'')}—${esc(x.burst_end||'')}</small></span>
-                <input class="v16-aon-slice" data-aon-id="${esc(x.aon_flight_id)}" data-burst-id="${esc(x.burst_flight_id)}" type="number" min="0" step="1" placeholder="Human Reach за burst-период">
-              </label>`).join('')}
-          </div>
+          <div class="v16-note">Названия листов похожи, но Campaign/Line headers расходятся. Подтверждение нужно только если это действительно отдельные Lines.</div>
+          <label class="v16-confirm-line"><input type="checkbox" class="v16-line-identity-confirm"><span><strong>Это отдельные Lines</strong></span></label>
         </details>`:'';
 
       box.innerHTML=`
@@ -304,24 +240,24 @@
             <input type="checkbox" class="v16-plan-cb" checked>
             <span><strong>${esc(p.label||p.line||p.campaign||p.id)}</strong><span class="hint">${esc((p.sheet_names||[]).join(', '))}</span></span>
           </label>
-          <div class="field"><label>Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="${p.universe?Math.round(p.universe):''}" placeholder="Обязательный вход"></div>
+          <div class="field"><label>Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="${p.universe?Math.round(p.universe):''}" placeholder="Universe ЦА"></div>
           <div class="v16-plan-facts">
             <span>ЦА: <strong>${esc(p.ta_name||'не распознана')}</strong></span>
-            <span>${p.flight_count||0} флайт(а) · ${reachRows} Reach-размещений</span>
-            <span>Готовность L1: <strong>${readiness}%</strong></span>
+            <span>${p.flight_count||0} флайт(а) · ${reachRows} охватных строк</span>
+            <span>Готовность входов: <strong>${readiness}%</strong></span>
           </div>
         </div>
 
         <div class="v16-auto-strip">
           <div>
-            <span class="v16-auto-label">Авто по ЦА</span>
+            <span class="v16-auto-label">Автоматически по ЦА</span>
             <strong>B = ${num(rec.B,2)}</strong>
-            <small><b>B — среднее число browser ID на одно web-устройство.</b> Для этой ЦА диапазон ${fmtRange(rec.B_min,rec.B_max)}.</small>
+            <small><b>B — среднее число browser ID на одно web-устройство.</b> Диапазон для этой ЦА: ${fmtRange(rec.B_min,rec.B_max)}.</small>
           </div>
           <div>
-            <span class="v16-auto-label">Авто по ЦА</span>
+            <span class="v16-auto-label">Автоматически по ЦА</span>
             <strong>D = ${num(rec.D,2)}</strong>
-            <small><b>D — среднее число устройств на одного человека.</b> Для этой ЦА диапазон ${fmtRange(rec.D_min,rec.D_max)}.</small>
+            <small><b>D — среднее число устройств на одного человека.</b> Диапазон для этой ЦА: ${fmtRange(rec.D_min,rec.D_max)}.</small>
           </div>
           <div>
             <span class="v16-auto-label">Методология</span>
@@ -331,26 +267,20 @@
         </div>
 
         <details class="v16-plan-advanced">
-          <summary>Есть измеряемый Web-device Universe U<sub>D</sub>?</summary>
+          <summary>U<sub>D</sub> — если есть реальное измерение web-устройств</summary>
           <div class="v16-plan-advanced-body">
-            <div class="field v16-ud-field"><label>U<sub>D</sub> для этой Line</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если данных нет"></div>
-            <div class="v16-note"><b>U<sub>D</sub> — измеренное количество уникальных web-устройств этой же ЦА, географии и периода.</b> Это устройства, не люди. Если такого измерения нет — оставьте поле пустым.</div>
+            <div class="field v16-ud-field"><label>U<sub>D</sub> для этой Line</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если измерения нет"></div>
+            <div class="v16-note"><b>U<sub>D</sub> — измеренное количество уникальных web-устройств этой же ЦА, географии и периода.</b> Это не люди. Если такого измерения нет, движок сам остаётся на Quick-пути.</div>
           </div>
         </details>
 
         ${lineScope}
         ${identity}
-        ${platformScopes}
-        ${sourceQaBlock}
-        ${excluded}
 
-        <details class="v16-plan-advanced">
-          <summary>Проверьте группировку площадок для дедупликации</summary>
-          <div class="v16-note" style="margin:7px 0">Нужно только подтвердить, какие размещения относятся к одной аудитории/экосистеме. Предложенные группы уже заполнены.</div>
-          <div class="table-wrap"><table class="data-table v16-compact-map"><thead><tr><th>Площадка</th><th>Группа аудитории</th><th>Среда</th><th>Доп. данные</th></tr></thead><tbody>${units}</tbody></table></div>
-          <label class="v16-confirm-line"><input type="checkbox" class="v16-family-confirm"><span><strong>Я проверил группировку площадок</strong></span></label>
-        </details>
-        ${aon}
+        <div class="v16-auto-note">
+          <strong>Остальное определяется автоматически.</strong>
+          <span>Reach Engine сам фильтрует охватные модели закупки, определяет канал/формат, среду и Audience Family, объединяет повторные периоды площадки и обрабатывает Always-on.</span>
+        </div>
       `;
 
       wrap.appendChild(box);
