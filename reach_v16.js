@@ -447,7 +447,7 @@
       return `<div class="v16-audit-card ${stateKind}">
         <div class="v16-audit-title">${badge(stateText,stateKind)}<strong>${esc(p.meta.label||p.id)}</strong></div>
         <div class="v16-human-checks">
-          ${check(l1===reachRows?'ok':'warn','Данные для расчёта охвата',`${l1} из ${reachRows} строк готовы`,l1===reachRows?'Для каждой охватной строки есть готовый Technical Reach или пара Impressions + Frequency.':'Не для всех охватных строк хватает исходных данных.','Проверьте строки ниже; нужны Technical Reach либо Impressions + Frequency.')}
+          ${check(l1===reachRows?'ok':'warn','Данные для расчёта охвата',`${l1} из ${reachRows} строк готовы`,l1===reachRows?'Для каждой охватной строки есть готовый Technical Reach или пара Impressions + Frequency.':'Не для всех охватных строк хватает исходных данных.',l1===reachRows?'':'Проверьте строки ниже; нужны Technical Reach либо Impressions + Frequency.')}
           ${check(hardTa?'err':uIssue?'warn':'ok','Целевая аудитория и её размер',hardTa?'ЦА различаются':uIssue?'Размер ЦА различается':'Совпадают',hardTa?'Флайты относятся к разным целевым аудиториям — их Reach нельзя корректно объединить.':uIssue?'ЦА выглядит одинаковой, но её размер Universe отличается между флайтами.':'Критических противоречий по ЦА и Universe не найдено.',hardTa?'Пересчитайте входы на одну и ту же ЦА.':uIssue?'Проверьте актуальный Universe и подтвердите его ниже.':'')}
           ${check(mappingReady?'ok':'warn','Группировка площадок',mappingReady?'Проверена':`${mapped} из ${totalUnits} заполнено`,mappingReady?'Вы подтвердили, какие размещения могут относиться к одной пользовательской аудитории.':'Группировка нужна, чтобы один человек не считался несколько раз внутри связанных размещений.',mappingReady?'':'Проверьте карточки площадок ниже и подтвердите группировку.')}
           ${check(hardSourceError?'err':sourceWarnings.length?'warn':'ok','Качество исходного файла',sourceWarnings.length?`${sourceWarnings.length} замечаний`:'Ошибок не найдено',sourceWarnings.length?'В исходном медиаплане есть значения, которые требуют проверки. Движок не исправляет их молча.':'Автоматические проверки не нашли критических проблем. ',sourceWarnings.length?'Раскройте блок с ошибками исходного файла ниже.':'')}
@@ -669,7 +669,7 @@
       table.innerHTML='<tbody><tr><td class="hint">Здесь нечего сравнивать: на рассматриваемом уровне только одна сущность, поэтому её вклад равен всему Reach.</td></tr></tbody>';
       return;
     }
-    let h='<thead><tr><th>Канал / сущность</th><th>Родительский уровень</th><th class="num">Вклад в итоговый Reach</th><th class="num">Эксклюзивная аудитория</th><th class="num">Аудитория в пересечении</th></tr></thead><tbody>';
+    let h='<thead><tr><th>Канал / сущность</th><th>Родительский уровень</th><th class="num">Вклад в итоговый Reach</th><th class="num">Эксклюзивная аудитория</th><th class="num">Учтённая часть пересечений</th></tr></thead><tbody>';
     for(const r of rows){
       const parent=Number(r.parent_reach||0),sh=Number(r.shapley_people||0),ex=Number(r.exclusive_people||0),shared=Math.max(0,sh-ex);
       h+=`<tr>
@@ -677,7 +677,7 @@
         <td data-label="Родитель">${esc(r.parent||'')}</td>
         <td data-label="Вклад в Reach" class="num"><strong>${num(sh,0)} человек</strong><span class="v16-pct">${parent?pct(sh/parent,2):'—'} итогового Reach</span></td>
         <td data-label="Эксклюзивная аудитория" class="num"><strong>${num(ex,0)} человек</strong><span class="v16-pct">${parent?pct(ex/parent,2):'—'} итогового Reach</span></td>
-        <td data-label="В пересечении" class="num"><strong>${num(shared,0)} человек</strong><span class="v16-pct">${parent?pct(shared/parent,2):'—'} итогового Reach</span></td>
+        <td data-label="Учтённые пересечения" class="num"><strong>${num(shared,0)} человек</strong><span class="v16-pct">${parent?pct(shared/parent,2):'—'} итогового Reach</span></td>
       </tr>`;
     }
     table.innerHTML=h+'</tbody>';
