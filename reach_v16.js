@@ -319,26 +319,27 @@
     wrap.innerHTML='<div class="v16-decision-list">'+state.plans.map(p=>{
       const rec=p.meta.advanced_recommended||{};
       const hasUD=!!lineUD(p);
-      const effective=mode==='QUICK'?'QUICK':(mode==='ADVANCED'||mode==='ADVANCED_WEB')?(hasUD?'ADVANCED WEB':'НЕ ГОТОВ'):(hasUD?'ADVANCED WEB':'QUICK FALLBACK');
-      const kind=effective==='ADVANCED WEB'?'advanced':effective==='НЕ ГОТОВ'?'error':'fallback';
-      const path=effective==='ADVANCED WEB'
-        ?`<div class="v16-formula-path"><span>Technical Reach</span><b>→</b><span>L</span><b>→</b><span>B + U_D</span><b>→</b><span>D</span><b>→</b><span>Human Reach</span></div>`
-        :`<div class="v16-formula-path compact"><span>Technical Reach</span><b>→</b><span>÷ K=${num(K,2)}</span><b>→</b><span>Human Reach</span></div>`;
-      const why=effective==='ADVANCED WEB'
-        ?'Есть измеренный U_D, поэтому технические ID можно детально перевести в устройства, а затем в людей.'
-        :effective==='НЕ ГОТОВ'
-          ?'Выбран принудительный Advanced Web, но измеренного U_D нет.'
-          :'U_D не задан. Используется Quick: Technical Reach делится на K — модельное число технических ID на одного человека.';
-      return `<div class="v16-decision ${kind}">
-        <div class="v16-decision-head"><strong>${esc(p.meta.label||p.id)}</strong>${badge(effective,kind==='advanced'?'ok':kind==='error'?'err':'warn')}</div>
-        ${path}
-        <div class="v16-decision-why">${esc(why)}</div>
-        <div class="v16-param-row">
-          <span><b>B = ${num(rec.B,2)}</b><small>среднее число browser ID на одно web-устройство</small></span>
-          <span><b>D = ${num(rec.D,2)}</b><small>среднее число устройств на одного человека</small></span>
-          <span><b>U_D ${hasUD?num(lineUD(p),0):'нет'}</b><small>измеренный Universe web-устройств; если его нет — не подставляется</small></span>
+      const effective=mode==='QUICK'
+        ?'Quick K='+num(K,2)
+        :(mode==='ADVANCED'||mode==='ADVANCED_WEB')
+          ?(hasUD?'Advanced Web':'Advanced: нужен U_D')
+          :(hasUD?'Advanced Web':'Quick K='+num(K,2));
+      const kind=effective.startsWith('Advanced Web')?'advanced':effective.includes('нужен')?'error':'fallback';
+      return `<details class="v16-decision ${kind}">
+        <summary><strong>${esc(p.meta.label||p.id)}</strong><span>${esc(effective)}</span></summary>
+        <div class="v16-decision-body">
+          <div class="v16-formula-path compact">
+            <span>Technical Reach</span><b>→</b><span>${hasUD?'device-level перевод':'÷ K='+num(K,2)}</span><b>→</b><span>Human Reach</span>
+          </div>
+          <div class="v16-decision-why">${hasUD?'Есть измеренный U_D, поэтому доступен более детальный Web-расчёт.':'U_D не задан — это нормальный сценарий. Движок использует Quick-модель и не просит ручных данных.'}</div>
+          <div class="v16-param-row">
+            <span><b>B = ${num(rec.B,2)}</b><small>browser ID на одно web-устройство</small></span>
+            <span><b>D = ${num(rec.D,2)}</b><small>устройств на одного человека</small></span>
+            <span><b>L = 68 дней</b><small>стабильность browser ID Chromium</small></span>
+            <span><b>U_D ${hasUD?num(lineUD(p),0):'нет'}</b><small>измеренный Universe web-устройств</small></span>
+          </div>
         </div>
-      </div>`;
+      </details>`;
     }).join('')+'</div>';
   }
 
