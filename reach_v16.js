@@ -301,6 +301,15 @@
           </div>
         </details>`: '';
 
+      const sourceQaItems=(p.import_warnings||[]).filter(w=>String(w.code||'').startsWith('SOURCE_'));
+      const sourceQaReview=sourceQaItems.length?`
+        <details class="v16-plan-advanced v16-source-qa" open>
+          <summary>Source QA · ${sourceQaItems.length} предупреждений</summary>
+          <div class="v16-source-qa-list">
+            ${sourceQaItems.map(w=>`<div class="${String(w.code||'').includes('INVALID')?'err':'warn'}"><strong>${esc(w.code||'SOURCE_QA')}</strong><span>${esc(w.message||'')}</span></div>`).join('')}
+          </div>
+        </details>`: '';
+
       box.innerHTML=`
         <div class="v16-plan-head">
           <label class="v16-plan-title">
@@ -326,6 +335,7 @@
         ${identityReview}
         ${platformScopeInputs}
         ${excludedReach}
+        ${sourceQaReview}
 
         <details class="v16-mapping" open>
           <summary>Audience Family и technical environment · обязательная проверка перед расчётом</summary>
