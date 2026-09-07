@@ -629,7 +629,7 @@ def _truncated_distribution(mu: float, sigma: float, cap: int) -> Tuple[float, L
             term *= lam / k
             raw[k] += wz * term
     mass = sum(raw[1:])
-    if mass <= 1e-18:
+    if mass <= 1e-300:
         return float("inf"), [0.0] * cap
     cond = [raw[k] / mass for k in range(1, cap + 1)]
     mean = sum((k + 1) * p for k, p in enumerate(cond))
@@ -668,13 +668,29 @@ def poisson_lognormal_frequency(
     residual = None
     iterations = 0
     final_dist: Optional[List[float]] = None
-    for iterations in range(1, 121):
-        mid = (lo + hi) / 2.0
+
+    def conditional_mean_at(mu_value: float):
         if C is None:
-            mean, p0, probs = _pl_unconditional(mid, s, 5)
-            cond_mean = mean / max(1e-300, 1.0 - p0)
-        else:
-            cond_mean, dist = _truncated_distribution(mid, s, C)
+            mean_value, p0_value, probs_value = _pl_unconditional(mu_value, s, 5)
+            return mean_value / max(1e-300, 1.0 - p0_value), probs_value
+        mean_value, dist_value = _truncated_distribution(mu_value, s, C)
+        return mean_value, dist_value
+
+    # Hard-cap conditioning can require a very large μ when σ is heavy-tailed.
+    # Bracket the requested mean deterministically instead of assuming hi=12.
+    hi_mean, _ = conditional_mean_at(hi)
+    while hi_mean < f - 1e-10 and hi < 30.0:
+        hi += 2.0
+        hi_mean, _ = conditional_mean_at(hi)
+    if hi_mean < f - 1e-10:
+        raise ReachCalculationError(
+            "Poisson-Lognormal cap solver: target mean cannot be bracketed "
+            f"for sigma={s}, cap={C}, target={f}."
+        )
+
+    for iterations in range(1, 181):
+        mid = (lo + hi) / 2.0
+        cond_mean, dist = conditional_mean_at(mid)
         residual = cond_mean - f
         if abs(residual) <= 1e-10:
             lo = hi = mid
@@ -1451,7 +1467,7 @@ def audience_merge(
     solver = _ipf_maxent(reaches, U, targets, support=support)
     return _joint_output(
         ents, U, solver["weights"],
-        model_path=model_path + ("_ADDRESSABILITY_NEUTRAL" if all(abs(float(x.get("rho", 0))) <= 1e-15 for x in pd.values()) else "_MAXENT"),
+        model_path=model_path + ("_ADDRESSABILITY_NEUTRAL" if all(x.get("rho") is not None and abs(float(x.get("rho"))) <= 1e-15 for x in pd.values()) else "_MAXENT"),
         pair_details=pd, feasibility=feas, solver=solver,
     )
 
