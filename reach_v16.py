@@ -11,6 +11,7 @@ web tab.
 Production Web 0.52 is intentionally not called or modified.
 """
 
+import copy
 import datetime as dt
 import json
 import math
@@ -147,7 +148,7 @@ def model_catalog() -> dict:
         },
         "level4": {
             "rho_cross_default": 0.0,
-            "family_mapping": "USER_CONFIRMED_OR_REFERENCE_MAPPING",
+            "family_mapping": "AUTO_REFERENCE_MAPPING_WITH_OPTIONAL_OVERRIDE",
             "unstructured_neutral": "closed-form mutual independence",
             "structured_or_dependent": "global feasibility → Maximum Entropy",
         },
@@ -162,7 +163,7 @@ def model_catalog() -> dict:
                 {"universe": u, "multiplier": mu} for u, mu in m.UNIVERSE_MULTIPLIER_POINTS
             ],
             "relaxation": "common lambda >=1; never pair-specific clipping",
-            "aon": "requires deduplicated human temporal slice for AON↔burst",
+            "aon": "auto-model temporal slice from AON delivery footprint; measured override has priority",
         },
         "level7": {
             "rho_line_target": m.RHO_LINE_DEFAULT,
@@ -326,6 +327,140 @@ def _platform_label(row) -> str:
     return row.platform_canonical or row.platform or "Unknown platform"
 
 
+REACH_BUYING_MODELS = {"CPM", "CPV"}
+_NON_REACH_PLATFORMS = {"adriver", "ad river", "orm", "seo"}
+_REACH_CHANNEL_MAP = {
+    "баннеры": "Banners",
+    "banners": "Banners",
+    "olv": "OLV",
+    "social": "Social Nets",
+    "social nets": "Social Nets",
+    "native": "Native",
+    "нативная реклама": "Native",
+    "статьи": "Native",
+    "спецпроекты": "Native",
+    "блогеры": "Native",
+    "посевы": "Native",
+}
+
+
+def _reach_channel(row: Any) -> str:
+    """Reach-only channel classifier.
+
+    It deliberately does not mutate the legacy parser channel used by production 0.52.
+    Row format/product evidence outranks enclosing section labels.
+    """
+    platform = norm(_platform_label(row))
+    fmt = norm(getattr(row, "format", ""))
+    raw = norm(getattr(row, "raw_text", ""))
+    model = str(getattr(row, "buying_model", "") or "OTHER").upper()
+    text = " | ".join(x for x in (platform, fmt, raw) if x)
+
+    video = bool(re.search(
+        r"\bolv\b|video|видео|pre[- ]?roll|mid[- ]?roll|multi[- ]?roll|"
+        r"in[- ]?stream|instream|out[- ]?stream|outstream|ролик|досмотр|true view",
+        text, re.I,
+    ))
+    native = bool(re.search(
+        r"native|натив|стать|тгб|промостраниц|promo\s*pages?|promopages?|"
+        r"\bдзен\b|\bdzen\b|\bzen\b",
+        text, re.I,
+    ))
+    banner = bool(re.search(
+        r"banner|баннер|display|fullscreen|interstitial|медийн|attention smart|"
+        r"статик|креатив",
+        text, re.I,
+    ))
+    content_product = bool(re.search(
+        r"промостраниц|promo\s*pages?|promopages?|\bдзен\b|\bdzen\b|\bzen\b",
+        text, re.I,
+    ))
+
+    # Buying-model rule for content products is authoritative.
+    if content_product:
+        if model == "CPV" or video:
+            return "OLV"
+        if model == "CPM":
+            return "OLV" if video else ("Banners" if banner else "Banners")
+        return "Native"
+
+    # Avito explicit native inventory must not inherit an OLV section.
+    if platform == "avito":
+        if video or model == "CPV":
+            return "OLV"
+        if native:
+            return "Native"
+        return "Banners"
+
+    if video:
+        return "OLV"
+    if native:
+        return "Native"
+    if banner:
+        return "Banners"
+
+    cls = norm(getattr(row, "placement_class", ""))
+    if cls in _REACH_CHANNEL_MAP:
+        return _REACH_CHANNEL_MAP[cls]
+    legacy = norm(getattr(row, "channel", ""))
+    return _REACH_CHANNEL_MAP.get(legacy, getattr(row, "channel", None) or "Other")
+
+
+def _auto_family(row: Any) -> str:
+    # Same canonical platform = same automatic Audience Family. Different products
+    # are not guessed into one ecosystem unless the canonical registry already merged them.
+    return _platform_label(row).strip() or "Unknown platform"
+
+
+def _auto_environment(rows: Sequence[Any]) -> str:
+    text = norm(" | ".join(
+        " ".join(str(x or "") for x in (
+            _platform_label(r), getattr(r, "format", ""), getattr(r, "raw_text", ""),
+            getattr(r, "placement_class", ""), getattr(r, "channel", ""),
+        ))
+        for r in rows
+    ))
+    if re.search(r"\bctv\b|smart\s*tv|connected\s*tv|\bott\b|смарт\s*тв", text, re.I):
+        return "CTV"
+    if re.search(r"in[- ]?app|mobile\s*app|мобильн\w* прилож|приложени", text, re.I):
+        return "MOBILE_APP"
+    if re.search(
+        r"\bweb\b|browser|desktop|сайт|страниц|native|натив|banner|баннер|display|"
+        r"промостраниц|promopages?|\bдзен\b|\bdzen\b|\bavito\b|\bавито\b|slickjump",
+        text, re.I,
+    ):
+        return "WEB"
+    return "UNKNOWN"
+
+
+def _auto_browser_family(rows: Sequence[Any]) -> str:
+    text = norm(" | ".join(
+        " ".join(str(x or "") for x in (_platform_label(r), getattr(r, "format", ""), getattr(r, "raw_text", "")))
+        for r in rows
+    ))
+    if "safari" in text or "webkit" in text:
+        return "SAFARI"
+    if re.search(r"chromium|chrome|yandex browser|яндекс браузер", text, re.I):
+        return "CHROMIUM"
+    return "UNKNOWN"
+
+
+def _reach_buying_model_eligible(row: Any) -> bool:
+    model = str(getattr(row, "buying_model", "") or "OTHER").upper()
+    if model not in REACH_BUYING_MODELS:
+        return False
+    platform = norm(_platform_label(row))
+    if platform in _NON_REACH_PLATFORMS:
+        return False
+    reason = str(getattr(row, "placement_class_reason", "") or "").lower()
+    if reason.startswith("technical/service"):
+        return False
+    cls = norm(getattr(row, "placement_class", ""))
+    if cls in {"orm", "seo", "perfomance", "поиск", "рся"}:
+        return False
+    return True
+
+
 def _plan_ta(plan) -> str:
     return next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
 
@@ -367,7 +502,7 @@ def _platform_scope_id(row) -> str:
     of one Level-3 scope, not independent Level-4 entities.
     """
     flight_id = str(getattr(row, "flight", "") or "F?")
-    channel = str(getattr(row, "channel", "") or "Other").strip()
+    channel = _reach_channel(row)
     platform = _platform_label(row).strip()
     return f"{flight_id}::{channel}::{platform}"
 
@@ -414,12 +549,11 @@ def _scope_map_value(
 
 
 def _reach_row_state(row: Any) -> dict:
-    """Classify whether a parsed media row can enter canonical Level 1→3.
+    """Classify whether a media row belongs to Reach Engine scope.
 
-    Reach Engine is allowed to calculate only rows with a usable impressions scope and
-    either supplied Technical Reach or Average Frequency. Performance/service/package
-    rows without those inputs remain visible as excluded source scope; they are never
-    assigned invented Reach.
+    Business rule: only reach-buying models CPM/CPV enter Reach. CPC/CPR/CPA/CPI/
+    CPO/CPL/CPCV/CPE/CPS/package/service rows remain outside Reach even if the source
+    file happens to contain a Reach-looking column.
     """
     I = getattr(row, "impressions", None)
     F = getattr(row, "frequency", None)
@@ -427,8 +561,11 @@ def _reach_row_state(row: Any) -> dict:
     has_i = I is not None and isinstance(I, (int, float)) and math.isfinite(float(I)) and float(I) >= 0
     has_f = F is not None and isinstance(F, (int, float)) and math.isfinite(float(F))
     has_r = R is not None and isinstance(R, (int, float)) and math.isfinite(float(R)) and float(R) >= 0
-    ready = bool(has_i and (has_r or has_f))
-    if ready:
+    buying_ok = _reach_buying_model_eligible(row)
+    ready = bool(buying_ok and has_i and (has_r or has_f))
+    if not buying_ok:
+        reason = "BUYING_MODEL_NOT_REACH_ELIGIBLE"
+    elif ready:
         reason = "SUPPLIED_TECHNICAL_REACH" if has_r else "IMPRESSIONS_PLUS_FREQUENCY"
     elif not has_i:
         reason = "IMPRESSIONS_NOT_AVAILABLE"
@@ -437,11 +574,11 @@ def _reach_row_state(row: Any) -> dict:
     return {
         "ready": ready,
         "reason": reason,
+        "buying_model_reach_eligible": buying_ok,
         "has_impressions": has_i,
         "has_frequency": has_f,
         "has_technical_reach": has_r,
     }
-
 
 def _reach_rows(rows: Sequence[Any]) -> List[Any]:
     return [row for row in rows if _reach_row_state(row)["ready"]]
@@ -485,18 +622,16 @@ def _platform_scope_requirements(units: Sequence[dict]) -> List[dict]:
                 {"unit_id": x.get("id"), "sheet": x.get("sheet"), "row": x.get("row"), "start": x.get("start"), "end": x.get("end")}
                 for x in items
             ],
-            "required_input": "weekly_human_reaches OR aggregate_flight_technical_reaches",
+            "required_input": None,
+            "auto_path": "AUTO_PERIODIC_PLATFORM_TEMPORAL",
         })
     return out
-
 
 def _platform_groups(rows: Sequence[Any]) -> List[List[Any]]:
     grouped: Dict[Tuple[str, str], List[Any]] = defaultdict(list)
     for row in rows:
-        grouped[(str(row.channel or "Other"), norm(_platform_label(row)))].append(row)
+        grouped[(_reach_channel(row), norm(_platform_label(row)))].append(row)
     return list(grouped.values())
-
-
 
 def _inventory_units(plan) -> List[dict]:
     rows = _reach_rows(list(plan.detail_rows()))
@@ -504,6 +639,7 @@ def _inventory_units(plan) -> List[dict]:
     units = []
     for row in rows:
         sid = _platform_scope_id(row)
+        env = _auto_environment([row])
         units.append({
             "id": _unit_id(row),
             "platform_scope_id": sid,
@@ -511,24 +647,23 @@ def _inventory_units(plan) -> List[dict]:
             "label": _unit_label(row),
             "sheet": row.sheet,
             "row": row.source_row + 1,
-            "channel": row.channel or "Other",
+            "channel": _reach_channel(row),
+            "source_channel": row.channel or "Other",
             "platform": _platform_label(row),
             "format": row.format or "",
             "buying_model": row.buying_model or "",
             "start": _date(row.start),
             "end": _date(row.end),
-            "suggested_family": _platform_label(row),
-            "family_suggestion_source": "UI_SUGGESTION_REQUIRES_CONFIRMATION",
-            "environment_suggestion": "UNKNOWN",
-            "environment_source": "NOT_INFERRED",
+            "suggested_family": _auto_family(row),
+            "family_suggestion_source": "AUTO_REFERENCE_MAPPING",
+            "environment_suggestion": env,
+            "environment_source": "AUTO_FROM_PLAN",
             "has_impressions": row.impressions is not None,
             "has_frequency": row.frequency is not None,
             "has_technical_reach": row.tech_reach is not None,
-            "l3a_temporal_input_required_if_no_aggregate": counts[sid] > 1,
+            "l3a_temporal_input_required_if_no_aggregate": False,
         })
     return units
-
-
 
 def _duplicate_warnings(rows: Sequence[Any]) -> List[dict]:
     signatures: Dict[tuple, List[dict]] = defaultdict(list)
@@ -807,6 +942,8 @@ def _l2_for_scope(
     source_refs: Sequence[dict],
     l1: Optional[dict] = None,
     row_ids: Optional[Sequence[str]] = None,
+    environment_hint: str = "UNKNOWN",
+    browser_family_hint: str = "UNKNOWN",
 ) -> dict:
     if l1 is None:
         l1 = m.level1_technical(impressions, frequency, rtech, frequency_precision=None)
@@ -820,11 +957,11 @@ def _l2_for_scope(
     row_ids = list(row_ids or [])
 
     environment = str(_scope_map_value(
-        cfg["environments"], cfg["plan_id"], scope_id, row_ids, default="UNKNOWN"
-    ) or "UNKNOWN").upper()
+        cfg["environments"], cfg["plan_id"], scope_id, row_ids, default=environment_hint
+    ) or environment_hint or "UNKNOWN").upper()
     browser_family = str(_scope_map_value(
-        cfg["browser_families"], cfg["plan_id"], scope_id, row_ids, default="UNKNOWN"
-    ) or "UNKNOWN").upper()
+        cfg["browser_families"], cfg["plan_id"], scope_id, row_ids, default=browser_family_hint
+    ) or browser_family_hint or "UNKNOWN").upper()
     unit_ud = _scope_map_value(
         cfg["unit_web_device_universes"], cfg["plan_id"], scope_id, row_ids, default=None
     )
@@ -998,6 +1135,162 @@ def _lookup_platform_input(
     return default
 
 
+def _row_l2_entity(
+    row: Any, U: float, cfg: dict, diagnostics: List[dict], scope_id: str,
+) -> dict:
+    uid = _unit_id(row)
+    try:
+        l1 = m.level1_technical(
+            row.impressions, row.frequency, row.tech_reach, frequency_precision=None
+        )
+    except m.ReachValidationError as exc:
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: {exc}") from exc
+    out = _l2_for_scope(
+        rtech=l1["R_tech"],
+        impressions=row.impressions,
+        frequency=row.frequency,
+        start=row.start,
+        end=row.end,
+        U=U,
+        cfg=cfg,
+        diagnostics=diagnostics,
+        scope_id=f"{scope_id}::{uid}",
+        source_refs=[{"sheet": row.sheet, "row": row.source_row + 1}],
+        l1=l1,
+        row_ids=[uid],
+        environment_hint=_auto_environment([row]),
+        browser_family_hint=_auto_browser_family([row]),
+    )
+    return {
+        "name": uid,
+        "reach_1p": out["R_people"],
+        "impressions": float(row.impressions or 0.0),
+        "start": row.start,
+        "end": row.end,
+        "l2": out,
+    }
+
+
+def _cluster_period_rows(rows: Sequence[Any]) -> List[List[Any]]:
+    ordered = sorted(rows, key=lambda r: (
+        r.start or dt.date.min, r.end or dt.date.min, r.source_row
+    ))
+    if not ordered:
+        return []
+    clusters: List[List[Any]] = []
+    for row in ordered:
+        if not clusters:
+            clusters.append([row])
+            continue
+        prev = clusters[-1]
+        prev_end = max((x.end for x in prev if x.end), default=None)
+        cur_start = row.start
+        if prev_end and cur_start and cur_start <= prev_end:
+            prev.append(row)
+        elif not prev_end and not cur_start:
+            prev.append(row)
+        else:
+            clusters.append([row])
+    return clusters
+
+
+def _auto_period_platform_reach(
+    rows: Sequence[Any], U: float, cfg: dict, diagnostics: List[dict],
+    scope_id: str, platform_universe: Optional[float], profile: str,
+    custom_rho: Optional[float],
+) -> Tuple[dict, List[dict]]:
+    """Automatically close multi-row platform scope using period-level human reaches.
+
+    Each source fragment is first converted Technical→Human at its own scope. Rows
+    active at the same time are unioned neutrally inside the platform; sequential
+    periods are then merged with the canonical Level-3 temporal recurrence. No manual
+    aggregate Reach is required.
+    """
+    clusters = _cluster_period_rows(rows)
+    if not clusters:
+        return m.aggregate_flight_reach_mode(0.0, U, platform_universe=platform_universe), []
+
+    period_entities: List[dict] = []
+    period_meta: List[dict] = []
+    for idx, cluster in enumerate(clusters):
+        ents = [_row_l2_entity(r, U, cfg, diagnostics, scope_id) for r in cluster]
+        if len(ents) == 1:
+            R = ents[0]["reach_1p"]
+            model = "SINGLE_FRAGMENT"
+        else:
+            miss = 1.0
+            for ent in ents:
+                miss *= max(0.0, 1.0 - float(ent["reach_1p"]) / U)
+            R = U * (1.0 - miss)
+            model = "L3_PLATFORM_SAME_PERIOD_NEUTRAL"
+        start = min((r.start for r in cluster if r.start), default=None)
+        end = max((r.end for r in cluster if r.end), default=None)
+        period_entities.append({"reach": R, "start": start, "end": end})
+        period_meta.append({
+            "period_index": idx + 1,
+            "reach_1p": R,
+            "start": _date(start),
+            "end": _date(end),
+            "fragment_count": len(cluster),
+            "same_period_model": model,
+        })
+
+    # temporal_platform_reach consumes a weekly-style index. We use it only to encode
+    # inactive full-week gaps; adjacent source periods remain adjacent indices.
+    temporal = []
+    order = 0
+    prev_end = None
+    for item in period_entities:
+        if prev_end and item["start"]:
+            gap_days = max(0, (item["start"] - prev_end).days - 1)
+            order += 1 + gap_days // 7
+        elif temporal:
+            order += 1
+        temporal.append({"week_index": order, "reach": item["reach"]})
+        prev_end = item["end"] or prev_end
+
+    try:
+        out = m.temporal_platform_reach(
+            temporal, U, platform_universe=platform_universe,
+            profile=profile, custom_rho=custom_rho,
+        )
+    except (m.ReachValidationError, m.ReachCalculationError) as exc:
+        raise V16Error(f"{scope_id}: automatic period temporal merge failed: {exc}") from exc
+    out["model_path"] = "AUTO_PERIODIC_PLATFORM_TEMPORAL"
+    out["periods"] = period_meta
+    diagnostics.append({
+        "code": "L3A_AUTO_PERIODIC_PLATFORM",
+        "level": 3,
+        "scope_id": scope_id,
+        "periods": period_meta,
+        "profile": out.get("profile"),
+        "rho_base": out.get("rho_base"),
+        "model_path": out["model_path"],
+        "source": "AUTO_FROM_MEDIA_PLAN_PERIODS",
+    })
+    return out, period_meta
+
+
+def _clip_row_to_window(row: Any, start: dt.date, end: dt.date) -> Optional[Any]:
+    rs = row.start or start
+    re_ = row.end or end
+    a, b = max(rs, start), min(re_, end)
+    if a > b:
+        return None
+    full_days = max(1, (re_ - rs).days + 1)
+    overlap_days = max(1, (b - a).days + 1)
+    share = min(1.0, max(0.0, overlap_days / full_days))
+    clone = copy.copy(row)
+    clone.start, clone.end = a, b
+    if row.impressions is not None:
+        clone.impressions = float(row.impressions) * share
+    if clone.frequency is not None and clone.impressions is not None:
+        clone.tech_reach = clone.impressions / float(clone.frequency)
+    elif row.tech_reach is not None:
+        clone.tech_reach = float(row.tech_reach) * share
+    return clone
+
+
 def _platform_entity(
     rows: Sequence[Any],
     U: float,
@@ -1012,37 +1305,34 @@ def _platform_entity(
 
     rows = list(rows)
     platform = _platform_label(rows[0])
-    channel = rows[0].channel or "Other"
+    channel = _reach_channel(rows[0])
     scope_id = _platform_scope_id(rows[0])
     row_ids = [_unit_id(row) for row in rows]
     source_refs = [{"sheet": row.sheet, "row": row.source_row + 1} for row in rows]
 
     # Same Level-3 entity cannot straddle channels/platforms.
-    if any((row.channel or "Other") != channel or norm(_platform_label(row)) != norm(platform) for row in rows):
+    if any(_reach_channel(row) != channel or norm(_platform_label(row)) != norm(platform) for row in rows):
         raise V16Error(f"{scope_id}: mixed platform/channel inside one Level-3 scope.")
 
     family_map = _mapping_for_plan(q, plan_id)
     families = []
     for row in rows:
         uid = _unit_id(row)
-        fam = str(family_map.get(uid) or "").strip()
-        if not fam:
-            raise V16Error(
-                f"AUDIENCE_FAMILY_MAPPING_REQUIRED: {uid} ({_unit_label(row)}). "
-                "Движок не назначает Audience Family автоматически."
-            )
+        fam = str(family_map.get(uid) or _auto_family(row)).strip()
         families.append(fam)
-    if not _mapping_confirmed(q, plan_id):
-        raise V16Error(
-            f"AUDIENCE_FAMILY_MAPPING_CONFIRMATION_REQUIRED: Line {plan_id}. "
-            "Подтвердите mapping перед расчётом."
-        )
     if len({_norm_ta(x) for x in families}) != 1:
         raise V16Error(
             f"AUDIENCE_FAMILY_MAPPING_CONFLICT: {scope_id} имеет разные Family "
             "внутри одной platform-flight entity."
         )
     family = families[0]
+    diagnostics.append({
+        "code": "AUDIENCE_FAMILY_AUTO",
+        "level": 4,
+        "scope_id": scope_id,
+        "family": family,
+        "source": "USER_OVERRIDE" if any(_unit_id(r) in family_map for r in rows) else "AUTO_REFERENCE_MAPPING",
+    })
 
     # Validate every source row independently at Level 1. This is source QA only;
     # Reach is not merged row-by-row after this point.
@@ -1124,15 +1414,16 @@ def _platform_entity(
             scope_id, platform, row_ids, default=None,
         )
         if len(rows) > 1 and explicit_Rtech in (None, ""):
-            raise V16Error(
-                "L3A_TEMPORAL_INPUT_REQUIRED: "
-                f"{scope_id} содержит {len(rows)} source rows одной площадки внутри одного Flight. "
-                "Нельзя считать их независимыми Level-4 entities и нельзя искусственно "
-                "дедуплицировать technical Reach. Передайте weekly_human_reaches либо "
-                "aggregate_flight_technical_reaches за весь platform-flight scope."
+            l3a, _periods = _auto_period_platform_reach(
+                rows, U, cfg, diagnostics, scope_id, U_p, prof, custom_rho,
             )
-
-        if explicit_Rtech in (None, ""):
+            l2_summary = {
+                "mode": "AUTO_PERIODIC",
+                "environment": _auto_environment(rows),
+                "fallback_reason": None,
+                "aggregate_scope_source": "AUTO_FROM_MEDIA_PLAN_PERIODS",
+            }
+        elif explicit_Rtech in (None, ""):
             only = rows[0]
             l1 = row_l1[_unit_id(only)]
             Rtech_scope = l1["R_tech"]
@@ -1150,6 +1441,8 @@ def _platform_entity(
                 source_refs=source_refs,
                 l1=l1,
                 row_ids=row_ids,
+                environment_hint=_auto_environment(rows),
+                browser_family_hint=_auto_browser_family(rows),
             )
             aggregate_source = "SINGLE_SOURCE_ROW_COMPLETE_PLATFORM_SCOPE"
         else:
@@ -1184,22 +1477,25 @@ def _platform_entity(
                 source_refs=source_refs,
                 l1=l1,
                 row_ids=row_ids,
+                environment_hint=_auto_environment(rows),
+                browser_family_hint=_auto_browser_family(rows),
             )
             aggregate_source = "USER_INPUT_AGGREGATE_FLIGHT_TECHNICAL_REACH"
 
-        try:
-            l3a = m.aggregate_flight_reach_mode(
-                l2out["R_people"], U, platform_universe=U_p,
-            )
-        except (m.ReachValidationError, m.ReachCalculationError) as exc:
-            raise V16Error(f"{scope_id}: {exc}") from exc
-        l2_summary = {
-            "mode": l2out["mode"],
-            "environment": l2out["environment"],
-            "fallback_reason": l2out["fallback_reason"],
-            "aggregate_scope_source": aggregate_source,
-            **{k: v for k, v in l2out["details"].items() if k != "diagnostics"},
-        }
+        if l2out is not None:
+            try:
+                l3a = m.aggregate_flight_reach_mode(
+                    l2out["R_people"], U, platform_universe=U_p,
+                )
+            except (m.ReachValidationError, m.ReachCalculationError) as exc:
+                raise V16Error(f"{scope_id}: {exc}") from exc
+            l2_summary = {
+                "mode": l2out["mode"],
+                "environment": l2out["environment"],
+                "fallback_reason": l2out["fallback_reason"],
+                "aggregate_scope_source": aggregate_source,
+                **{k: v for k, v in l2out["details"].items() if k != "diagnostics"},
+            }
 
     diagnostics.append({
         "code": "L3A_PLATFORM_FLIGHT",
@@ -1641,47 +1937,90 @@ def _validate_line_source_scope(
     return summary
 
 
-def _attach_aon_slices(flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict]) -> None:
+def _attach_aon_slices(
+    flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict],
+    source_rows_by_flight: Optional[Mapping[str, Sequence[Any]]] = None,
+    U: Optional[float] = None,
+    cfg: Optional[dict] = None,
+) -> None:
     all_slices = q.get("aon_slices") or {}
     p_slices = all_slices.get(plan_id) if isinstance(all_slices, Mapping) else {}
     p_slices = p_slices if isinstance(p_slices, Mapping) else {}
     by_id = {f["flight_id"]: f for f in flights}
+    source_rows_by_flight = source_rows_by_flight or {}
+
     for aon in flights:
         if not aon.get("is_common"):
             continue
+
         supplied = p_slices.get(aon["flight_id"]) if isinstance(p_slices, Mapping) else None
-        if not isinstance(supplied, Mapping):
-            continue
+        measured = supplied if isinstance(supplied, Mapping) else {}
         slices = []
-        for burst_id, reach in supplied.items():
-            burst = by_id.get(str(burst_id))
-            if burst is None or burst.get("is_common"):
+
+        for burst_id, burst in by_id.items():
+            if burst.get("is_common") or not burst.get("start") or not burst.get("end"):
                 continue
+
+            if burst_id in measured:
+                reach = m.finite(measured[burst_id], "AON human Reach slice")
+                source = "USER_INPUT_MEASURED"
+            else:
+                if U is None or cfg is None:
+                    continue
+                source_rows = list(source_rows_by_flight.get(aon["flight_id"]) or [])
+                clipped = []
+                for row in _reach_rows(source_rows):
+                    clone = _clip_row_to_window(row, burst["start"], burst["end"])
+                    if clone is not None and clone.impressions is not None and float(clone.impressions) > 0:
+                        clipped.append(clone)
+                if not clipped:
+                    continue
+                local_diag: List[dict] = []
+                channels = _build_level4_channels(
+                    clipped, float(U), cfg, q, plan_id,
+                    f"{aon['flight_id']}@{burst_id}", local_diag,
+                )
+                flight_slice = m.level5_flight(channels, float(U))
+                reach = float(flight_slice["reach_1p"])
+                source = "MODELLED_FROM_SOURCE_DELIVERY"
+                diagnostics.extend({
+                    **d,
+                    "aon_parent_flight": aon["flight_id"],
+                    "burst_flight_id": burst_id,
+                    "aon_slice_internal": True,
+                } for d in local_diag)
+
             slices.append({
                 "start": burst.get("start"),
                 "end": burst.get("end"),
-                "human_reach_1p_slice": m.finite(reach, "AON human Reach slice"),
-                "source": "USER_INPUT",
+                "human_reach_1p_slice": reach,
+                "source": source,
                 "burst_flight_id": burst_id,
             })
+
         aon["temporal_slices"] = slices
         if slices:
             diagnostics.append({
                 "code": "AON_TEMPORAL_FOOTPRINT",
                 "level": 6,
                 "flight": aon["name"],
-                "source": "USER_INPUT",
+                "source": (
+                    "MIXED_MEASURED_AND_MODELLED"
+                    if len({x["source"] for x in slices}) > 1
+                    else slices[0]["source"]
+                ),
                 "slices": slices,
             })
-
 
 def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
     groups = _flight_groups(plan)
     _validate_line_source_scope(groups, U, q, plan_id, diagnostics)
     flights: List[dict] = []
     line_excluded_rows: List[dict] = []
+    source_rows_by_flight: Dict[str, List[Any]] = {}
     for g in groups:
         source_rows = list(plan.detail_rows([g["id"]]))
+        source_rows_by_flight[g["id"]] = source_rows
         excluded = _excluded_reach_rows(source_rows)
         if excluded:
             line_excluded_rows.extend(excluded)
@@ -1783,7 +2122,10 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
                 "message": "G=0. Если это один continuous delivery без реального burst boundary, его нужно нормализовать upstream.",
             })
 
-    _attach_aon_slices(flights, q, plan_id, diagnostics)
+    _attach_aon_slices(
+        flights, q, plan_id, diagnostics,
+        source_rows_by_flight=source_rows_by_flight, U=U, cfg=cfg,
+    )
     l6_specs = _pair_specs(q, "L6", plan_id=plan_id)
     l6_pairs = _pair_raw_by_index(flights, l6_specs) if l6_specs else None
     try:
@@ -2125,8 +2467,12 @@ def discover(path: str) -> str:
         platform_scopes = _platform_scope_requirements(units)
         aon_pairs = []
         fs = _flight_groups(plan)
-        for aon in [x for x in fs if x["is_common"]]:
-            for burst in [x for x in fs if not x["is_common"]]:
+        reach_by_flight = {
+            f["id"]: _reach_rows(list(plan.detail_rows([f["id"]])))
+            for f in fs
+        }
+        for aon in [x for x in fs if x["is_common"] and reach_by_flight.get(x["id"])]:
+            for burst in [x for x in fs if not x["is_common"] and reach_by_flight.get(x["id"])]:
                 aon_pairs.append({
                     "aon_flight_id": aon["id"],
                     "aon_label": aon["label"],
@@ -2134,6 +2480,8 @@ def discover(path: str) -> str:
                     "burst_label": burst["label"],
                     "burst_start": _date(burst["start"]),
                     "burst_end": _date(burst["end"]),
+                    "input_required": False,
+                    "auto_path": "MODELLED_FROM_SOURCE_DELIVERY",
                 })
         scope = _line_scope_summary(fs)
         out.append({
@@ -2195,8 +2543,8 @@ def discover(path: str) -> str:
         "model_catalog": model_catalog(),
         "contract": {
             "brand_universe_required_for_brand_total": True,
-            "family_mapping_confirmation_required": True,
-            "unknown_environment_auto_path": "QUICK_FALLBACK",
+            "family_mapping_confirmation_required": False,
+            "unknown_environment_auto_path": "AUTO_CLASSIFY_THEN_QUICK_FALLBACK",
         },
     })
 
