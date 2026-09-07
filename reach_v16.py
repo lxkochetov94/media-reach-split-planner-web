@@ -36,6 +36,9 @@ BASE_DEVICE_FACTOR = 2.25
 RHO_CHANNEL_DEFAULT = -0.35
 RESIDUAL_CAP = 0.10
 ARITH_REL_TOL = 0.03
+TEMPORAL_RHO_PROFILES = {"LOW": 0.50, "BASE": 0.65, "HIGH": 0.80}
+SIGMA_CALIBRATION_IQR = (2.42, 2.90)
+CHURN_REFERENCE = [(7, 0.069), (28, 0.248), (42, 0.348), (56, 0.435), (84, 0.575)]
 
 
 class V16Error(ValueError):
@@ -88,6 +91,68 @@ def _duration_days(a: Optional[dt.date], b: Optional[dt.date]) -> int:
     if not a or not b:
         return 1
     return max(1, (b - a).days + 1)
+
+
+def model_catalog() -> dict:
+    return {
+        "level2": {
+            "quick_k": K_DEFAULT,
+            "chromium_l_days": CHROMIUM_L_DEFAULT,
+            "browser_by_age": [{"segment": f"{a}–{b}" if b < 120 else f"{a}+", "value": v} for a, b, v in _AGE_B],
+            "browser_by_device": [
+                {"segment": "Smartphone", "value": 1.85},
+                {"segment": "Desktop", "value": 1.80},
+                {"segment": "Laptop", "value": 1.80},
+                {"segment": "Tablet", "value": 1.70},
+                {"segment": "Smart TV / CTV", "value": None},
+            ],
+            "device_by_age": [{"segment": f"{a}–{b}" if b < 120 else f"{a}+", "value": v} for a, b, v in _AGE_D],
+            "churn_reference": [{"days": d, "probability": p} for d, p in CHURN_REFERENCE],
+        },
+        "level3": {
+            "temporal_rho_profiles": TEMPORAL_RHO_PROFILES,
+            "sigma_default": SIGMA_DEFAULT,
+            "sigma_calibration_iqr": list(SIGMA_CALIBRATION_IQR),
+        },
+        "level5": {"rho_channel_target": RHO_CHANNEL_DEFAULT},
+        "level6": {
+            "gap_curve": [{"days": d, "overlap": q} for d, q in _Q_POINTS],
+            "residual_cap": RESIDUAL_CAP,
+            "universe_multiplier_points": [
+                {"universe": 5_000_000, "multiplier": 2.50},
+                {"universe": 7_500_000, "multiplier": 2.25},
+                {"universe": 10_000_000, "multiplier": 2.00},
+                {"universe": 12_500_000, "multiplier": 1.50},
+                {"universe": 15_000_000, "multiplier": 1.00},
+            ],
+        },
+        "level7": {"rho_line_target": 0.0},
+    }
+
+
+def _plan_input_profile(plan) -> dict:
+    rows = list(plan.detail_rows())
+    durations = []
+    for row in rows:
+        if row.start and row.end:
+            durations.append(_duration_days(row.start, row.end))
+    durations.sort()
+    median_duration = None
+    if durations:
+        m = len(durations) // 2
+        median_duration = durations[m] if len(durations) % 2 else (durations[m - 1] + durations[m]) / 2
+    return {
+        "rows": len(rows),
+        "supplied_reach_rows": sum(1 for r in rows if r.tech_reach is not None),
+        "impressions_rows": sum(1 for r in rows if r.impressions is not None),
+        "frequency_rows": sum(1 for r in rows if r.frequency is not None),
+        "dated_rows": sum(1 for r in rows if r.start and r.end),
+        "duration_days_min": min(durations) if durations else None,
+        "duration_days_median": median_duration,
+        "duration_days_max": max(durations) if durations else None,
+        "platforms": len({norm(r.platform_canonical or r.platform) for r in rows if (r.platform_canonical or r.platform)}),
+        "channels": len({norm(r.channel) for r in rows if r.channel}),
+    }
 
 
 # --------------------------- L1 / L2 ---------------------------
@@ -529,6 +594,32 @@ def _two_weights(Ra: float, Rb: float, J: float, U: float) -> List[float]:
     return [max(0.0, x) for x in vals]
 
 
+def _coverage_contributions(entities: Sequence[dict], U: float, weights: Sequence[float]) -> List[dict]:
+    n = len(entities)
+    exclusive = [0.0] * n
+    shapley = [0.0] * n
+    for state, ws in enumerate(weights):
+        if ws <= 0 or state == 0:
+            continue
+        members = [i for i in range(n) if (state >> i) & 1]
+        if not members:
+            continue
+        people = U * ws
+        share = people / len(members)
+        for i in members:
+            shapley[i] += share
+        if len(members) == 1:
+            exclusive[members[0]] += people
+    return [
+        {
+            "name": entities[i].get("name") or f"entity_{i+1}",
+            "shapley_people": shapley[i],
+            "exclusive_people": exclusive[i],
+        }
+        for i in range(n)
+    ]
+
+
 def _joint_output(entities: Sequence[dict], U: float, weights: Sequence[float], model_path: str,
                   pair_targets: Optional[Dict[Tuple[int, int], float]] = None, extra: Optional[dict] = None) -> dict:
     n = len(entities)
@@ -550,6 +641,8 @@ def _joint_output(entities: Sequence[dict], U: float, weights: Sequence[float], 
 
     impressions = sum(float(e.get("impressions") or 0.0) for e in entities)
     out = _reach_from_exact(U, exact_uncond, impressions)
+    gross_reach_sum = sum(float(e.get("reach_1p") or 0.0) for e in entities)
+    dedup_people = max(0.0, gross_reach_sum - out["reach_1p"])
     out.update({
         "model_path": model_path,
         "entity_count": n,
@@ -558,6 +651,10 @@ def _joint_output(entities: Sequence[dict], U: float, weights: Sequence[float], 
             for (i, j), v in (pair_targets or {}).items()
         },
         "weights": weights if n <= 6 else None,
+        "gross_reach_sum": gross_reach_sum,
+        "dedup_people": dedup_people,
+        "dedup_rate": (dedup_people / gross_reach_sum) if gross_reach_sum > 0 else 0.0,
+        "contributions": _coverage_contributions(entities, U, weights),
     })
     if extra:
         out.update(extra)
@@ -575,12 +672,26 @@ def merge_entities(entities: Sequence[dict], U: float, pair_targets: Optional[Di
             "impressions": sum(float(e.get("impressions") or 0.0) for e in entities),
             "exact_counts": [0.0] * 6, "model_path": model_path, "entity_count": 0,
             "freq_dist": [1, 0, 0, 0, 0, 0],
+            "gross_reach_sum": 0.0, "dedup_people": 0.0, "dedup_rate": 0.0,
+            "contributions": [],
         }
     if len(ents) == 1:
         e = dict(ents[0])
         exact_counts = [e["reach_1p"] * x for x in e["freq_dist"]]
         res = _reach_from_exact(U, [x / U for x in exact_counts], float(e.get("impressions") or 0))
-        res.update({"model_path": model_path + "_IDENTITY", "entity_count": 1, "freq_dist": list(e["freq_dist"])})
+        res.update({
+            "model_path": model_path + "_IDENTITY",
+            "entity_count": 1,
+            "freq_dist": list(e["freq_dist"]),
+            "gross_reach_sum": e["reach_1p"],
+            "dedup_people": 0.0,
+            "dedup_rate": 0.0,
+            "contributions": [{
+                "name": e.get("name") or "entity_1",
+                "shapley_people": e["reach_1p"],
+                "exclusive_people": e["reach_1p"],
+            }],
+        })
         return res
 
     reaches = [float(e["reach_1p"]) for e in ents]
@@ -1131,6 +1242,7 @@ def discover(path: str) -> str:
             "advanced_recommended": recommended_advanced_factors(
                 next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
             ),
+            "input_profile": _plan_input_profile(plan),
         })
     return _json({"version": VERSION, "plans": out})
 
@@ -1220,6 +1332,35 @@ def calculate(path: str, params_json: str = "{}") -> str:
             }
         })
 
+    contribution_rows = []
+    for line in lines:
+        for flight in line.get("flights", []):
+            for c in flight.get("contributions", []) or []:
+                contribution_rows.append({
+                    "scope": "Flight",
+                    "parent": flight.get("name"),
+                    "line": line.get("label"),
+                    **c,
+                    "parent_reach": flight.get("reach_1p"),
+                })
+        for c in line.get("contributions", []) or []:
+            contribution_rows.append({
+                "scope": "Line",
+                "parent": line.get("label"),
+                "line": line.get("label"),
+                **c,
+                "parent_reach": line.get("reach_1p"),
+            })
+    if brand is not None:
+        for c in brand.get("contributions", []) or []:
+            contribution_rows.append({
+                "scope": "Brand",
+                "parent": brand.get("name") or "Brand",
+                "line": "",
+                **c,
+                "parent_reach": brand.get("reach_1p"),
+            })
+
     return _json({
         "version": VERSION,
         "status": "GO" if brand_error is None else "PARTIAL",
@@ -1228,5 +1369,7 @@ def calculate(path: str, params_json: str = "{}") -> str:
         "brand_total": brand,
         "brand_error": brand_error,
         "hierarchy": hierarchy,
+        "contribution_rows": contribution_rows,
+        "model_catalog": model_catalog(),
         "diagnostics": diagnostics,
     })
