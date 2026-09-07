@@ -1,0 +1,69 @@
+name: Test Reach Engine v1.6
+
+on:
+  push:
+    branches:
+      - "feature/reach-engine-v16-tab"
+    paths:
+      - "reach_v16.py"
+      - "reach_v16.js"
+      - "reach_v16.css"
+      - "test_reach_v16.py"
+      - "index.html"
+      - ".github/workflows/test-reach-v16.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "reach_v16.py"
+      - "reach_v16.js"
+      - "reach_v16.css"
+      - "test_reach_v16.py"
+      - "index.html"
+      - ".github/workflows/test-reach-v16.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          PYTHONPATH=.debug_sources:. python -m py_compile reach_v16.py test_reach_v16.py
+
+      - name: JavaScript syntax
+        run: node --check reach_v16.js
+
+      - name: Reach Engine v1.6 regression suite
+        run: PYTHONPATH=.debug_sources:. python -m unittest -v test_reach_v16
+
+      - name: Guard production 0.52 reach code
+        shell: bash
+        run: |
+          git fetch origin main --depth=1
+          python - <<'PY'
+          import subprocess
+          diff = subprocess.check_output(
+              ["git","diff","origin/main...HEAD","--","index.html"],
+              text=True,
+          )
+          forbidden = [
+              "function calcParams()",
+              "async function recalc()",
+              "function renderReach()",
+              "async function recalcMultiReach()",
+              "function combine_reach_union",
+          ]
+          # Existing functions may appear as unchanged context in a patch only if the
+          # diff is large. Reject actual +/- edits to their definition lines.
+          for line in diff.splitlines():
+              if line.startswith(("+++","---")):
+                  continue
+              if line[:1] in "+-" and any(x in line for x in forbidden):
+                  raise SystemExit("Production 0.52 reach function was modified: " + line)
+          print("Production 0.52 reach function definitions were not modified.")
+          PY
