@@ -332,6 +332,15 @@ def level2_advanced(
                 })
             else:
                 L_eff = positive(safari_l, "Safari L")
+        elif browser in {"UNKNOWN", "MIXED", ""}:
+            L_eff = None
+            K_time = 1.0
+            diagnostics.append({
+                "code": "BROWSER_CHURN_NOT_MODELLED_UNKNOWN_MIX",
+                "level": 2,
+                "source": "APPROXIMATION",
+                "message": "Browser identity mix не подтверждён; Chromium L=68 не применён автоматически.",
+            })
         else:
             L_eff = positive(CHROMIUM_L_DEFAULT if L is None else L, "Chromium L")
 
@@ -580,7 +589,7 @@ def aggregate_flight_reach_mode(r_people_flight: float, universe: float, *, plat
 # Level 3B — Poisson-Lognormal effective frequency
 # ---------------------------------------------------------------------------
 
-def _normal_grid(n: int = 321, lo: float = -7.0, hi: float = 7.0) -> Tuple[List[float], List[float]]:
+def _normal_grid(n: int = 481, lo: float = -10.0, hi: float = 10.0) -> Tuple[List[float], List[float]]:
     step = (hi - lo) / (n - 1)
     z = [lo + i * step for i in range(n)]
     w: List[float] = []
@@ -1013,6 +1022,115 @@ def global_feasibility(
     return _phase1_feasible(rs, U, pair_targets, support=support)
 
 
+def _maxent_three(
+    reaches: Sequence[float],
+    U: float,
+    pair_targets: Mapping[Tuple[int, int], float],
+    *,
+    support: Optional[Sequence[bool]] = None,
+) -> dict:
+    """Exact one-dimensional Maximum-Entropy closure for three binary entities."""
+    p1, p2, p3 = [r / U for r in reaches]
+    j12 = pair_targets[(0, 1)] / U
+    j13 = pair_targets[(0, 2)] / U
+    j23 = pair_targets[(1, 2)] / U
+    constant0 = 1.0 - p1 - p2 - p3 + j12 + j13 + j23
+    lo = max(0.0, j12 + j13 - p1, j12 + j23 - p2, j13 + j23 - p3)
+    hi = min(j12, j13, j23, constant0)
+    if lo > hi + FEASIBILITY_TOL:
+        raise ReachValidationError("Three-way system is globally infeasible.")
+
+    def weights_at(t: float) -> List[float]:
+        w111 = t
+        w110 = j12 - t
+        w101 = j13 - t
+        w011 = j23 - t
+        w100 = p1 - j12 - j13 + t
+        w010 = p2 - j12 - j23 + t
+        w001 = p3 - j13 - j23 + t
+        w000 = constant0 - t
+        # state order: 000,100,010,110,001,101,011,111
+        vals = [w000, w100, w010, w110, w001, w101, w011, w111]
+        out = []
+        for x in vals:
+            if x < -SOLVER_TOL:
+                raise ReachValidationError("Three-way MaxEnt state probability < 0.")
+            out.append(0.0 if x < 0 else x)
+        if support is not None:
+            for s, ok in enumerate(support):
+                if s < 8 and not ok and out[s] > SOLVER_TOL:
+                    raise ReachValidationError("Three-way solution violates hard support.")
+                if s < 8 and not ok:
+                    out[s] = 0.0
+        return out
+
+    def entropy(t: float) -> float:
+        try:
+            vals = weights_at(t)
+        except ReachValidationError:
+            return -float("inf")
+        return -sum(x * math.log(x) for x in vals if x > 0)
+
+    # If structured support rules remove states, the 1D interval can be reduced by
+    # requiring their affine probabilities to equal zero.  Find feasible candidates.
+    if support is not None:
+        candidates = [lo, hi]
+        affine = [
+            (constant0, -1.0),                  # 000
+            (p1 - j12 - j13, 1.0),             # 100
+            (p2 - j12 - j23, 1.0),             # 010
+            (j12, -1.0),                       # 110
+            (p3 - j13 - j23, 1.0),             # 001
+            (j13, -1.0),                       # 101
+            (j23, -1.0),                       # 011
+            (0.0, 1.0),                        # 111
+        ]
+        required = []
+        for s in range(8):
+            if s < len(support) and not support[s]:
+                a, b = affine[s]
+                if abs(b) <= 1e-15:
+                    if abs(a) > SOLVER_TOL:
+                        raise ReachValidationError("Hard support is infeasible.")
+                else:
+                    required.append(-a / b)
+        if required:
+            t0 = required[0]
+            if any(abs(x - t0) > SOLVER_TOL for x in required[1:]):
+                raise ReachValidationError("Hard support requires conflicting triple intersections.")
+            if t0 < lo - SOLVER_TOL or t0 > hi + SOLVER_TOL:
+                raise ReachValidationError("Hard support triple intersection outside feasible interval.")
+            vals = weights_at(min(hi, max(lo, t0)))
+            return {"weights": vals, "iterations": 0, "residual": 0.0, "status": "CONVERGED_ANALYTIC_3"}
+
+    if hi - lo <= SOLVER_TOL:
+        vals = weights_at((lo + hi) / 2.0)
+        return {"weights": vals, "iterations": 0, "residual": 0.0, "status": "CONVERGED_ANALYTIC_3_BOUNDARY"}
+
+    # Golden-section maximization of the strictly concave entropy.
+    a, b = lo, hi
+    gr = (math.sqrt(5.0) - 1.0) / 2.0
+    x1 = b - gr * (b - a)
+    x2 = a + gr * (b - a)
+    f1, f2 = entropy(x1), entropy(x2)
+    iterations = 0
+    while b - a > 1e-13 and iterations < 300:
+        iterations += 1
+        if f1 < f2:
+            a = x1
+            x1, f1 = x2, f2
+            x2 = a + gr * (b - a)
+            f2 = entropy(x2)
+        else:
+            b = x2
+            x2, f2 = x1, f1
+            x1 = b - gr * (b - a)
+            f1 = entropy(x1)
+    vals = weights_at((a + b) / 2.0)
+    # Direct construction satisfies the constraints to floating tolerance.
+    return {"weights": vals, "iterations": iterations, "residual": 0.0, "status": "CONVERGED_ANALYTIC_3"}
+
+
 def _ipf_maxent(
     reaches: Sequence[float],
     U: float,
@@ -1021,6 +1139,8 @@ def _ipf_maxent(
     support: Optional[Sequence[bool]] = None,
 ) -> dict:
     n = len(reaches)
+    if n == 3 and set(pair_targets) == {(0, 1), (0, 2), (1, 2)}:
+        return _maxent_three(reaches, U, pair_targets, support=support)
     size = 1 << n
     allowed = [s for s in range(size) if support is None or (s < len(support) and support[s])]
     if not allowed:
@@ -1766,12 +1886,26 @@ def level7_brand(
     n = len(lines)
     pairs: Dict[Tuple[int, int], dict] = {}
     supplied = custom_pairs or {}
+    forbidden = {
+        tuple(sorted((int(p[0]), int(p[1]))))
+        for p in ((addressability_map or {}).get("forbidden_pairs") or [])
+    }
     for i in range(n):
         for j in range(i + 1, n):
             if (i, j) in supplied:
                 pairs[(i, j)] = dict(supplied[(i, j)])
                 continue
             Ui = float(lines[i].get("addressable_universe") or U)
+            Uj = float(lines[j].get("addressable_universe") or U)
+            if (i, j) in forbidden:
+                pairs[(i, j)] = {
+                    "J": 0.0, "J0": 0.0, "J_min": 0.0, "J_max": 0.0,
+                    "rho": 0.0, "U_i": Ui, "U_j": Uj, "M": 0.0,
+                    "M_source": "BRAND_ADDRESSABILITY_MAP",
+                    "source": "BRAND_ADDRESSABILITY_MAP",
+                    "rho_source": "NOT_APPLICABLE",
+                }
+                continue
             Uj = float(lines[j].get("addressable_universe") or U)
             M = None
             if lines[i].get("addressable_intersections"):
