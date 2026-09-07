@@ -502,7 +502,7 @@ def _platform_scope_id(row) -> str:
     of one Level-3 scope, not independent Level-4 entities.
     """
     flight_id = str(getattr(row, "flight", "") or "F?")
-    channel = str(getattr(row, "channel", "") or "Other").strip()
+    channel = _reach_channel(row)
     platform = _platform_label(row).strip()
     return f"{flight_id}::{channel}::{platform}"
 
@@ -1218,12 +1218,11 @@ def _auto_period_platform_reach(
             R = ents[0]["reach_1p"]
             model = "SINGLE_FRAGMENT"
         else:
-            merged = m.audience_merge(
-                ents, U, neutral_unstructured=True,
-                model_path="L3_PLATFORM_SAME_PERIOD_NEUTRAL",
-            )
-            R = merged["reach_1p"]
-            model = merged["model_path"]
+            miss = 1.0
+            for ent in ents:
+                miss *= max(0.0, 1.0 - float(ent["reach_1p"]) / U)
+            R = U * (1.0 - miss)
+            model = "L3_PLATFORM_SAME_PERIOD_NEUTRAL"
         start = min((r.start for r in cluster if r.start), default=None)
         end = max((r.end for r in cluster if r.end), default=None)
         period_entities.append({"reach": R, "start": start, "end": end})
@@ -1938,47 +1937,90 @@ def _validate_line_source_scope(
     return summary
 
 
-def _attach_aon_slices(flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict]) -> None:
+def _attach_aon_slices(
+    flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict],
+    source_rows_by_flight: Optional[Mapping[str, Sequence[Any]]] = None,
+    U: Optional[float] = None,
+    cfg: Optional[dict] = None,
+) -> None:
     all_slices = q.get("aon_slices") or {}
     p_slices = all_slices.get(plan_id) if isinstance(all_slices, Mapping) else {}
     p_slices = p_slices if isinstance(p_slices, Mapping) else {}
     by_id = {f["flight_id"]: f for f in flights}
+    source_rows_by_flight = source_rows_by_flight or {}
+
     for aon in flights:
         if not aon.get("is_common"):
             continue
+
         supplied = p_slices.get(aon["flight_id"]) if isinstance(p_slices, Mapping) else None
-        if not isinstance(supplied, Mapping):
-            continue
+        measured = supplied if isinstance(supplied, Mapping) else {}
         slices = []
-        for burst_id, reach in supplied.items():
-            burst = by_id.get(str(burst_id))
-            if burst is None or burst.get("is_common"):
+
+        for burst_id, burst in by_id.items():
+            if burst.get("is_common") or not burst.get("start") or not burst.get("end"):
                 continue
+
+            if burst_id in measured:
+                reach = m.finite(measured[burst_id], "AON human Reach slice")
+                source = "USER_INPUT_MEASURED"
+            else:
+                if U is None or cfg is None:
+                    continue
+                source_rows = list(source_rows_by_flight.get(aon["flight_id"]) or [])
+                clipped = []
+                for row in _reach_rows(source_rows):
+                    clone = _clip_row_to_window(row, burst["start"], burst["end"])
+                    if clone is not None and clone.impressions is not None and float(clone.impressions) > 0:
+                        clipped.append(clone)
+                if not clipped:
+                    continue
+                local_diag: List[dict] = []
+                channels = _build_level4_channels(
+                    clipped, float(U), cfg, q, plan_id,
+                    f"{aon['flight_id']}@{burst_id}", local_diag,
+                )
+                flight_slice = m.level5_flight(channels, float(U))
+                reach = float(flight_slice["reach_1p"])
+                source = "MODELLED_FROM_SOURCE_DELIVERY"
+                diagnostics.extend({
+                    **d,
+                    "aon_parent_flight": aon["flight_id"],
+                    "burst_flight_id": burst_id,
+                    "aon_slice_internal": True,
+                } for d in local_diag)
+
             slices.append({
                 "start": burst.get("start"),
                 "end": burst.get("end"),
-                "human_reach_1p_slice": m.finite(reach, "AON human Reach slice"),
-                "source": "USER_INPUT",
+                "human_reach_1p_slice": reach,
+                "source": source,
                 "burst_flight_id": burst_id,
             })
+
         aon["temporal_slices"] = slices
         if slices:
             diagnostics.append({
                 "code": "AON_TEMPORAL_FOOTPRINT",
                 "level": 6,
                 "flight": aon["name"],
-                "source": "USER_INPUT",
+                "source": (
+                    "MIXED_MEASURED_AND_MODELLED"
+                    if len({x["source"] for x in slices}) > 1
+                    else slices[0]["source"]
+                ),
                 "slices": slices,
             })
-
 
 def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
     groups = _flight_groups(plan)
     _validate_line_source_scope(groups, U, q, plan_id, diagnostics)
     flights: List[dict] = []
     line_excluded_rows: List[dict] = []
+    source_rows_by_flight: Dict[str, List[Any]] = {}
     for g in groups:
         source_rows = list(plan.detail_rows([g["id"]]))
+        source_rows_by_flight[g["id"]] = source_rows
         excluded = _excluded_reach_rows(source_rows)
         if excluded:
             line_excluded_rows.extend(excluded)
@@ -2080,7 +2122,10 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
                 "message": "G=0. Если это один continuous delivery без реального burst boundary, его нужно нормализовать upstream.",
             })
 
-    _attach_aon_slices(flights, q, plan_id, diagnostics)
+    _attach_aon_slices(
+        flights, q, plan_id, diagnostics,
+        source_rows_by_flight=source_rows_by_flight, U=U, cfg=cfg,
+    )
     l6_specs = _pair_specs(q, "L6", plan_id=plan_id)
     l6_pairs = _pair_raw_by_index(flights, l6_specs) if l6_specs else None
     try:
