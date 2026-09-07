@@ -4,6 +4,7 @@ import unittest
 
 import reach_v16 as r
 import reach_v16_math as m
+from engine import _campaign_line_name
 
 
 class FakeRow:
@@ -260,17 +261,17 @@ class PersilBattlePlanTests(unittest.TestCase):
         self.assertEqual(channels[0]["families"][0]["inventory_units"][0]["fragment_count"], 2)
 
     def test_battle_campaign_identity_conflicts_are_not_silently_collapsed(self):
-        self.assertEqual(r._campaign_line_name("Персил Для Цветного Май'26"), "Персил Для Цветного")
-        self.assertEqual(r._campaign_line_name("Персил Капсулы Июнь-Июль'26"), "Персил Капсулы")
+        self.assertEqual(_campaign_line_name("Персил Для Цветного Май'26"), "Персил Для Цветного")
+        self.assertEqual(_campaign_line_name("Персил Капсулы Июнь-Июль'26"), "Персил Капсулы")
         self.assertNotEqual(
-            r._campaign_line_name("Персил Для Цветного Май'26"),
-            r._campaign_line_name("Персил Капсулы Июнь-Июль'26"),
+            _campaign_line_name("Персил Для Цветного Май'26"),
+            _campaign_line_name("Персил Капсулы Июнь-Июль'26"),
         )
-        self.assertEqual(r._campaign_line_name("Персил Свежесть Апрель-Май'26"), "Персил Свежесть")
-        self.assertEqual(r._campaign_line_name("Персил Core Сентябрь'26"), "Персил Core")
+        self.assertEqual(_campaign_line_name("Персил Свежесть Апрель-Май'26"), "Персил Свежесть")
+        self.assertEqual(_campaign_line_name("Персил Core Сентябрь'26"), "Персил Core")
         self.assertNotEqual(
-            r._campaign_line_name("Персил Свежесть Апрель-Май'26"),
-            r._campaign_line_name("Персил Core Сентябрь'26"),
+            _campaign_line_name("Персил Свежесть Апрель-Май'26"),
+            _campaign_line_name("Персил Core Сентябрь'26"),
         )
 
 
