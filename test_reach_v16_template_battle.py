@@ -107,22 +107,22 @@ class MixedTemplateBattleTests(unittest.TestCase):
                 "P1", [],
             )
 
-    def test_sila_active_battle_universe_mismatch_needs_confirmation(self):
+    def test_sila_active_battle_universe_mismatch_is_auto_normalized(self):
         groups = [
             {"id":"F1","label":"1 флайт","ta_name":"Ж 25-45 BC","source_universe":15_968_000.0,
              "source_universe_source":"mp","is_common":False},
             {"id":"F3","label":"3 флайт","ta_name":"Ж 25-45 BC","source_universe":15_182_450.0,
              "source_universe_source":"mp","is_common":False},
         ]
-        with self.assertRaisesRegex(r.V16Error, "L6_SCOPE_UNIVERSE_MISMATCH"):
-            r._validate_line_source_scope(groups, 15_182_450.0, {}, "P1", [])
-        self.assertTrue(
-            r._validate_line_source_scope(
-                groups, 15_182_450.0,
-                {"line_scope_confirmed":{"P1":True}},
-                "P1", [],
-            )["universe_mismatch"]
+        diagnostics = []
+        out = r._validate_line_source_scope(
+            groups, 15_182_450.0, {}, "P1", diagnostics,
         )
+        self.assertTrue(out["universe_mismatch"])
+        self.assertTrue(any(
+            d.get("code") == "LINE_UNIVERSE_NORMALIZED_AUTO"
+            for d in diagnostics
+        ))
 
     def test_source_reach_curve_invalid_is_detected_not_repaired(self):
         sheet = SheetData("Mediaplan 1 флайт", [
