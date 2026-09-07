@@ -15,7 +15,7 @@ import datetime as dt
 import json
 import math
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from engine import discover_media_plan_groups, parse_media_plan, norm
