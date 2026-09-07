@@ -1472,6 +1472,81 @@ def audience_merge(
     )
 
 
+def normalize_pair_input(
+    raw: Mapping[str, Any],
+    Ra: float,
+    Rb: float,
+    U: float,
+    *,
+    Ua: Optional[float] = None,
+    Ub: Optional[float] = None,
+    M: Optional[float] = None,
+    default_rho: Optional[float] = None,
+    default_source: str = "CUSTOM",
+) -> dict:
+    """Normalize measured/historical/custom pair relation without silent repair.
+
+    Accepted relation forms are direct intersection J, pair union, or rho.
+    Addressable universes/intersection may also be supplied.
+    """
+    meta = dict(raw or {})
+    Ua_eff = meta.get("U_i", meta.get("Ua", Ua))
+    Ub_eff = meta.get("U_j", meta.get("Ub", Ub))
+    M_eff = meta.get("M", M)
+    if Ua_eff is not None:
+        Ua_eff = positive(Ua_eff, "U_i")
+    if Ub_eff is not None:
+        Ub_eff = positive(Ub_eff, "U_j")
+    if M_eff is not None:
+        M_eff = finite(M_eff, "M")
+
+    source = str(meta.get("source") or default_source).strip().upper()
+    rho = None
+    if "J" in meta or "intersection" in meta:
+        J = finite(meta.get("J", meta.get("intersection")), "Pair J")
+        if meta.get("rho") is not None:
+            rho = finite(meta.get("rho"), "rho")
+    elif "union" in meta:
+        union = finite(meta.get("union"), "Pair union")
+        J = finite(Ra, "Ra") + finite(Rb, "Rb") - union
+        if meta.get("rho") is not None:
+            rho = finite(meta.get("rho"), "rho")
+    elif meta.get("rho") is not None or default_rho is not None:
+        rho = finite(meta.get("rho") if meta.get("rho") is not None else default_rho, "rho")
+        derived = overlap_from_rho(Ra, Rb, U, rho, Ua=Ua_eff, Ub=Ub_eff, M=M_eff)
+        J = derived["J"]
+    else:
+        raise ReachValidationError(
+            "Pair relation требует J / intersection / union / rho либо level-specific default_rho."
+        )
+
+    jmin, jmax = pair_bounds(Ra, Rb, U, Ua=Ua_eff, Ub=Ub_eff, M=M_eff)
+    if J < jmin - FEASIBILITY_TOL or J > jmax + FEASIBILITY_TOL:
+        raise ReachValidationError(
+            f"{source} pair J={J} вне feasible bounds [{jmin},{jmax}]."
+        )
+    j0 = neutral_overlap(Ra, Rb, U, Ua=Ua_eff, Ub=Ub_eff, M=M_eff)
+    out = dict(meta)
+    out.update({
+        "J": J,
+        "J0": j0,
+        "J_min": jmin,
+        "J_max": jmax,
+        "source": source,
+    })
+    if Ua_eff is not None:
+        out["U_i"] = Ua_eff
+    if Ub_eff is not None:
+        out["U_j"] = Ub_eff
+    if M_eff is not None:
+        out["M"] = M_eff
+    if rho is not None:
+        if rho < -1 or rho > 1:
+            raise ReachValidationError("rho должен быть в диапазоне -1…1.")
+        out["rho"] = rho
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Level 5
 # ---------------------------------------------------------------------------
@@ -1503,8 +1578,8 @@ def level5_channel_pairs(
                 meta = overlap_from_rho(reaches[i], reaches[j], U, rho, Ua=Ui, Ub=Uj, M=M)
                 meta.update({
                     "U_i": Ui, "U_j": Uj, "M": M,
-                    "M_source": "MEASURED" if M is not None else "MODEL_DEFAULT",
-                    "source": "BASE_MODEL_DEFAULT",
+                    "M_source": "MEASURED_ADDRESSABLE" if M is not None else "MODEL_DEFAULT",
+                    "source": "MEASURED_ADDRESSABLE" if M is not None else "BASE_MODEL_DEFAULT",
                     "rho_target": RHO_CHANNEL_DEFAULT,
                     "rho_effective": rho,
                 })
@@ -1729,53 +1804,102 @@ def l6_pair(a: dict, b: dict, U: float) -> dict:
     }
 
 
-def level6_line(flights: Sequence[dict], U: float) -> dict:
+def level6_line(
+    flights: Sequence[dict],
+    U: float,
+    *,
+    custom_pairs: Optional[Mapping[Tuple[int, int], dict]] = None,
+) -> dict:
     if not flights:
         return audience_merge([], U, model_path="L6_LINE")
     if len(flights) == 1:
         out = audience_merge(flights, U, model_path="L6_LINE")
         out["flight_relaxation_lambda"] = 1.0
         out["D_L6"] = out["dedup_rate"]
+        out["chronological_incremental"] = [{
+            "name": flights[0].get("name"),
+            "incremental_people": out["reach_1p"],
+            "cumulative_people": out["reach_1p"],
+        }]
+        out["diagnostics"] = []
         return out
 
     n = len(flights)
     reaches = [float(f["reach_1p"]) for f in flights]
+    supplied = custom_pairs or {}
     pairs: Dict[Tuple[int, int], dict] = {}
     for i in range(n):
         for j in range(i + 1, n):
-            pairs[(i, j)] = l6_pair(flights[i], flights[j], U)
+            raw = dict(supplied.get((i, j), {}))
+            hard_relation = any(k in raw for k in ("J", "intersection", "union", "rho"))
+            if hard_relation:
+                Ui = raw.get("U_i", flights[i].get("addressable_universe"))
+                Uj = raw.get("U_j", flights[j].get("addressable_universe"))
+                Mfg = raw.get("M")
+                pairs[(i, j)] = normalize_pair_input(
+                    raw, reaches[i], reaches[j], U,
+                    Ua=Ui, Ub=Uj, M=Mfg,
+                    default_source=str(raw.get("source") or "CUSTOM"),
+                )
+                continue
+
+            ai, bj = dict(flights[i]), dict(flights[j])
+            if raw:
+                Ui = raw.get("U_i", raw.get("Ua", ai.get("addressable_universe")))
+                Uj = raw.get("U_j", raw.get("Ub", bj.get("addressable_universe")))
+                if Ui is not None:
+                    ai["addressable_universe"] = positive(Ui, "U_f")
+                if Uj is not None:
+                    bj["addressable_universe"] = positive(Uj, "U_g")
+                if raw.get("M") is not None:
+                    Mfg = finite(raw.get("M"), "M_fg")
+                    ai.setdefault("addressable_intersections", {})[bj.get("name")] = Mfg
+            meta = l6_pair(ai, bj, U)
+            if raw:
+                meta["M_source"] = str(raw.get("source") or "CUSTOM_ADDRESSABILITY").upper()
+                if raw.get("M") is not None:
+                    meta["M"] = float(raw["M"])
+                    meta["U_i"] = ai.get("addressable_universe")
+                    meta["U_j"] = bj.get("addressable_universe")
+            pairs[(i, j)] = meta
 
     lam = 1.0
     diagnostics: List[dict] = []
-    target_J = {k: v["J_effective"] for k, v in pairs.items()}
+    target_J = {k: v["J_effective"] if "J_effective" in v else v["J"] for k, v in pairs.items()}
     if n >= 3 and not global_feasibility(reaches, U, target_J).get("feasible"):
-        model_keys = [k for k, v in pairs.items() if str(v.get("source", "")).startswith("MODEL_DEFAULT")]
+        model_keys = [
+            k for k, v in pairs.items()
+            if str(v.get("source", "")).upper().startswith("MODEL_DEFAULT")
+        ]
         if not model_keys:
             raise ReachValidationError("Level 6: hard pair constraints globally infeasible.")
         upper = float("inf")
         for key in model_keys:
             v = pairs[key]
-            if v["J_target"] <= 0:
+            target = float(v.get("J_target", v.get("J", 0.0)))
+            if target <= 0:
                 continue
-            upper = min(upper, v["J_max"] / v["J_target"])
+            upper = min(upper, v["J_max"] / target)
         if not math.isfinite(upper):
             raise ReachCalculationError("Level 6: common λ cannot be constructed.")
         if upper < 1 - LAMBDA_TOL:
             raise ReachCalculationError("MODEL_DEFAULT_GLOBAL_INFEASIBLE: λ upper bound < 1.")
 
         def scaled(candidate: float) -> Dict[Tuple[int, int], float]:
-            out: Dict[Tuple[int, int], float] = {}
+            scaled_targets: Dict[Tuple[int, int], float] = {}
             for key, meta in pairs.items():
                 if key in model_keys:
-                    value = candidate * meta["J_target"]
+                    target = float(meta.get("J_target", meta.get("J", 0.0)))
+                    value = candidate * target
                     if value > meta["J_max"] + FEASIBILITY_TOL:
-                        raise ReachCalculationError("MODEL_DEFAULT_GLOBAL_INFEASIBLE: common λ would exceed J_max.")
-                    out[key] = value
+                        raise ReachCalculationError(
+                            "MODEL_DEFAULT_GLOBAL_INFEASIBLE: common λ would exceed J_max."
+                        )
+                    scaled_targets[key] = value
                 else:
-                    out[key] = meta["J_effective"]
-            return out
+                    scaled_targets[key] = float(meta.get("J_effective", meta["J"]))
+            return scaled_targets
 
-        # Find first feasible bracket; no per-pair clipping is allowed.
         if upper <= 1 + LAMBDA_TOL:
             raise ReachCalculationError("MODEL_DEFAULT_GLOBAL_INFEASIBLE: no λ>1 available.")
         steps = 80
@@ -1811,7 +1935,8 @@ def level6_line(flights: Sequence[dict], U: float) -> dict:
             meta["J"] = final_J[key]
             meta["lambda"] = lam
             if final_J[key] > RESIDUAL_CAP * min(reaches[key[0]], reaches[key[1]]) + NUMERICAL_TOL:
-                if meta["J_target"] <= RESIDUAL_CAP * min(reaches[key[0]], reaches[key[1]]) + NUMERICAL_TOL:
+                raw_target = float(meta.get("J_target", meta.get("J", 0.0)))
+                if raw_target <= RESIDUAL_CAP * min(reaches[key[0]], reaches[key[1]]) + NUMERICAL_TOL:
                     cap_override = True
                     meta["residual_cap_overridden"] = True
         diagnostics.append({"code": "GLOBAL_FEASIBILITY_RELAXATION", "level": 6, "lambda": lam})
@@ -1821,17 +1946,32 @@ def level6_line(flights: Sequence[dict], U: float) -> dict:
                 "level": 6, "lambda": lam,
             })
 
+    overlapping = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            a0, a1 = flights[i].get("start"), flights[i].get("end")
+            b0, b1 = flights[j].get("start"), flights[j].get("end")
+            if a0 and a1 and b0 and b1 and max(a0, b0) <= min(a1, b1):
+                overlapping.append([flights[i].get("name"), flights[j].get("name")])
+    if overlapping:
+        diagnostics.append({
+            "code": "START_ORDER_ATTRIBUTION",
+            "level": 6,
+            "severity": "WARNING",
+            "pairs": overlapping,
+            "message": "Flights overlap in time; chronological incremental is start-order attribution, not causal first-touch.",
+        })
+
     out = audience_merge(flights, U, pair_details=pairs, model_path="L6_LINE")
     out["flight_relaxation_lambda"] = lam
     out["diagnostics"] = diagnostics
     out["D_L6"] = out["dedup_rate"]
 
-    # Explicit chronological incremental is a business diagnostic, not the production
-    # merge operator.  Use prefix unions from the same final joint-state distribution.
-    # For n<=6 weights are available. For larger n we still derive from solver weights by
-    # rerunning the final merge would be wasteful; report N/A.
     chronological: List[dict] = []
-    sorted_idx = sorted(range(n), key=lambda i: (flights[i].get("start") or dt.date.max, flights[i].get("end") or dt.date.max))
+    sorted_idx = sorted(
+        range(n),
+        key=lambda i: (flights[i].get("start") or dt.date.max, flights[i].get("end") or dt.date.max),
+    )
     if out.get("weights") is not None:
         weights = out["weights"]
         prior_union = 0.0
@@ -1855,6 +1995,7 @@ def level6_line(flights: Sequence[dict], U: float) -> dict:
 # ---------------------------------------------------------------------------
 
 def brand_addressability_support(n: int, map_spec: Optional[dict]) -> Optional[List[bool]]:
+    """Backward-compatible global state support for simple forbidden/allowed-state maps."""
     if not map_spec:
         return None
     allowed = [True] * (1 << n)
@@ -1876,10 +2017,338 @@ def brand_addressability_support(n: int, map_spec: Optional[dict]) -> Optional[L
             explicit[si] = True
         allowed = [a and b for a, b in zip(allowed, explicit)]
     if not allowed[0]:
-        # "Nobody" state must be allowed unless Brand universe is itself preconditioned;
-        # v1.6 base contract uses full Brand master U_B.
-        raise ReachValidationError("BrandAddressabilityMap не может запрещать empty state в base U_B scope.")
+        raise ReachValidationError(
+            "BrandAddressabilityMap не может запрещать empty state в base U_B scope."
+        )
     return allowed
+
+
+def _brand_line_mask(raw: Any, lines: Sequence[dict]) -> int:
+    n = len(lines)
+    if isinstance(raw, bool):
+        raise ReachValidationError("eligible_line_mask: boolean не является допустимой маской.")
+    if isinstance(raw, int):
+        mask = raw
+    elif isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            mask = 0
+        elif set(s) <= {"0", "1"}:
+            mask = int(s, 2)
+        else:
+            names = [x.strip() for x in s.split(",") if x.strip()]
+            return _brand_line_mask(names, lines)
+    elif isinstance(raw, Sequence):
+        if len(raw) == n and all(isinstance(x, bool) for x in raw):
+            mask = sum((1 << i) for i, ok in enumerate(raw) if ok)
+        else:
+            aliases: Dict[str, int] = {}
+            for i, line in enumerate(lines):
+                for key in ("name", "label", "plan_id", "line_id"):
+                    value = str(line.get(key) or "").strip()
+                    if value:
+                        aliases[value] = i
+                        aliases[value.lower()] = i
+            mask = 0
+            for token in raw:
+                if isinstance(token, int) and 0 <= token < n:
+                    idx = token
+                else:
+                    key = str(token).strip()
+                    idx = aliases.get(key, aliases.get(key.lower()))
+                    if idx is None:
+                        raise ReachValidationError(
+                            f"BrandAddressabilityMap: unknown line in eligible_line_mask: {token}."
+                        )
+                mask |= 1 << idx
+    else:
+        raise ReachValidationError(
+            "eligible_line_mask должен быть integer bitmask, binary string или list line ids/names."
+        )
+    if mask < 0 or mask >= (1 << n):
+        raise ReachValidationError("BrandAddressabilityMap: eligible_line_mask вне диапазона.")
+    return mask
+
+
+def _brand_cells(
+    lines: Sequence[dict],
+    U: float,
+    map_spec: Optional[dict],
+) -> Optional[dict]:
+    raw_cells = None if not map_spec else map_spec.get("cells")
+    if not raw_cells:
+        return None
+    n = len(lines)
+    if n > MAX_ENTITIES:
+        raise ReachValidationError(f"Joint state guard: {n}>{MAX_ENTITIES}.")
+    cells = []
+    total = 0.0
+    for idx, raw in enumerate(raw_cells):
+        pop = finite(raw.get("population"), f"BrandAddressabilityMap cell[{idx}].population")
+        if pop < 0:
+            raise ReachValidationError("BrandAddressabilityMap cell population < 0.")
+        if pop == 0:
+            continue
+        mask = _brand_line_mask(raw.get("eligible_line_mask", 0), lines)
+        cells.append({
+            "cell_id": str(raw.get("cell_id") or f"cell_{idx+1}"),
+            "population": pop,
+            "mask": mask,
+        })
+        total += pop
+    if not cells:
+        raise ReachValidationError("BrandAddressabilityMap cells are empty.")
+    tol = max(1e-6, SOLVER_TOL * max(1.0, U))
+    if abs(total - U) > tol:
+        raise ReachValidationError(
+            f"BrandAddressabilityMap cell populations sum to {total}, expected U_B={U}."
+        )
+
+    U_l = [0.0] * n
+    M: Dict[Tuple[int, int], float] = {}
+    for i in range(n):
+        U_l[i] = sum(c["population"] for c in cells if (c["mask"] >> i) & 1)
+        if U_l[i] <= 0 and float(lines[i].get("reach_1p") or 0) > NUMERICAL_TOL:
+            raise ReachValidationError(
+                f"BrandAddressabilityMap: Line {i} has Reach>0 but derived U_l=0."
+            )
+        if float(lines[i].get("reach_1p") or 0) > U_l[i] + NUMERICAL_TOL:
+            raise ReachValidationError(
+                f"BrandAddressabilityMap: Line {i} Reach exceeds map-derived U_l."
+            )
+        explicit = lines[i].get("addressable_universe")
+        assumed = bool(
+            lines[i].get("addressable_universe_assumed")
+            or lines[i].get("line_universe_assumed")
+        )
+        if explicit not in (None, "") and not assumed:
+            if abs(float(explicit) - U_l[i]) > tol:
+                raise ReachValidationError(
+                    f"BrandAddressabilityMap: explicit U_l for Line {i} conflicts with map-derived U_l."
+                )
+    for i in range(n):
+        for j in range(i + 1, n):
+            M[(i, j)] = sum(
+                c["population"] for c in cells
+                if ((c["mask"] >> i) & 1) and ((c["mask"] >> j) & 1)
+            )
+    return {"cells": cells, "U_l": U_l, "M": M}
+
+
+def _phase1_general(
+    columns: Sequence[Sequence[float]],
+    b: Sequence[float],
+    *,
+    tolerance: float = FEASIBILITY_TOL,
+    max_pivots: int = 20_000,
+) -> dict:
+    """Phase-I LP for arbitrary non-negative latent-state columns."""
+    m = len(b)
+    if m == 0:
+        return {"feasible": True, "objective": 0.0, "pivots": 0}
+    if not columns:
+        return {"feasible": False, "objective": float("inf"), "pivots": 0, "reason": "EMPTY_SUPPORT"}
+    if any(x < -NUMERICAL_TOL for x in b):
+        return {"feasible": False, "objective": float("inf"), "pivots": 0, "reason": "NEGATIVE_TARGET"}
+
+    Binv = [[1.0 if i == j else 0.0 for j in range(m)] for i in range(m)]
+    basis = [len(columns) + i for i in range(m)]
+    xB = [max(0.0, float(x)) for x in b]
+    cB = [1.0] * m
+
+    def dot(a: Sequence[float], bb: Sequence[float]) -> float:
+        return sum(x * y for x, y in zip(a, bb))
+
+    def basis_y() -> List[float]:
+        return [sum(cB[r] * Binv[r][col] for r in range(m)) for col in range(m)]
+
+    objective = sum(c * x for c, x in zip(cB, xB))
+    pivots = 0
+    while pivots < max_pivots:
+        y = basis_y()
+        entering = None
+        entering_col = None
+        for j, col in enumerate(columns):
+            if j in basis:
+                continue
+            if -dot(y, col) < -1e-12:
+                entering = j
+                entering_col = col
+                break
+        if entering is None:
+            for aidx in range(m):
+                var = len(columns) + aidx
+                if var in basis:
+                    continue
+                if 1.0 - y[aidx] < -1e-12:
+                    entering = var
+                    entering_col = [1.0 if k == aidx else 0.0 for k in range(m)]
+                    break
+        if entering is None:
+            objective = sum(c * x for c, x in zip(cB, xB))
+            return {
+                "feasible": objective <= tolerance,
+                "objective": objective,
+                "pivots": pivots,
+                "variable_count": len(columns),
+                "constraint_count": m,
+                "reason": "PHASE1_OPTIMUM",
+            }
+
+        d = [dot(row, entering_col) for row in Binv]
+        candidates = [(xB[i] / d[i], basis[i], i) for i in range(m) if d[i] > 1e-14]
+        if not candidates:
+            return {
+                "feasible": False, "objective": objective, "pivots": pivots,
+                "variable_count": len(columns), "constraint_count": m,
+                "reason": "PHASE1_UNBOUNDED",
+            }
+        theta, _basis_var, leave = min(candidates, key=lambda x: (x[0], x[1]))
+        pivot = d[leave]
+        old_pivot_row = list(Binv[leave])
+        new_xB = [xB[i] - theta * d[i] for i in range(m)]
+        new_xB[leave] = theta
+        xB = [0.0 if -NUMERICAL_TOL <= x < 0 else x for x in new_xB]
+        Binv[leave] = [v / pivot for v in old_pivot_row]
+        for i in range(m):
+            if i == leave:
+                continue
+            factor = d[i] / pivot
+            if abs(factor) > 0:
+                Binv[i] = [Binv[i][k] - factor * old_pivot_row[k] for k in range(m)]
+        basis[leave] = entering
+        cB[leave] = 0.0 if entering < len(columns) else 1.0
+        pivots += 1
+        objective = sum(c * x for c, x in zip(cB, xB))
+        if objective <= tolerance:
+            return {
+                "feasible": True, "objective": objective, "pivots": pivots,
+                "variable_count": len(columns), "constraint_count": m,
+                "reason": "PHASE1_ZERO_OBJECTIVE",
+            }
+    raise ReachCalculationError("BrandAddressabilityMap Phase-I solver превысил max pivots.")
+
+
+def _brand_cell_joint(
+    lines: Sequence[dict],
+    U: float,
+    cell_info: dict,
+    pair_details: Mapping[Tuple[int, int], dict],
+    map_spec: Mapping[str, Any],
+) -> dict:
+    n = len(lines)
+    support = brand_addressability_support(n, {
+        "forbidden_pairs": map_spec.get("forbidden_pairs") or [],
+        "allowed_states": map_spec.get("allowed_states"),
+    }) if (map_spec.get("forbidden_pairs") or map_spec.get("allowed_states") is not None) else None
+
+    variables: List[Tuple[int, int]] = []
+    by_cell: Dict[int, List[int]] = {}
+    for ci, cell in enumerate(cell_info["cells"]):
+        ids = []
+        for state in range(1 << n):
+            if state & ~cell["mask"]:
+                continue
+            if support is not None and not support[state]:
+                continue
+            ids.append(len(variables))
+            variables.append((ci, state))
+        if not ids:
+            raise ReachValidationError(
+                f"BrandAddressabilityMap cell {cell['cell_id']} has no feasible joint state."
+            )
+        by_cell[ci] = ids
+
+    if len(variables) > 100_000:
+        raise ReachCalculationError(
+            "BrandAddressabilityMap latent state count >100000; map must be made sparser before exact calculation."
+        )
+
+    pair_keys = sorted(pair_details)
+    events: List[List[bool]] = []
+    targets: List[float] = []
+    labels: List[str] = []
+    for ci, cell in enumerate(cell_info["cells"]):
+        events.append([vci == ci for vci, _ in variables])
+        targets.append(cell["population"] / U)
+        labels.append(f"CELL[{cell['cell_id']}]")
+    for i, line in enumerate(lines):
+        events.append([bool((state >> i) & 1) for _ci, state in variables])
+        targets.append(float(line["reach_1p"]) / U)
+        labels.append(f"R[{i}]")
+    for i, j in pair_keys:
+        events.append([
+            bool(((state >> i) & 1) and ((state >> j) & 1))
+            for _ci, state in variables
+        ])
+        targets.append(float(pair_details[(i, j)]["J"]) / U)
+        labels.append(f"J[{i},{j}]")
+
+    columns = [
+        [1.0 if events[row][col] else 0.0 for row in range(len(events))]
+        for col in range(len(variables))
+    ]
+    feas = _phase1_general(columns, targets)
+    if not feas.get("feasible"):
+        raise ReachValidationError(
+            "GLOBAL_FEASIBILITY=FAIL: BrandAddressabilityMap hard cells/Reach/pairs are incompatible. "
+            + str(feas)
+        )
+
+    w = [0.0] * len(variables)
+    for ci, cell in enumerate(cell_info["cells"]):
+        ids = by_cell[ci]
+        share = (cell["population"] / U) / len(ids)
+        for vid in ids:
+            w[vid] = share
+
+    residual = float("inf")
+    for it in range(1, MAX_ITERATIONS + 1):
+        for event, target, label in zip(events, targets, labels):
+            cur = sum(x for x, ok in zip(w, event) if ok)
+            if target <= SOLVER_TOL:
+                for k, ok in enumerate(event):
+                    if ok:
+                        w[k] = 0.0
+            elif target >= 1.0 - SOLVER_TOL:
+                for k, ok in enumerate(event):
+                    if not ok:
+                        w[k] = 0.0
+            else:
+                if cur <= 1e-300 or cur >= 1 - 1e-15:
+                    raise ReachCalculationError(
+                        f"BrandAddressabilityMap MaxEnt/IPF numerical boundary at {label}."
+                    )
+                a = target / cur
+                b = (1.0 - target) / (1.0 - cur)
+                for k, ok in enumerate(event):
+                    w[k] *= a if ok else b
+            z = sum(w)
+            if not math.isfinite(z) or z <= 0:
+                raise ReachCalculationError("BrandAddressabilityMap MaxEnt normalization failure.")
+            inv = 1.0 / z
+            w = [x * inv for x in w]
+
+        if it % 5 == 0 or it == MAX_ITERATIONS:
+            residual = 0.0
+            for event, target in zip(events, targets):
+                cur = sum(x for x, ok in zip(w, event) if ok)
+                residual = max(residual, abs(cur - target))
+            if residual <= SOLVER_TOL:
+                state_weights = [0.0] * (1 << n)
+                for prob, (_ci, state) in zip(w, variables):
+                    state_weights[state] += prob
+                return {
+                    "weights": state_weights,
+                    "iterations": it,
+                    "residual": residual,
+                    "status": "CONVERGED_ADDRESSABILITY_CELLS",
+                    "feasibility": feas,
+                    "latent_variable_count": len(variables),
+                }
+    raise ReachCalculationError(
+        f"BrandAddressabilityMap Maximum Entropy не сошёлся за {MAX_ITERATIONS}; residual={residual:.3g}."
+    )
 
 
 def level7_brand(
@@ -1894,25 +2363,82 @@ def level7_brand(
         out = audience_merge([], U, model_path="L7_BRAND")
         out["brand_addressability_status"] = "NOT_APPLICABLE"
         return out
+    if len(lines) > MAX_ENTITIES:
+        raise ReachValidationError(f"Joint state guard: {len(lines)}>{MAX_ENTITIES}.")
     reaches = [float(x["reach_1p"]) for x in lines]
     for r in reaches:
         if r > U + NUMERICAL_TOL:
             raise ReachValidationError("Line Reach превышает Brand Master Universe.")
 
     n = len(lines)
-    pairs: Dict[Tuple[int, int], dict] = {}
     supplied = custom_pairs or {}
+    cell_info = _brand_cells(lines, U, addressability_map)
+    pairs: Dict[Tuple[int, int], dict] = {}
+
+    if cell_info is not None:
+        for i in range(n):
+            for j in range(i + 1, n):
+                Ui, Uj = cell_info["U_l"][i], cell_info["U_l"][j]
+                Mij = cell_info["M"][(i, j)]
+                if (i, j) in supplied:
+                    meta = normalize_pair_input(
+                        supplied[(i, j)], reaches[i], reaches[j], U,
+                        Ua=Ui, Ub=Uj, M=Mij,
+                        default_source=str(supplied[(i, j)].get("source") or "CUSTOM"),
+                    )
+                else:
+                    meta = overlap_from_rho(
+                        reaches[i], reaches[j], U, RHO_LINE_DEFAULT,
+                        Ua=Ui, Ub=Uj, M=Mij,
+                    )
+                    meta["source"] = "BRAND_ADDRESSABILITY_MAP"
+                    meta["rho_source"] = "MODEL_DEFAULT"
+                meta.update({
+                    "U_i": Ui, "U_j": Uj, "M": Mij,
+                    "M_source": "BRAND_ADDRESSABILITY_MAP",
+                })
+                pairs[(i, j)] = meta
+
+        solver = _brand_cell_joint(lines, U, cell_info, pairs, addressability_map or {})
+        out = _joint_output(
+            lines, U, solver["weights"],
+            model_path="L7_BRAND_ADDRESSABILITY_CELLS_MAXENT",
+            pair_details=pairs,
+            feasibility=solver["feasibility"],
+            solver=solver,
+        )
+        out["brand_addressability_status"] = "STRUCTURED_CELLS"
+        out["brand_addressability_cells"] = [
+            {
+                "cell_id": cell["cell_id"],
+                "population": cell["population"],
+                "eligible_line_mask": cell["mask"],
+            }
+            for cell in cell_info["cells"]
+        ]
+        out["derived_line_universes"] = {
+            str(lines[i].get("name") or lines[i].get("label") or i): cell_info["U_l"][i]
+            for i in range(n)
+        }
+        out["D_L7"] = out["dedup_rate"]
+        return out
+
     forbidden = {
         tuple(sorted((int(p[0]), int(p[1]))))
         for p in ((addressability_map or {}).get("forbidden_pairs") or [])
     }
     for i in range(n):
         for j in range(i + 1, n):
-            if (i, j) in supplied:
-                pairs[(i, j)] = dict(supplied[(i, j)])
-                continue
             Ui = float(lines[i].get("addressable_universe") or U)
             Uj = float(lines[j].get("addressable_universe") or U)
+            if (i, j) in supplied:
+                pairs[(i, j)] = normalize_pair_input(
+                    supplied[(i, j)], reaches[i], reaches[j], U,
+                    Ua=Ui, Ub=Uj,
+                    M=supplied[(i, j)].get("M"),
+                    default_source=str(supplied[(i, j)].get("source") or "CUSTOM"),
+                )
+                continue
             if (i, j) in forbidden:
                 pairs[(i, j)] = {
                     "J": 0.0, "J0": 0.0, "J_min": 0.0, "J_max": 0.0,
@@ -1922,18 +2448,20 @@ def level7_brand(
                     "rho_source": "NOT_APPLICABLE",
                 }
                 continue
-            Uj = float(lines[j].get("addressable_universe") or U)
-            M = None
+            Mij = None
             if lines[i].get("addressable_intersections"):
-                M = lines[i]["addressable_intersections"].get(lines[j].get("name"))
-            if M is None:
-                M = Ui * Uj / U
+                Mij = lines[i]["addressable_intersections"].get(lines[j].get("name"))
+            if Mij is None:
+                Mij = Ui * Uj / U
                 m_source = "MODEL_DEFAULT"
             else:
                 m_source = "MEASURED_ADDRESSABLE"
-            meta = overlap_from_rho(reaches[i], reaches[j], U, RHO_LINE_DEFAULT, Ua=Ui, Ub=Uj, M=M)
+            meta = overlap_from_rho(
+                reaches[i], reaches[j], U, RHO_LINE_DEFAULT,
+                Ua=Ui, Ub=Uj, M=Mij,
+            )
             meta.update({
-                "U_i": Ui, "U_j": Uj, "M": M,
+                "U_i": Ui, "U_j": Uj, "M": Mij,
                 "M_source": m_source,
                 "source": "MODEL_DEFAULT" if m_source == "MODEL_DEFAULT" else "MEASURED_ADDRESSABLE",
                 "rho_source": "MODEL_DEFAULT",
@@ -1941,7 +2469,9 @@ def level7_brand(
             pairs[(i, j)] = meta
 
     support = brand_addressability_support(n, addressability_map)
-    structured = support is not None or any(v.get("M_source") == "MEASURED_ADDRESSABLE" for v in pairs.values())
+    structured = support is not None or any(
+        v.get("M_source") == "MEASURED_ADDRESSABLE" for v in pairs.values()
+    )
     out = audience_merge(
         lines, U, pair_details=pairs,
         neutral_unstructured=(not structured and not supplied),
@@ -1953,3 +2483,4 @@ def level7_brand(
     )
     out["D_L7"] = out["dedup_rate"]
     return out
+
