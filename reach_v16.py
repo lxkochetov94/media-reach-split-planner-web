@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 """
-Reach Engine v1.6 — isolated experimental calculation core.
+Reach Engine v1.6 — canonical parser/orchestration adapter.
 
-This module is intentionally separate from the production 0.52 reach engine.
-It reuses only the workbook parser from engine.py and does not call apply_reach(),
-combine_reach_union() or any of the legacy reach aggregation functions.
+The mathematical source of truth lives in reach_v16_math.py and follows the final
+07.09.2026 canonical Levels 1–7 specification.  This module only connects that
+math to the existing LAB media-plan parser and exposes JSON APIs for the isolated
+web tab.
 
-Implemented test path:
-L1 placement technical reach -> L2 Quick or Advanced Web people -> aggregate L3 fallback ->
-L4 platform/family/channel merge -> L5 channel/flight merge ->
-L6 flight/line merge -> L7 line/brand merge.
-
-The module keeps every model-default relaxation and approximation visible in diagnostics.
+Production Web 0.52 is intentionally not called or modified.
 """
 
 import datetime as dt
@@ -20,29 +16,22 @@ import json
 import math
 import re
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from engine import discover_media_plan_groups, parse_media_plan, norm
+import reach_v16_math as m
 
 VERSION = "1.6"
-MAX_ENTITIES = 12
-IPF_TOL = 1e-8
-IPF_MAX_ITER = 1800
-SIGMA_DEFAULT = 2.50
-K_DEFAULT = 2.40
-CHROMIUM_L_DEFAULT = 68.0
-BASE_BROWSER = 1.80
-BASE_DEVICE_FACTOR = 2.25
-RHO_CHANNEL_DEFAULT = -0.35
-RESIDUAL_CAP = 0.10
-ARITH_REL_TOL = 0.03
-TEMPORAL_RHO_PROFILES = {"LOW": 0.50, "BASE": 0.65, "HIGH": 0.80}
+K_DEFAULT = m.K_DEFAULT
+SIGMA_DEFAULT = m.SIGMA_DEFAULT
+CHROMIUM_L_DEFAULT = m.CHROMIUM_L_DEFAULT
+RHO_CHANNEL_DEFAULT = m.RHO_CHANNEL_DEFAULT
+RESIDUAL_CAP = m.RESIDUAL_CAP
+TEMPORAL_RHO_PROFILES = {k: v for k, v in m.RHO_TEMPORAL.items() if k in {"LOW", "BASE", "HIGH"}}
 SIGMA_CALIBRATION_IQR = (2.42, 2.90)
-CHURN_REFERENCE = [(7, 0.069), (28, 0.248), (42, 0.348), (56, 0.435), (84, 0.575)]
 
-
-class V16Error(ValueError):
-    pass
+# Compatibility alias used by existing browser/error handling and legacy v1.6 tests.
+V16Error = m.ReachValidationError
 
 
 def _json_default(v: Any):
@@ -55,36 +44,12 @@ def _json(v: Any) -> str:
     return json.dumps(v, ensure_ascii=False, separators=(",", ":"), default=_json_default)
 
 
-def _finite(v: Any, name: str) -> float:
-    try:
-        x = float(v)
-    except Exception as e:
-        raise V16Error(f"{name}: ожидается число.") from e
-    if not math.isfinite(x):
-        raise V16Error(f"{name}: ожидается конечное число.")
-    return x
-
-
-def _positive(v: Any, name: str) -> float:
-    x = _finite(v, name)
-    if x <= 0:
-        raise V16Error(f"{name} должен быть больше 0.")
-    return x
+def _date(v: Any) -> Optional[str]:
+    return v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else None
 
 
 def _norm_ta(v: Any) -> str:
     return " ".join(str(v or "").strip().lower().replace("ё", "е").split())
-
-
-def _date(v: Optional[dt.date]) -> Optional[str]:
-    return v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else None
-
-
-def _gap_days(a_end: Optional[dt.date], b_start: Optional[dt.date]) -> int:
-    if not a_end or not b_start:
-        return 0
-    # Inclusive convention: 28.02 -> 01.03 means G=0.
-    return max(0, (b_start - a_end).days - 1)
 
 
 def _duration_days(a: Optional[dt.date], b: Optional[dt.date]) -> int:
@@ -93,149 +58,11 @@ def _duration_days(a: Optional[dt.date], b: Optional[dt.date]) -> int:
     return max(1, (b - a).days + 1)
 
 
-def model_catalog() -> dict:
-    return {
-        "level2": {
-            "quick_k": K_DEFAULT,
-            "chromium_l_days": CHROMIUM_L_DEFAULT,
-            "browser_by_age": [{"segment": f"{a}–{b}" if b < 120 else f"{a}+", "value": v} for a, b, v in _AGE_B],
-            "browser_by_device": [
-                {"segment": "Smartphone", "value": 1.85},
-                {"segment": "Desktop", "value": 1.80},
-                {"segment": "Laptop", "value": 1.80},
-                {"segment": "Tablet", "value": 1.70},
-                {"segment": "Smart TV / CTV", "value": None},
-            ],
-            "device_by_age": [{"segment": f"{a}–{b}" if b < 120 else f"{a}+", "value": v} for a, b, v in _AGE_D],
-            "churn_reference": [{"days": d, "probability": p} for d, p in CHURN_REFERENCE],
-        },
-        "level3": {
-            "temporal_rho_profiles": TEMPORAL_RHO_PROFILES,
-            "sigma_default": SIGMA_DEFAULT,
-            "sigma_calibration_iqr": list(SIGMA_CALIBRATION_IQR),
-        },
-        "level5": {"rho_channel_target": RHO_CHANNEL_DEFAULT},
-        "level6": {
-            "gap_curve": [{"days": d, "overlap": q} for d, q in _Q_POINTS],
-            "residual_cap": RESIDUAL_CAP,
-            "universe_multiplier_points": [
-                {"universe": 5_000_000, "multiplier": 2.50},
-                {"universe": 7_500_000, "multiplier": 2.25},
-                {"universe": 10_000_000, "multiplier": 2.00},
-                {"universe": 12_500_000, "multiplier": 1.50},
-                {"universe": 15_000_000, "multiplier": 1.00},
-            ],
-        },
-        "level7": {"rho_line_target": 0.0},
-    }
-
-
-def _plan_input_profile(plan) -> dict:
-    rows = list(plan.detail_rows())
-    durations = []
-    for row in rows:
-        if row.start and row.end:
-            durations.append(_duration_days(row.start, row.end))
-    durations.sort()
-    median_duration = None
-    if durations:
-        m = len(durations) // 2
-        median_duration = durations[m] if len(durations) % 2 else (durations[m - 1] + durations[m]) / 2
-    supplied = sum(1 for r in rows if r.tech_reach is not None)
-    if_rows = sum(1 for r in rows if r.impressions is not None and r.frequency is not None)
-    l1_ready = sum(
-        1 for r in rows
-        if r.tech_reach is not None or (r.impressions is not None and r.frequency is not None)
-    )
-    return {
-        "rows": len(rows),
-        "supplied_reach_rows": supplied,
-        "impressions_rows": sum(1 for r in rows if r.impressions is not None),
-        "frequency_rows": sum(1 for r in rows if r.frequency is not None),
-        "impressions_frequency_rows": if_rows,
-        "l1_ready_rows": l1_ready,
-        "dated_rows": sum(1 for r in rows if r.start and r.end),
-        "duration_days_min": min(durations) if durations else None,
-        "duration_days_median": median_duration,
-        "duration_days_max": max(durations) if durations else None,
-        "platforms": len({norm(r.platform_canonical or r.platform) for r in rows if (r.platform_canonical or r.platform)}),
-        "channels": len({norm(r.channel) for r in rows if r.channel}),
-    }
-
-
-# --------------------------- L1 / L2 ---------------------------
-
-def level1_technical(row, diagnostics: List[dict]) -> Optional[float]:
-    I = None if row.impressions is None else _finite(row.impressions, "Impressions")
-    F = None if row.frequency is None else _finite(row.frequency, "Average Frequency")
-    supplied = None if row.tech_reach is None else _finite(row.tech_reach, "Reach")
-
-    if I is not None and I < 0:
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Impressions < 0.")
-    if supplied is not None and supplied < 0:
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Reach < 0.")
-    if F is not None and F <= 0:
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Average Frequency должна быть > 0.")
-
-    if supplied is not None:
-        if I is not None:
-            if I == 0 and supplied > 0:
-                raise V16Error(f"{row.sheet}:{row.source_row+1}: I=0 при Reach>0.")
-            if supplied > I + 1e-9:
-                raise V16Error(f"{row.sheet}:{row.source_row+1}: Reach превышает Impressions.")
-        if supplied == 0 and I is not None and I > 0:
-            raise V16Error(f"{row.sheet}:{row.source_row+1}: Reach=0 при Impressions>0.")
-        if I is not None and F is not None:
-            if F < 1:
-                raise V16Error(f"{row.sheet}:{row.source_row+1}: Average Frequency < 1.")
-            expected = supplied * F
-            rel = abs(I - expected) / max(1.0, abs(I))
-            if rel > ARITH_REL_TOL:
-                raise V16Error(
-                    f"{row.sheet}:{row.source_row+1}: арифметическая ошибка — "
-                    f"Impressions не согласуются с Reach × Frequency."
-                )
-            elif rel > 1e-6:
-                diagnostics.append({
-                    "code": "L1_ROUNDING_DIAGNOSTIC",
-                    "row": row.source_row + 1,
-                    "sheet": row.sheet,
-                    "relative_difference": rel,
-                })
-        return supplied
-
-    if I is None:
-        return None
-    if I == 0:
-        return 0.0
-    if F is None:
-        return None
-    if F < 1:
-        raise V16Error(f"{row.sheet}:{row.source_row+1}: Average Frequency < 1.")
-    return I / F
-
-
-def level2_quick(rtech: float, U: float, K: float) -> float:
-    if K < 1:
-        raise V16Error("K должен быть >= 1.")
-    r = rtech / K
-    if r > U + 1e-6:
-        raise V16Error(
-            f"Level 2: Human Reach {r:.0f} превышает Universe {U:.0f}. "
-            "Проверьте Reach, Universe и K."
-        )
-    return max(0.0, r)
-
-
-_AGE_B = [(12, 24, 1.80), (25, 34, 1.90), (35, 44, 1.90), (45, 54, 1.75), (55, 120, 1.60)]
-_AGE_D = [(12, 24, 2.45), (25, 34, 2.35), (35, 44, 2.25), (45, 54, 2.15), (55, 120, 1.74)]
-
-
 def _age_range(ta_name: str) -> Optional[Tuple[int, int]]:
-    m = re.search(r"(?<!\d)(\d{1,2})\s*[-–—]\s*(\d{1,2})(?!\d)", str(ta_name or ""))
-    if not m:
+    mt = re.search(r"(?<!\d)(\d{1,2})\s*[-–—]\s*(\d{1,2})(?!\d)", str(ta_name or ""))
+    if not mt:
         return None
-    lo, hi = int(m.group(1)), int(m.group(2))
+    lo, hi = int(mt.group(1)), int(mt.group(2))
     if lo > hi:
         lo, hi = hi, lo
     if lo < 12:
@@ -243,1031 +70,1132 @@ def _age_range(ta_name: str) -> Optional[Tuple[int, int]]:
     return lo, hi
 
 
-def _age_weighted(ta_name: str, bands: Sequence[Tuple[int, int, float]], base: float) -> Tuple[float, str]:
-    rng = _age_range(ta_name)
-    if rng is None:
-        return base, "BASE_FALLBACK"
-    lo, hi = rng
-    vals = []
-    for age in range(lo, hi + 1):
-        match = next((v for a, b, v in bands if a <= age <= b), None)
-        if match is None:
-            return base, "BASE_FALLBACK"
-        vals.append(match)
-    if not vals:
-        return base, "BASE_FALLBACK"
-    return sum(vals) / len(vals), "AGE_WIDTH_APPROXIMATION"
-
-
-def _age_applicable_values(ta_name: str, bands: Sequence[Tuple[int, int, float]]) -> List[float]:
-    rng = _age_range(ta_name)
-    if rng is None:
-        return []
-    lo, hi = rng
-    vals = []
-    for age in range(lo, hi + 1):
-        match = next((v for a, b, v in bands if a <= age <= b), None)
-        if match is None:
-            return []
-        vals.append(match)
-    return vals
-
-
 def recommended_advanced_factors(ta_name: str) -> dict:
-    B, src_b = _age_weighted(ta_name, _AGE_B, BASE_BROWSER)
-    D, src_d = _age_weighted(ta_name, _AGE_D, BASE_DEVICE_FACTOR)
-    bvals = _age_applicable_values(ta_name, _AGE_B)
-    dvals = _age_applicable_values(ta_name, _AGE_D)
+    rng = _age_range(ta_name)
+    if rng is None:
+        return {
+            "B": m.BASE_BROWSER,
+            "D": m.BASE_DEVICE_FACTOR,
+            "B_source": "BASE_FALLBACK",
+            "D_source": "BASE_FALLBACK",
+            "B_min": min(x[2] for x in m.AGE_B),
+            "B_max": max(x[2] for x in m.AGE_B),
+            "D_min": min(x[2] for x in m.AGE_D),
+            "D_max": max(x[2] for x in m.AGE_D),
+            "age_range": None,
+            "B_approximation": True,
+            "D_approximation": True,
+        }
+    lo, hi = rng
+    b = m.age_weighted_factor(lo, hi, m.AGE_B)
+    d = m.age_weighted_factor(lo, hi, m.AGE_D)
     return {
-        "B": B,
-        "D": D,
-        "B_source": src_b,
-        "D_source": src_d,
-        "B_min": min(bvals) if bvals else min(v for _, _, v in _AGE_B),
-        "B_max": max(bvals) if bvals else max(v for _, _, v in _AGE_B),
-        "D_min": min(dvals) if dvals else min(v for _, _, v in _AGE_D),
-        "D_max": max(dvals) if dvals else max(v for _, _, v in _AGE_D),
-        "age_range": list(_age_range(ta_name)) if _age_range(ta_name) else None,
+        "B": b["value"], "D": d["value"],
+        "B_source": b["source"], "D_source": d["source"],
+        "B_min": b["min"], "B_max": b["max"],
+        "D_min": d["min"], "D_max": d["max"],
+        "age_range": [lo, hi],
+        "B_approximation": b["approximation"],
+        "D_approximation": d["approximation"],
     }
+
+
+def model_catalog() -> dict:
+    return {
+        "engineering": {
+            "max_entities": m.MAX_ENTITIES,
+            "max_iterations": m.MAX_ITERATIONS,
+            "feasibility_tolerance": m.FEASIBILITY_TOL,
+            "solver_constraint_tolerance": m.SOLVER_TOL,
+            "lambda_search_tolerance": m.LAMBDA_TOL,
+        },
+        "level1": {
+            "frequency_precision_default": 2,
+            "precision_tolerance": "max(1e-6, 0.5×10^-p)",
+        },
+        "level2": {
+            "quick_k": m.K_DEFAULT,
+            "chromium_l_days": m.CHROMIUM_L_DEFAULT,
+            "base_browser": m.BASE_BROWSER,
+            "base_device_factor": m.BASE_DEVICE_FACTOR,
+            "browser_by_age": [
+                {"segment": f"{a}–{b}" if b < 120 else f"{a}+", "value": v}
+                for a, b, v in m.AGE_B
+            ],
+            "browser_by_device": [
+                {"segment": k, "value": v} for k, v in m.DEVICE_B.items()
+            ],
+            "device_by_age": [
+                {"segment": f"{a}–{b}" if b < 120 else f"{a}+", "value": v}
+                for a, b, v in m.AGE_D
+            ],
+            "environment_rules": {
+                "WEB": "2A browser churn → 2B browser saturation → 2C device saturation",
+                "MOBILE_APP": "2A/2B OFF; device-level input required for Advanced",
+                "CTV": "2A/2B OFF; co-viewing outside Level 2",
+                "UNKNOWN": "Quick fallback unless environment/data are confirmed",
+            },
+        },
+        "level3": {
+            "temporal_rho_profiles": TEMPORAL_RHO_PROFILES,
+            "gap_decay": "rho_base^(1+G)",
+            "platform_universe_fallback": "U_p = U with assumed flag",
+            "aggregate_fallback": "AGGREGATE_FLIGHT_REACH_MODE",
+            "sigma_default": m.SIGMA_DEFAULT,
+            "sigma_calibration_iqr": list(SIGMA_CALIBRATION_IQR),
+            "frequency_model": "Poisson-Lognormal",
+        },
+        "level4": {
+            "rho_cross_default": 0.0,
+            "family_mapping": "USER_CONFIRMED_OR_REFERENCE_MAPPING",
+            "unstructured_neutral": "closed-form mutual independence",
+            "structured_or_dependent": "global feasibility → Maximum Entropy",
+        },
+        "level5": {
+            "rho_channel_target": m.RHO_CHANNEL_DEFAULT,
+            "relaxation": "common lambda in [0,1] toward neutral for MODEL_DEFAULT only",
+        },
+        "level6": {
+            "gap_curve": [{"days": d, "overlap": q} for d, q in m.Q_TEMPORAL_POINTS],
+            "residual_cap": m.RESIDUAL_CAP,
+            "universe_multiplier_points": [
+                {"universe": u, "multiplier": mu} for u, mu in m.UNIVERSE_MULTIPLIER_POINTS
+            ],
+            "relaxation": "common lambda >=1; never pair-specific clipping",
+            "aon": "requires deduplicated human temporal slice for AON↔burst",
+        },
+        "level7": {
+            "rho_line_target": m.RHO_LINE_DEFAULT,
+            "brand_master_universe": "REQUIRED for Brand Total",
+            "brand_master_ta": "REQUIRED; all Lines normalized upstream",
+            "brand_addressability": "conditional hard support constraints",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Compatibility wrappers / low-level public helpers
+# ---------------------------------------------------------------------------
+
+def level1_technical(row, diagnostics: List[dict]) -> Optional[float]:
+    try:
+        out = m.level1_technical(
+            row.impressions,
+            row.frequency,
+            row.tech_reach,
+            frequency_precision=None,
+        )
+    except m.ReachValidationError as exc:
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: {exc}") from exc
+    for d in out.get("diagnostics", []):
+        diagnostics.append({**d, "level": 1, "sheet": row.sheet, "row": row.source_row + 1})
+    diagnostics.append({
+        "code": "L1_TECHNICAL_REACH",
+        "level": 1,
+        "sheet": row.sheet,
+        "row": row.source_row + 1,
+        "source": out["source"],
+        "R_tech": out["R_tech"],
+        "F_implied": out.get("F_implied"),
+        "frequency_tolerance": out.get("frequency_tolerance"),
+    })
+    return out["R_tech"]
+
+
+def level2_quick(rtech: float, U: float, K: float) -> float:
+    return m.level2_quick(rtech, U, K)["R_people"]
 
 
 def level2_advanced_web(
-    rtech: float,
-    U: float,
-    T: float,
-    F: float,
-    U_D: float,
-    B: float,
-    D: float,
+    rtech: float, U: float, T: float, F: float, U_D: float, B: float, D: float,
     L: float = CHROMIUM_L_DEFAULT,
 ) -> dict:
-    T = _positive(T, "T")
-    F = _finite(F, "Average Frequency")
-    U_D = _positive(U_D, "Web-device Universe U_D")
-    B = _finite(B, "B")
-    D = _finite(D, "D")
-    L = _positive(L, "L")
-    if F < 1:
-        raise V16Error("Average Frequency должна быть >= 1.")
-    if B < 1:
-        raise V16Error("Browser multiplicity B должна быть >= 1.")
-    if D < 1:
-        raise V16Error("Device multiplicity D должна быть >= 1.")
-
-    k_time = 1.0 if F <= 1 else 1.0 + (F - 1.0) * (1.0 - 2.0 ** (-T / (L * F)))
-    r_stable = rtech / k_time
-    browser_capacity = U_D * B
-    if r_stable > browser_capacity + 1e-6:
-        raise V16Error(
-            f"Level 2 Advanced: R_stable {r_stable:.0f} превышает U_D×B {browser_capacity:.0f}."
-        )
-
-    base_browser = 1.0 - r_stable / browser_capacity
-    r_device = U_D * (1.0 - max(0.0, base_browser) ** B)
-
-    device_capacity = U * D
-    if r_device > device_capacity + 1e-6:
-        raise V16Error(
-            f"Level 2 Advanced: R_device {r_device:.0f} превышает U×D {device_capacity:.0f}."
-        )
-    base_device = 1.0 - r_device / device_capacity
-    r_people = U * (1.0 - max(0.0, base_device) ** D)
-    if r_people > U + 1e-6:
-        raise V16Error("Level 2 Advanced: Human Reach превышает Universe.")
-
+    out = m.level2_advanced(
+        rtech, U, environment="WEB", duration_days=T, frequency=F,
+        web_device_universe=U_D, B=B, D=D, L=L,
+        browser_family="CHROMIUM",
+    )
     return {
-        "R_people": max(0.0, r_people),
-        "K_time": k_time,
-        "R_stable": r_stable,
-        "R_device": r_device,
-        "B": B,
-        "D": D,
-        "L": L,
-        "U_D": U_D,
+        "R_people": out["R_people"],
+        "K_time": out["K_time"],
+        "R_stable": out["R_stable"],
+        "R_device": out["R_device"],
+        "B": B, "D": D, "L": L, "U_D": U_D,
     }
-
-
-def _resolve_l2_line_params(plan, U: float, q: dict, plan_id: str) -> dict:
-    requested = str(q.get("l2_mode") or "AUTO").upper()
-    if requested not in {"AUTO", "QUICK", "ADVANCED_WEB"}:
-        raise V16Error("Level 2 mode должен быть AUTO, QUICK или ADVANCED_WEB.")
-
-    K = _positive(q.get("K", K_DEFAULT), "K")
-    if K < 1:
-        raise V16Error("K должен быть >= 1.")
-
-    adv = q.get("advanced") or {}
-    ta_name = next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
-    rec = recommended_advanced_factors(ta_name)
-    B_raw = adv.get("B")
-    D_raw = adv.get("D")
-    B = rec["B"] if B_raw in (None, "") else _finite(B_raw, "B")
-    D = rec["D"] if D_raw in (None, "") else _finite(D_raw, "D")
-    L = _positive(adv.get("L", CHROMIUM_L_DEFAULT), "L")
-    ud_map = adv.get("web_device_universes") or {}
-    ud_raw = ud_map.get(plan_id)
-    U_D = None if ud_raw in (None, "", 0, "0") else _positive(ud_raw, "Web-device Universe U_D")
-
-    effective = requested
-    fallback_reason = None
-    if requested == "AUTO":
-        if U_D is not None:
-            effective = "ADVANCED_WEB"
-        else:
-            effective = "QUICK"
-            fallback_reason = "NO_WEB_DEVICE_UNIVERSE"
-    elif requested == "ADVANCED_WEB" and U_D is None:
-        raise V16Error(
-            "Advanced Web требует Web-device Universe U_D. "
-            "Без U_D используйте AUTO/QUICK или задайте U_D."
-        )
-
-    return {
-        "requested_mode": requested,
-        "effective_mode": effective,
-        "K": K,
-        "U_D": U_D,
-        "B": B,
-        "D": D,
-        "L": L,
-        "B_source": "USER_OVERRIDE" if B_raw not in (None, "") else rec["B_source"],
-        "D_source": "USER_OVERRIDE" if D_raw not in (None, "") else rec["D_source"],
-        "B_min": rec["B_min"], "B_max": rec["B_max"],
-        "D_min": rec["D_min"], "D_max": rec["D_max"],
-        "age_range": rec["age_range"],
-        "ta_name": ta_name,
-        "fallback_reason": fallback_reason,
-    }
-
-
-# --------------------------- frequency ---------------------------
-
-_PL_CACHE: Dict[Tuple[float, float], List[float]] = {}
-
-
-def _normal_grid(n: int = 321, lo: float = -7.0, hi: float = 7.0):
-    step = (hi - lo) / (n - 1)
-    z = [lo + i * step for i in range(n)]
-    w = []
-    c = 1.0 / math.sqrt(2.0 * math.pi)
-    for i, x in enumerate(z):
-        simpson = 1 if i in (0, n - 1) else (4 if i % 2 else 2)
-        w.append(simpson * c * math.exp(-0.5 * x * x) * step / 3.0)
-    s = sum(w)
-    return z, [x / s for x in w]
-
-
-_Z, _ZW = _normal_grid()
-
-
-def _pl_moments(mu: float, sigma: float) -> Tuple[float, List[float]]:
-    p = [0.0] * 6  # P(N=0..5)
-    mean = 0.0
-    for z, wz in zip(_Z, _ZW):
-        lam = math.exp(mu + sigma * z)
-        mean += wz * lam
-        term = math.exp(-lam)
-        p[0] += wz * term
-        for k in range(1, 6):
-            term *= lam / k
-            p[k] += wz * term
-    return mean, p
 
 
 def poisson_lognormal_exact(mean_frequency: float, sigma: float = SIGMA_DEFAULT) -> List[float]:
-    f = _finite(mean_frequency, "Human Average Frequency")
-    if f < 1 - 1e-9:
-        raise V16Error("Human Average Frequency не может быть меньше 1.")
-    if abs(f - 1.0) <= 1e-9:
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-    key = (round(f, 5), round(sigma, 4))
-    if key in _PL_CACHE:
-        return list(_PL_CACHE[key])
-
-    lo, hi = -20.0, 8.0
-    for _ in range(90):
-        mid = (lo + hi) / 2.0
-        mean, probs = _pl_moments(mid, sigma)
-        p0 = probs[0]
-        cond = mean / max(1e-15, 1.0 - p0)
-        if cond < f:
-            lo = mid
-        else:
-            hi = mid
-    mu = (lo + hi) / 2.0
-    _, probs = _pl_moments(mu, sigma)
-    p0 = probs[0]
-    denom = max(1e-15, 1.0 - p0)
-    exact = [probs[k] / denom for k in range(1, 6)]
-    exact6 = max(0.0, 1.0 - sum(exact))
-    out = exact + [exact6]
-    s = sum(out)
-    out = [max(0.0, x / s) for x in out]
-    _PL_CACHE[key] = list(out)
-    return out
+    return m.poisson_lognormal_frequency(mean_frequency, sigma)["exact"]
 
 
 def _convolve(a: Sequence[float], b: Sequence[float]) -> List[float]:
-    out = [0.0] * 6
-    for ia, pa in enumerate(a, 1):
-        if pa <= 0:
-            continue
-        for ib, pb in enumerate(b, 1):
-            if pb <= 0:
-                continue
-            k = min(6, ia + ib)
-            out[k - 1] += pa * pb
-    return out
+    return m.convolve_frequency(a, b)
 
 
-def _reach_from_exact(U: float, exact_unconditional: Sequence[float], impressions: float) -> dict:
-    ex = list(exact_unconditional)
-    cumulative = []
-    for k in range(6):
-        cumulative.append(U * sum(ex[k:]))
-    r1 = cumulative[0]
-    return {
-        "reach_1p": r1,
-        "reach_2p": cumulative[1],
-        "reach_3p": cumulative[2],
-        "reach_4p": cumulative[3],
-        "reach_5p": cumulative[4],
-        "reach_6p": cumulative[5],
-        "pct_1p": r1 / U if U > 0 else 0.0,
-        "avg_frequency": impressions / r1 if r1 > 0 else None,
-        "impressions": impressions,
-        "exact_counts": [U * x for x in ex],
-    }
-
-
-# --------------------------- audience merge ---------------------------
-
-def _pair_bounds(Ra: float, Rb: float, U: float, Ua: Optional[float] = None,
-                 Ub: Optional[float] = None, M: Optional[float] = None) -> Tuple[float, float]:
-    if Ua is None or Ub is None or M is None:
-        return max(0.0, Ra + Rb - U), min(Ra, Rb)
-    ma = max(0.0, Ra - (Ua - M))
-    mb = max(0.0, Rb - (Ub - M))
-    return max(0.0, ma + mb - M), min(Ra, Rb, M)
-
-
-def _neutral_overlap(Ra: float, Rb: float, U: float, Ua: Optional[float] = None,
-                     Ub: Optional[float] = None, M: Optional[float] = None) -> float:
-    if Ua and Ub and M is not None and Ua > 0 and Ub > 0:
-        return M * (Ra / Ua) * (Rb / Ub)
-    return Ra * Rb / U
-
-
-def _signed_overlap(Ra: float, Rb: float, U: float, rho: float,
-                    Ua: Optional[float] = None, Ub: Optional[float] = None,
-                    M: Optional[float] = None) -> float:
-    j0 = _neutral_overlap(Ra, Rb, U, Ua, Ub, M)
-    jmin, jmax = _pair_bounds(Ra, Rb, U, Ua, Ub, M)
-    if rho >= 0:
-        j = j0 + rho * (jmax - j0)
-    else:
-        j = j0 + rho * (j0 - jmin)
-    return min(jmax, max(jmin, j))
-
-
-def _independent_weights(reaches: Sequence[float], U: float, support: Optional[Sequence[bool]] = None) -> List[float]:
-    n = len(reaches)
-    probs = [r / U for r in reaches]
-    out = [0.0] * (1 << n)
-    total = 0.0
-    for s in range(1 << n):
-        if support is not None and not support[s]:
-            continue
-        p = 1.0
-        for i, q in enumerate(probs):
-            p *= q if (s >> i) & 1 else (1.0 - q)
-        out[s] = p
-        total += p
-    if total <= 0:
-        raise V16Error("Joint model: пустой support.")
-    return [x / total for x in out]
-
-
-def _constraint_events(n: int, pair_targets: Dict[Tuple[int, int], float], U: float):
-    events = []
-    for i in range(n):
-        mask = [bool((s >> i) & 1) for s in range(1 << n)]
-        events.append((mask, None))
-    for (i, j), target in pair_targets.items():
-        mask = [bool(((s >> i) & 1) and ((s >> j) & 1)) for s in range(1 << n)]
-        events.append((mask, target / U))
-    return events
-
-
-def _ipf_weights(reaches: Sequence[float], U: float, pair_targets: Dict[Tuple[int, int], float],
-                 support: Optional[Sequence[bool]] = None, tol: float = IPF_TOL,
-                 max_iter: int = IPF_MAX_ITER) -> Tuple[Optional[List[float]], float, int]:
-    n = len(reaches)
-    if n > MAX_ENTITIES:
-        raise V16Error(f"Слишком много сущностей для exact joint model: {n}>{MAX_ENTITIES}.")
-    size = 1 << n
-    if support is None:
-        support = [True] * size
-    allowed = [i for i, ok in enumerate(support) if ok]
-    if not allowed:
-        return None, float("inf"), 0
-    w = [0.0] * size
-    init = 1.0 / len(allowed)
-    for s in allowed:
-        w[s] = init
-
-    constraints: List[Tuple[List[bool], float]] = []
-    for i, r in enumerate(reaches):
-        constraints.append(([bool((s >> i) & 1) for s in range(size)], r / U))
-    for (i, j), target in sorted(pair_targets.items()):
-        constraints.append(([bool(((s >> i) & 1) and ((s >> j) & 1)) for s in range(size)], target / U))
-
-    for it in range(1, max_iter + 1):
-        for event, target in constraints:
-            target = min(1.0, max(0.0, target))
-            cur = sum(w[s] for s in allowed if event[s])
-            if target <= tol:
-                for s in allowed:
-                    if event[s]:
-                        w[s] = 0.0
-            elif target >= 1.0 - tol:
-                for s in allowed:
-                    if not event[s]:
-                        w[s] = 0.0
-            else:
-                if cur <= 1e-18 or cur >= 1.0 - 1e-18:
-                    return None, float("inf"), it
-                a = target / cur
-                b = (1.0 - target) / (1.0 - cur)
-                for s in allowed:
-                    w[s] *= a if event[s] else b
-            z = sum(w[s] for s in allowed)
-            if z <= 0 or not math.isfinite(z):
-                return None, float("inf"), it
-            inv = 1.0 / z
-            for s in allowed:
-                w[s] *= inv
-
-        if it % 5 == 0 or it == max_iter:
-            residual = 0.0
-            for event, target in constraints:
-                cur = sum(w[s] for s in allowed if event[s])
-                residual = max(residual, abs(cur - target))
-            if residual <= tol:
-                return w, residual, it
-    return None, residual, max_iter
-
-
-def _two_weights(Ra: float, Rb: float, J: float, U: float) -> List[float]:
-    vals = [
-        1.0 - (Ra + Rb - J) / U,
-        (Ra - J) / U,
-        (Rb - J) / U,
-        J / U,
-    ]
-    if min(vals) < -1e-8:
-        raise V16Error("Pair overlap несовместим с Reach/Universe.")
-    return [max(0.0, x) for x in vals]
-
-
-def _coverage_contributions(entities: Sequence[dict], U: float, weights: Sequence[float]) -> List[dict]:
-    n = len(entities)
-    exclusive = [0.0] * n
-    shapley = [0.0] * n
-    for state, ws in enumerate(weights):
-        if ws <= 0 or state == 0:
-            continue
-        members = [i for i in range(n) if (state >> i) & 1]
-        if not members:
-            continue
-        people = U * ws
-        share = people / len(members)
-        for i in members:
-            shapley[i] += share
-        if len(members) == 1:
-            exclusive[members[0]] += people
-    return [
-        {
-            "name": entities[i].get("name") or f"entity_{i+1}",
-            "shapley_people": shapley[i],
-            "exclusive_people": exclusive[i],
+def merge_entities(
+    entities: Sequence[dict], U: float,
+    pair_targets: Optional[Dict[Tuple[int, int], float]] = None,
+    neutral_unstructured: bool = False,
+    support: Optional[Sequence[bool]] = None,
+    model_path: str = "AUDIENCE_MERGE",
+) -> dict:
+    pd = None
+    if pair_targets is not None:
+        pd = {
+            k: {
+                "J": v,
+                "source": "CUSTOM",
+                "rho": None,
+            }
+            for k, v in pair_targets.items()
         }
-        for i in range(n)
-    ]
-
-
-def _joint_output(entities: Sequence[dict], U: float, weights: Sequence[float], model_path: str,
-                  pair_targets: Optional[Dict[Tuple[int, int], float]] = None, extra: Optional[dict] = None) -> dict:
-    n = len(entities)
-    exact_uncond = [0.0] * 6
-    for state, ws in enumerate(weights):
-        if ws <= 0 or state == 0:
-            continue
-        g = [1.0, 0, 0, 0, 0, 0]
-        first = True
-        for i, ent in enumerate(entities):
-            if (state >> i) & 1:
-                if first:
-                    g = list(ent["freq_dist"])
-                    first = False
-                else:
-                    g = _convolve(g, ent["freq_dist"])
-        for k in range(6):
-            exact_uncond[k] += ws * g[k]
-
-    impressions = sum(float(e.get("impressions") or 0.0) for e in entities)
-    out = _reach_from_exact(U, exact_uncond, impressions)
-    gross_reach_sum = sum(float(e.get("reach_1p") or 0.0) for e in entities)
-    dedup_people = max(0.0, gross_reach_sum - out["reach_1p"])
-    out.update({
-        "model_path": model_path,
-        "entity_count": n,
-        "pair_targets": {
-            f"{entities[i]['name']} × {entities[j]['name']}": v
-            for (i, j), v in (pair_targets or {}).items()
-        },
-        "weights": weights if n <= 6 else None,
-        "gross_reach_sum": gross_reach_sum,
-        "dedup_people": dedup_people,
-        "dedup_rate": (dedup_people / gross_reach_sum) if gross_reach_sum > 0 else 0.0,
-        "contributions": _coverage_contributions(entities, U, weights),
-    })
-    if extra:
-        out.update(extra)
-    return out
-
-
-def merge_entities(entities: Sequence[dict], U: float, pair_targets: Optional[Dict[Tuple[int, int], float]] = None,
-                   neutral_unstructured: bool = False, support: Optional[Sequence[bool]] = None,
-                   model_path: str = "AUDIENCE_MERGE") -> dict:
-    ents = [e for e in entities if float(e.get("reach_1p") or 0.0) > 0]
-    if not ents:
-        return {
-            "reach_1p": 0.0, "reach_2p": 0.0, "reach_3p": 0.0, "reach_4p": 0.0,
-            "reach_5p": 0.0, "reach_6p": 0.0, "pct_1p": 0.0, "avg_frequency": None,
-            "impressions": sum(float(e.get("impressions") or 0.0) for e in entities),
-            "exact_counts": [0.0] * 6, "model_path": model_path, "entity_count": 0,
-            "freq_dist": [1, 0, 0, 0, 0, 0],
-            "gross_reach_sum": 0.0, "dedup_people": 0.0, "dedup_rate": 0.0,
-            "contributions": [],
-        }
-    if len(ents) == 1:
-        e = dict(ents[0])
-        exact_counts = [e["reach_1p"] * x for x in e["freq_dist"]]
-        res = _reach_from_exact(U, [x / U for x in exact_counts], float(e.get("impressions") or 0))
-        res.update({
-            "model_path": model_path + "_IDENTITY",
-            "entity_count": 1,
-            "freq_dist": list(e["freq_dist"]),
-            "gross_reach_sum": e["reach_1p"],
-            "dedup_people": 0.0,
-            "dedup_rate": 0.0,
-            "contributions": [{
-                "name": e.get("name") or "entity_1",
-                "shapley_people": e["reach_1p"],
-                "exclusive_people": e["reach_1p"],
-            }],
-        })
-        return res
-
-    reaches = [float(e["reach_1p"]) for e in ents]
-    for r in reaches:
-        if r < -1e-9 or r > U + 1e-6:
-            raise V16Error("Reach сущности выходит за Universe.")
-
-    if neutral_unstructured and pair_targets is None:
-        weights = _independent_weights(reaches, U, support=support)
-        result = _joint_output(ents, U, weights, model_path + "_INDEPENDENCE")
-    else:
-        pt = pair_targets or {}
-        if len(ents) == 2:
-            J = pt.get((0, 1))
-            if J is None:
-                J = _neutral_overlap(reaches[0], reaches[1], U)
-            weights = _two_weights(reaches[0], reaches[1], J, U)
-            result = _joint_output(ents, U, weights, model_path + "_ANALYTIC", {(0, 1): J})
-        else:
-            weights, residual, it = _ipf_weights(reaches, U, pt, support=support)
-            if weights is None:
-                raise V16Error("CALCULATION ERROR: Maximum Entropy/IPF не сошёлся для допустимой системы.")
-            result = _joint_output(
-                ents, U, weights, model_path + "_MAXENT", pt,
-                {"solver_residual": residual, "solver_iterations": it},
-            )
-
-    r1 = result["reach_1p"]
-    if r1 > 0:
-        result["freq_dist"] = [
-            result["exact_counts"][k] / r1 for k in range(6)
-        ]
-    else:
-        result["freq_dist"] = [1, 0, 0, 0, 0, 0]
-    return result
+    return m.audience_merge(
+        entities, U, pair_details=pd,
+        neutral_unstructured=neutral_unstructured,
+        support=support, model_path=model_path,
+    )
 
 
 def _is_feasible(reaches: Sequence[float], U: float, pair_targets: Dict[Tuple[int, int], float]) -> bool:
-    if len(reaches) <= 2:
-        if len(reaches) < 2:
-            return True
-        j = pair_targets.get((0, 1), _neutral_overlap(reaches[0], reaches[1], U))
-        lo, hi = _pair_bounds(reaches[0], reaches[1], U)
-        return lo - 1e-8 <= j <= hi + 1e-8
-    w, residual, _ = _ipf_weights(reaches, U, pair_targets, tol=2e-7, max_iter=900)
-    return w is not None and residual <= 2e-7
+    return bool(m.global_feasibility(reaches, U, pair_targets).get("feasible"))
 
 
-# --------------------------- Level 4 / 5 ---------------------------
+def level5_flight(channels: Sequence[dict], U: float, diagnostics: List[dict]) -> dict:
+    out = m.level5_flight(channels, U)
+    diagnostics.extend(out.get("diagnostics") or [])
+    return out
 
-def _entity_from_row(row, U: float, l2: dict, diagnostics: List[dict]) -> Optional[dict]:
-    rtech = level1_technical(row, diagnostics)
-    if rtech is None:
-        return None
-    I = float(row.impressions or 0.0)
-    if I < 0:
-        raise V16Error("Impressions < 0.")
 
-    mode = l2["effective_mode"]
-    if mode == "QUICK":
-        rpeople = level2_quick(rtech, U, l2["K"])
-    else:
-        if not row.start or not row.end:
-            if l2["requested_mode"] == "AUTO":
-                rpeople = level2_quick(rtech, U, l2["K"])
-                diagnostics.append({
-                    "code": "L2_AUTO_FALLBACK_QUICK",
-                    "reason": "MISSING_ROW_DATES",
-                    "sheet": row.sheet, "row": row.source_row + 1,
-                })
-                mode = "QUICK"
-            else:
-                raise V16Error(
-                    f"{row.sheet}:{row.source_row+1}: Advanced Web требует даты начала и окончания размещения."
-                )
-        else:
-            F_input = float(row.frequency) if row.frequency is not None else (
-                I / rtech if rtech > 0 and I > 0 else 1.0
-            )
-            adv = level2_advanced_web(
-                rtech=rtech,
-                U=U,
-                T=_duration_days(row.start, row.end),
-                F=F_input,
-                U_D=l2["U_D"],
-                B=l2["B"],
-                D=l2["D"],
-                L=l2["L"],
-            )
-            rpeople = adv["R_people"]
-            diagnostics.append({
-                "code": "L2_ADVANCED_WEB_ROW",
-                "sheet": row.sheet, "row": row.source_row + 1,
-                "K_time": adv["K_time"],
-                "R_stable": adv["R_stable"],
-                "R_device": adv["R_device"],
-                "B": adv["B"], "D": adv["D"], "L": adv["L"], "U_D": adv["U_D"],
-            })
+def _l6_pair_basic(a: dict, b: dict, U: float) -> Tuple[float, dict]:
+    meta = m._l6_basic_pair(a, b, U)
+    return meta["J_effective"], meta
 
-    fbar = I / rpeople if rpeople > 0 and I > 0 else (float(row.frequency) if row.frequency else 1.0)
-    if rpeople > 0 and fbar < 1:
-        # Supplied placement Reach may be technical while impressions are rounded.
-        fbar = 1.0
+
+def _l6_pair(a: dict, b: dict, U: float, diagnostics: List[dict]) -> Tuple[float, dict]:
+    meta = m.l6_pair(a, b, U)
+    if meta.get("aon_staged"):
         diagnostics.append({
-            "code": "DEGENERATE_FREQUENCY_1",
-            "sheet": row.sheet, "row": row.source_row + 1,
+            "code": "AON_STAGED_MERGE",
+            "level": 6,
+            "aon_temporal_source": meta.get("aon_temporal_source"),
+            "A_slice": meta.get("A_slice"),
+            "J_same_period": meta.get("J_same_period"),
+            "J_rest": meta.get("J_rest"),
         })
-    freq = poisson_lognormal_exact(fbar if rpeople > 0 else 1.0)
+    return meta["J_effective"], meta
+
+
+def q_temporal(gap: int) -> float:
+    return m.q_temporal(gap)
+
+
+def universe_multiplier(U: float) -> float:
+    return m.universe_multiplier(U)
+
+
+def level6_line(flights: Sequence[dict], U: float, diagnostics: List[dict]) -> dict:
+    out = m.level6_line(flights, U)
+    diagnostics.extend(out.get("diagnostics") or [])
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Parser adapter
+# ---------------------------------------------------------------------------
+
+def _unit_id(row) -> str:
+    return f"{row.sheet}#{row.source_row + 1}"
+
+
+def _unit_label(row) -> str:
+    bits = [
+        row.platform_canonical or row.platform or "Unknown platform",
+        row.format or "",
+        row.buying_model or "",
+    ]
+    return " · ".join(x for x in bits if x)
+
+
+def _platform_label(row) -> str:
+    return row.platform_canonical or row.platform or "Unknown platform"
+
+
+def _plan_ta(plan) -> str:
+    return next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
+
+
+def _plan_input_profile(plan) -> dict:
+    rows = list(plan.detail_rows())
+    durations = sorted(
+        _duration_days(r.start, r.end) for r in rows if r.start and r.end
+    )
+    med = None
+    if durations:
+        n = len(durations)
+        med = durations[n // 2] if n % 2 else (durations[n // 2 - 1] + durations[n // 2]) / 2
     return {
-        "name": row.platform_canonical or row.platform or f"row_{row.source_row+1}",
-        "reach_1p": rpeople,
-        "impressions": I,
-        "freq_dist": freq,
-        "platform": row.platform_canonical or row.platform or "Other",
-        "channel": row.channel or "Other",
-        "source_row": row.source_row + 1,
-        "sheet": row.sheet,
+        "rows": len(rows),
+        "supplied_reach_rows": sum(r.tech_reach is not None for r in rows),
+        "impressions_rows": sum(r.impressions is not None for r in rows),
+        "frequency_rows": sum(r.frequency is not None for r in rows),
+        "impressions_frequency_rows": sum(r.impressions is not None and r.frequency is not None for r in rows),
+        "l1_ready_rows": sum(
+            r.tech_reach is not None or (r.impressions is not None and r.frequency is not None)
+            for r in rows
+        ),
+        "dated_rows": sum(bool(r.start and r.end) for r in rows),
+        "duration_days_min": min(durations) if durations else None,
+        "duration_days_median": med,
+        "duration_days_max": max(durations) if durations else None,
+        "platforms": len({norm(_platform_label(r)) for r in rows}),
+        "channels": len({norm(r.channel or "Other") for r in rows}),
     }
 
 
-def level4_channel(rows: Sequence[Any], U: float, l2: dict, diagnostics: List[dict]) -> List[dict]:
-    units: List[dict] = []
-    signatures = defaultdict(list)
+def _inventory_units(plan) -> List[dict]:
+    units = []
+    for row in plan.detail_rows():
+        units.append({
+            "id": _unit_id(row),
+            "label": _unit_label(row),
+            "sheet": row.sheet,
+            "row": row.source_row + 1,
+            "channel": row.channel or "Other",
+            "platform": _platform_label(row),
+            "format": row.format or "",
+            "buying_model": row.buying_model or "",
+            "start": _date(row.start),
+            "end": _date(row.end),
+            "suggested_family": _platform_label(row),
+            "family_suggestion_source": "UI_SUGGESTION_REQUIRES_CONFIRMATION",
+            "environment_suggestion": "UNKNOWN",
+            "environment_source": "NOT_INFERRED",
+            "has_impressions": row.impressions is not None,
+            "has_frequency": row.frequency is not None,
+            "has_technical_reach": row.tech_reach is not None,
+        })
+    return units
+
+
+def _duplicate_warnings(rows: Sequence[Any]) -> List[dict]:
+    signatures: Dict[tuple, List[dict]] = defaultdict(list)
     for row in rows:
-        e = _entity_from_row(row, U, l2, diagnostics)
-        if e is not None and e["reach_1p"] > 0:
-            units.append(e)
         sig = (
-            norm(row.platform_canonical or row.platform), norm(row.format), norm(row.buying_model),
-            round(float(row.budget or 0), 2), round(float(row.impressions or 0), 2),
-            round(float(row.tech_reach or 0), 2), row.start, row.end,
+            norm(_platform_label(row)),
+            norm(row.format),
+            norm(row.buying_model),
+            round(float(row.budget or 0), 2),
+            round(float(row.impressions or 0), 2),
+            round(float(row.tech_reach or 0), 2),
+            row.start, row.end,
         )
-        signatures[sig].append((row.sheet, row.source_row + 1))
-    for sig, locs in signatures.items():
-        if len(locs) > 1 and any(sig):
-            diagnostics.append({"code": "POSSIBLE_DUPLICATE_ROWS", "rows": locs})
+        signatures[sig].append({"sheet": row.sheet, "row": row.source_row + 1})
+    return [
+        {
+            "code": "DUPLICATE_LIKE_ROW_WARNING",
+            "level": "IMPORT",
+            "severity": "WARNING",
+            "rows": locs,
+            "message": "Похожие строки не удалены автоматически; требуется только QA.",
+        }
+        for sig, locs in signatures.items()
+        if len(locs) > 1 and any(sig)
+    ]
 
+
+def _plan_universe(plan, override: Any) -> float:
+    if override not in (None, ""):
+        return m.positive(override, "Universe")
+    if plan.universe is not None and float(plan.universe) > 0:
+        return float(plan.universe)
+    raise V16Error(f"{plan.display_name or plan.line or 'Line'}: Universe не найден. Укажите измеряемый Universe.")
+
+
+def _resolve_line_l2(plan, U: float, q: dict, plan_id: str) -> dict:
+    requested = str(q.get("l2_mode") or "AUTO").upper()
+    if requested not in {"AUTO", "QUICK", "ADVANCED"}:
+        # Keep legacy value accepted by existing UI.
+        if requested == "ADVANCED_WEB":
+            requested = "ADVANCED"
+        else:
+            raise V16Error("Level 2 mode должен быть AUTO, QUICK или ADVANCED.")
+
+    adv_q = q.get("advanced") or {}
+    K = m.finite(q.get("K", m.K_DEFAULT), "K")
+    if K < 1:
+        raise V16Error("K должен быть >= 1.")
+
+    ta = _plan_ta(plan)
+    rec = recommended_advanced_factors(ta)
+    B_raw = adv_q.get("B")
+    D_raw = adv_q.get("D")
+    L_raw = adv_q.get("L")
+    B = rec["B"] if B_raw in (None, "") else m.finite(B_raw, "B")
+    D = rec["D"] if D_raw in (None, "") else m.finite(D_raw, "D")
+    L = m.CHROMIUM_L_DEFAULT if L_raw in (None, "") else m.positive(L_raw, "L")
+    if B < 1 or D < 1:
+        raise V16Error("B и D должны быть >= 1.")
+
+    return {
+        "requested_mode": requested,
+        "K": K,
+        "K_source": "MODEL_DEFAULT" if q.get("K") in (None, "", m.K_DEFAULT, "2.4", "2.40") else "USER_OVERRIDE",
+        "B": B, "D": D, "L": L,
+        "B_source": "USER_OVERRIDE" if B_raw not in (None, "") else rec["B_source"],
+        "D_source": "USER_OVERRIDE" if D_raw not in (None, "") else rec["D_source"],
+        "L_source": "USER_OVERRIDE" if L_raw not in (None, "") and float(L_raw) != m.CHROMIUM_L_DEFAULT else "MODEL_DEFAULT",
+        "B_min": rec["B_min"], "B_max": rec["B_max"],
+        "D_min": rec["D_min"], "D_max": rec["D_max"],
+        "age_range": rec["age_range"],
+        "ta_name": ta,
+        "web_device_universes": adv_q.get("web_device_universes") or {},
+        "unit_web_device_universes": adv_q.get("unit_web_device_universes") or {},
+        "environments": adv_q.get("environments") or {},
+        "browser_families": adv_q.get("browser_families") or {},
+        "device_reaches": adv_q.get("device_reaches") or {},
+        "safari_l": adv_q.get("safari_l"),
+        "plan_id": plan_id,
+    }
+
+
+def _lookup_unit_map(mapping: Mapping[str, Any], plan_id: str, unit_id: str, default=None):
+    plan_map = mapping.get(plan_id) if isinstance(mapping, Mapping) else None
+    if isinstance(plan_map, Mapping) and unit_id in plan_map:
+        return plan_map[unit_id]
+    if unit_id in mapping:
+        return mapping[unit_id]
+    return default
+
+
+def _l2_for_row(row, U: float, cfg: dict, diagnostics: List[dict]) -> dict:
+    l1 = m.level1_technical(row.impressions, row.frequency, row.tech_reach, frequency_precision=None)
+    for d in l1["diagnostics"]:
+        diagnostics.append({**d, "level": 1, "sheet": row.sheet, "row": row.source_row + 1})
+    rtech = l1["R_tech"]
+    uid = _unit_id(row)
+    requested = cfg["requested_mode"]
+
+    environment = str(_lookup_unit_map(cfg["environments"], cfg["plan_id"], uid, "UNKNOWN") or "UNKNOWN").upper()
+    browser_family = str(_lookup_unit_map(cfg["browser_families"], cfg["plan_id"], uid, "UNKNOWN") or "UNKNOWN").upper()
+    unit_ud = _lookup_unit_map(cfg["unit_web_device_universes"], cfg["plan_id"], uid, None)
+    line_ud = cfg["web_device_universes"].get(cfg["plan_id"])
+    U_D = unit_ud if unit_ud not in (None, "", 0, "0") else line_ud
+    device_reach = _lookup_unit_map(cfg["device_reaches"], cfg["plan_id"], uid, None)
+
+    reason = None
+    use_advanced = requested == "ADVANCED"
+    if requested == "AUTO":
+        if environment == "WEB":
+            use_advanced = bool(U_D not in (None, "", 0, "0") and row.start and row.end and row.frequency is not None)
+            if not use_advanced:
+                reason = "INSUFFICIENT_WEB_ADVANCED_INPUTS"
+        elif environment in {"MOBILE_APP", "CTV"}:
+            use_advanced = device_reach not in (None, "")
+            if not use_advanced:
+                reason = "DEVICE_LEVEL_REACH_NOT_AVAILABLE"
+        else:
+            use_advanced = False
+            reason = "ENVIRONMENT_NOT_CONFIRMED"
+
+    if not use_advanced:
+        quick = m.level2_quick(rtech, U, cfg["K"])
+        diagnostics.append({
+            "code": "L2_QUICK",
+            "level": 2,
+            "sheet": row.sheet, "row": row.source_row + 1,
+            "unit_id": uid,
+            "requested_mode": requested,
+            "effective_mode": "QUICK",
+            "reason": reason or ("USER_SELECTED_QUICK" if requested == "QUICK" else None),
+            "K": quick["K"], "K_source": cfg["K_source"],
+            "source": "FALLBACK" if requested == "AUTO" else "USER_OVERRIDE",
+        })
+        return {
+            "R_people": quick["R_people"],
+            "mode": "QUICK",
+            "environment": environment,
+            "l1": l1,
+            "details": quick,
+            "fallback_reason": reason,
+        }
+
+    if environment == "UNKNOWN":
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: Advanced требует подтверждённую environment.")
+    if environment == "WEB" and U_D in (None, "", 0, "0"):
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: Web Advanced требует U_D.")
+    if environment == "WEB" and (not row.start or not row.end or row.frequency is None):
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: Web Advanced требует dates и Frequency.")
+    if environment in {"MOBILE_APP", "CTV"} and device_reach in (None, ""):
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: {environment} Advanced требует device-level Reach.")
+
+    try:
+        adv = m.level2_advanced(
+            rtech, U,
+            environment=environment,
+            duration_days=_duration_days(row.start, row.end) if row.start and row.end else None,
+            frequency=row.frequency,
+            web_device_universe=U_D,
+            device_reach=device_reach,
+            B=cfg["B"], D=cfg["D"], L=cfg["L"],
+            browser_family=browser_family,
+            safari_l=cfg.get("safari_l"),
+            B_source=cfg["B_source"], D_source=cfg["D_source"],
+        )
+    except (m.ReachValidationError, m.ReachCalculationError) as exc:
+        raise V16Error(f"{row.sheet}:{row.source_row+1}: {exc}") from exc
+    diagnostics.append({
+        "code": "L2_ADVANCED",
+        "level": 2,
+        "sheet": row.sheet, "row": row.source_row + 1,
+        "unit_id": uid,
+        "requested_mode": requested,
+        "effective_mode": "ADVANCED",
+        "environment": environment,
+        "browser_family": browser_family,
+        "B": cfg["B"], "B_source": cfg["B_source"],
+        "D": cfg["D"], "D_source": cfg["D_source"],
+        "L": cfg["L"], "L_source": cfg["L_source"],
+        "U_D": U_D,
+        "K_time": adv.get("K_time"),
+        "R_stable": adv.get("R_stable"),
+        "R_device": adv.get("R_device"),
+        "R_people": adv.get("R_people"),
+        "path": adv.get("path"),
+    })
+    for d in adv.get("diagnostics", []):
+        diagnostics.append({
+            **d,
+            "sheet": row.sheet,
+            "row": row.source_row + 1,
+            "unit_id": uid,
+        })
+    return {
+        "R_people": adv["R_people"],
+        "mode": "ADVANCED",
+        "environment": environment,
+        "l1": l1,
+        "details": adv,
+        "fallback_reason": None,
+    }
+
+
+def _l3_for_row(row, U: float, l2out: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
+    uid = _unit_id(row)
+    weekly_map = q.get("weekly_human_reaches") or {}
+    weekly = _lookup_unit_map(weekly_map, plan_id, uid, None)
+    up_map = q.get("platform_universes") or {}
+    U_p = _lookup_unit_map(up_map, plan_id, uid, None)
+    temporal_profiles = q.get("temporal_profiles") or {}
+    prof = str(_lookup_unit_map(temporal_profiles, plan_id, uid, "BASE") or "BASE").upper()
+    custom_rhos = q.get("temporal_rhos") or {}
+    custom_rho = _lookup_unit_map(custom_rhos, plan_id, uid, None)
+
+    if weekly:
+        l3a = m.temporal_platform_reach(
+            weekly, U, platform_universe=U_p,
+            profile=prof, custom_rho=custom_rho,
+        )
+    else:
+        l3a = m.aggregate_flight_reach_mode(
+            l2out["R_people"], U, platform_universe=U_p,
+        )
+    diagnostics.append({
+        "code": "L3A_PLATFORM_FLIGHT",
+        "level": 3,
+        "unit_id": uid,
+        "sheet": row.sheet, "row": row.source_row + 1,
+        "model_path": l3a["model_path"],
+        "U": U, "U_p": l3a["U_p"],
+        "platform_universe_assumed": l3a["platform_universe_assumed"],
+        "temporal_profile": l3a.get("profile"),
+        "rho_base": l3a.get("rho_base"),
+        "rho_source": l3a.get("rho_source"),
+        "incremental": l3a.get("incremental"),
+    })
+
+    measured_freq = _lookup_unit_map(q.get("measured_exact_frequency") or {}, plan_id, uid, None)
+    cap = _lookup_unit_map(q.get("human_frequency_caps") or {}, plan_id, uid, None)
+    sigma = _lookup_unit_map(q.get("sigmas") or {}, plan_id, uid, m.SIGMA_DEFAULT)
+    sigma_source = "CUSTOM" if sigma != m.SIGMA_DEFAULT else "MODEL_DEFAULT"
+    if row.impressions is None:
+        raise V16Error(
+            f"{row.sheet}:{row.source_row+1}: Level 3B требует Impressions того же scope "
+            "или direct human frequency buckets."
+        )
+    l3b = m.level3_effective_reach(
+        l3a["R_1p"], float(row.impressions),
+        sigma=float(sigma), sigma_source=sigma_source,
+        hard_cap=None if cap in (None, "") else int(cap),
+        measured_exact=measured_freq,
+    )
+    diagnostics.append({
+        "code": "L3B_EFFECTIVE_REACH",
+        "level": 3,
+        "unit_id": uid,
+        "sheet": row.sheet, "row": row.source_row + 1,
+        "I_scope": l3b["impressions"],
+        "R_1p": l3b["reach_1p"],
+        "F_human": l3b["avg_frequency"],
+        "model": l3b["frequency_model"],
+        "sigma": l3b["sigma"],
+        "sigma_source": l3b["sigma_source"],
+        "mu": l3b["mu"],
+        "solver_iterations": l3b["solver_iterations_frequency"],
+        "solver_residual": l3b["solver_residual_frequency"],
+        "frequency_model_assumed": l3b["frequency_model_assumed"],
+        "cap": l3b["cap"],
+    })
+    return {"l3a": l3a, "l3b": l3b}
+
+
+def _mapping_for_plan(q: dict, plan_id: str) -> Mapping[str, str]:
+    all_maps = q.get("family_mapping") or {}
+    pmap = all_maps.get(plan_id)
+    return pmap if isinstance(pmap, Mapping) else {}
+
+
+def _mapping_confirmed(q: dict, plan_id: str) -> bool:
+    flags = q.get("family_mapping_confirmed") or {}
+    if isinstance(flags, Mapping):
+        return bool(flags.get(plan_id))
+    return False
+
+
+def _inventory_entity(
+    row, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict],
+) -> dict:
+    uid = _unit_id(row)
+    family_map = _mapping_for_plan(q, plan_id)
+    if uid not in family_map or not str(family_map.get(uid) or "").strip():
+        raise V16Error(
+            f"AUDIENCE_FAMILY_MAPPING_REQUIRED: {uid} ({_unit_label(row)}). "
+            "Движок не назначает Audience Family по названию площадки автоматически."
+        )
+    if not _mapping_confirmed(q, plan_id):
+        raise V16Error(
+            f"AUDIENCE_FAMILY_MAPPING_CONFIRMATION_REQUIRED: Line {plan_id}. "
+            "Подтвердите mapping перед расчётом."
+        )
+
+    l2out = _l2_for_row(row, U, cfg, diagnostics)
+    l3 = _l3_for_row(row, U, l2out, q, plan_id, diagnostics)
+    l3b = l3["l3b"]
+    return {
+        "name": _unit_label(row),
+        "unit_id": uid,
+        "family": str(family_map[uid]).strip(),
+        "platform": _platform_label(row),
+        "channel": row.channel or "Other",
+        "reach_1p": l3b["reach_1p"],
+        "reach_2p": l3b["reach_2p"],
+        "reach_3p": l3b["reach_3p"],
+        "reach_4p": l3b["reach_4p"],
+        "reach_5p": l3b["reach_5p"],
+        "reach_6p": l3b["reach_6p"],
+        "impressions": l3b["impressions"],
+        "freq_dist": l3b["freq_dist"],
+        "exact_counts": l3b["exact_counts"],
+        "avg_frequency": l3b["avg_frequency"],
+        "source_row": row.source_row + 1,
+        "sheet": row.sheet,
+        "start": row.start,
+        "end": row.end,
+        "l1": l2out["l1"],
+        "l2": {
+            "mode": l2out["mode"],
+            "environment": l2out["environment"],
+            "fallback_reason": l2out["fallback_reason"],
+            **{k: v for k, v in l2out["details"].items() if k != "diagnostics"},
+        },
+        "l3a": l3["l3a"],
+        "l3b": {
+            k: l3b.get(k)
+            for k in (
+                "frequency_model", "frequency_model_assumed", "sigma", "sigma_source",
+                "mu", "solver_iterations_frequency", "solver_residual_frequency", "cap",
+            )
+        },
+    }
+
+
+def _build_level4_channels(
+    rows: Sequence[Any], U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict],
+) -> List[dict]:
+    units = [
+        _inventory_entity(row, U, cfg, q, plan_id, diagnostics)
+        for row in rows
+    ]
     by_channel: Dict[str, List[dict]] = defaultdict(list)
-    for e in units:
-        by_channel[e["channel"]].append(e)
+    for unit in units:
+        by_channel[unit["channel"]].append(unit)
 
-    channels = []
-    for ch, ch_units in by_channel.items():
+    family_universes_all = q.get("family_universes") or {}
+    p_family_u = family_universes_all.get(plan_id) if isinstance(family_universes_all, Mapping) else {}
+    p_family_u = p_family_u if isinstance(p_family_u, Mapping) else {}
+
+    channels: List[dict] = []
+    for channel_name, ch_units in by_channel.items():
         by_family: Dict[str, List[dict]] = defaultdict(list)
-        for e in ch_units:
-            # One Inventory Unit -> exactly one Audience Family.
-            family = e["platform"] or "Other"
-            by_family[family].append(e)
+        for unit in ch_units:
+            by_family[unit["family"]].append(unit)
 
-        families = []
-        for fam, fam_units in by_family.items():
-            if len(fam_units) == 1:
-                m = merge_entities(fam_units, U, model_path="L4_FAMILY")
-            else:
-                pt = {}
-                for i in range(len(fam_units)):
-                    for j in range(i + 1, len(fam_units)):
-                        pt[(i, j)] = _neutral_overlap(fam_units[i]["reach_1p"], fam_units[j]["reach_1p"], U)
-                m = merge_entities(fam_units, U, pair_targets=pt, model_path="L4_FAMILY")
-            m["name"] = fam
-            families.append(m)
+        families: List[dict] = []
+        family_diagnostics: List[dict] = []
+        for family_name, fam_units in by_family.items():
+            U_F_raw = p_family_u.get(family_name)
+            U_F = U if U_F_raw in (None, "", 0, "0") else m.positive(U_F_raw, f"U_F {family_name}")
+            if U_F > U + m.NUMERICAL_TOL:
+                raise V16Error(f"Audience Family {family_name}: U_F > U.")
+            for ent in fam_units:
+                if ent["reach_1p"] > U_F + m.NUMERICAL_TOL:
+                    raise V16Error(
+                        f"Audience Family {family_name}: Inventory Unit Reach превышает U_F."
+                    )
+                ent["addressable_universe"] = U_F
+                ent["addressable_universe_assumed"] = U_F_raw in (None, "", 0, "0")
+
+            fm = m.audience_merge(
+                fam_units, U_F,
+                neutral_unstructured=True,
+                model_path="L4A_FAMILY",
+            )
+            fm.update({
+                "name": family_name,
+                "family_id": family_name,
+                "universe": U_F,
+                "addressable_universe": U_F,
+                "U_F_source": "MODEL_DEFAULT_ASSUMED_U" if U_F_raw in (None, "", 0, "0") else "USER_INPUT",
+                "inventory_units": fam_units,
+                "D_family": fm["dedup_rate"],
+            })
+            families.append(fm)
+            family_diagnostics.append({
+                "family": family_name,
+                "U_F": U_F,
+                "U_F_source": fm["U_F_source"],
+                "gross_reach_sum": fm["gross_reach_sum"],
+                "reach": fm["reach_1p"],
+                "D_family": fm["D_family"],
+                "model_path": fm["model_path"],
+            })
 
         if len(families) == 1:
-            cm = merge_entities(families, U, model_path="L4_CHANNEL")
+            cm = m.audience_merge(families, U, model_path="L4B_CHANNEL")
         else:
-            # No structured M_ij is available from ordinary media-plan rows,
-            # therefore neutral unstructured path is the documented fallback.
-            cm = merge_entities(families, U, neutral_unstructured=True, model_path="L4_CHANNEL")
-        cm["name"] = ch
-        cm["families"] = families
+            # Ordinary media plans do not contain measured M_ij / pair unions.
+            # With no structured addressability inputs, canonical neutral path is exact
+            # mutual independence relative to the common Human Universe.
+            cm = m.audience_merge(
+                families, U,
+                neutral_unstructured=True,
+                model_path="L4B_CHANNEL",
+            )
+        cm.update({
+            "name": channel_name,
+            "families": families,
+            "addressable_universe": U,
+            "addressable_universe_assumed": True,
+            "D_cross": 1.0 - cm["reach_1p"] / sum(f["reach_1p"] for f in families)
+                if sum(f["reach_1p"] for f in families) > 0 else 0.0,
+            "D_overall": 1.0 - cm["reach_1p"] / sum(u["reach_1p"] for u in ch_units)
+                if sum(u["reach_1p"] for u in ch_units) > 0 else 0.0,
+        })
+        diagnostics.append({
+            "code": "L4_CHANNEL",
+            "level": 4,
+            "channel": channel_name,
+            "U": U,
+            "audience_family_mapping": [
+                {"unit_id": u["unit_id"], "family": u["family"], "source": "USER_CONFIRMED"}
+                for u in ch_units
+            ],
+            "families": family_diagnostics,
+            "D_cross": cm["D_cross"],
+            "D_overall": cm["D_overall"],
+            "model_path": cm["model_path"],
+            "feasibility": cm.get("feasibility"),
+            "solver_iterations": cm.get("solver_iterations"),
+            "solver_residual": cm.get("solver_residual"),
+        })
         channels.append(cm)
     return channels
 
 
-def _channel_pair_targets(channels: Sequence[dict], U: float, lam: float) -> Dict[Tuple[int, int], float]:
-    rho = RHO_CHANNEL_DEFAULT * lam
-    pt = {}
-    for i in range(len(channels)):
-        for j in range(i + 1, len(channels)):
-            pt[(i, j)] = _signed_overlap(channels[i]["reach_1p"], channels[j]["reach_1p"], U, rho)
-    return pt
-
-
-def level5_flight(channels: Sequence[dict], U: float, diagnostics: List[dict]) -> dict:
-    if not channels:
-        return merge_entities([], U, model_path="L5_FLIGHT")
-    if len(channels) <= 2:
-        pt = _channel_pair_targets(channels, U, 1.0) if len(channels) == 2 else None
-        out = merge_entities(channels, U, pair_targets=pt, model_path="L5_FLIGHT")
-        out["rho_target"] = RHO_CHANNEL_DEFAULT
-        out["rho_effective"] = RHO_CHANNEL_DEFAULT
-        out["relaxation_lambda"] = 1.0
-        return out
-
-    reaches = [c["reach_1p"] for c in channels]
-    target = _channel_pair_targets(channels, U, 1.0)
-    if _is_feasible(reaches, U, target):
-        lam = 1.0
-    else:
-        neutral = _channel_pair_targets(channels, U, 0.0)
-        if not _is_feasible(reaches, U, neutral):
-            raise V16Error("Level 5: система несовместима даже при neutral overlap.")
-        lo, hi = 0.0, 1.0
-        for _ in range(45):
-            mid = (lo + hi) / 2.0
-            if _is_feasible(reaches, U, _channel_pair_targets(channels, U, mid)):
-                lo = mid
-            else:
-                hi = mid
-        lam = lo
-        diagnostics.append({
-            "code": "DEFAULT_RELAXED_FOR_GLOBAL_FEASIBILITY",
-            "level": 5, "lambda": lam,
-            "rho_target": RHO_CHANNEL_DEFAULT,
-            "rho_effective": RHO_CHANNEL_DEFAULT * lam,
-        })
-    pt = _channel_pair_targets(channels, U, lam)
-    out = merge_entities(channels, U, pair_targets=pt, model_path="L5_FLIGHT")
-    out["rho_target"] = RHO_CHANNEL_DEFAULT
-    out["rho_effective"] = RHO_CHANNEL_DEFAULT * lam
-    out["relaxation_lambda"] = lam
-    return out
-
-
-# --------------------------- Level 6 ---------------------------
-
-_Q_POINTS = [(0, .20), (14, .15), (28, .125), (42, .10), (56, .05), (68, 0.0)]
-
-
-def q_temporal(gap: int) -> float:
-    g = max(0, int(gap))
-    if g >= 68:
-        return 0.0
-    for (x1, y1), (x2, y2) in zip(_Q_POINTS, _Q_POINTS[1:]):
-        if x1 <= g <= x2:
-            t = (g - x1) / (x2 - x1)
-            return y1 + t * (y2 - y1)
-    return 0.0
-
-
-def universe_multiplier(U: float) -> float:
-    pts = [(5_000_000, 2.50), (7_500_000, 2.25), (10_000_000, 2.00), (12_500_000, 1.50), (15_000_000, 1.00)]
-    if U <= pts[0][0]:
-        return pts[0][1]
-    if U >= pts[-1][0]:
-        return pts[-1][1]
-    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-        if x1 <= U <= x2:
-            t = (U - x1) / (x2 - x1)
-            return y1 + t * (y2 - y1)
-    return 1.0
-
-
-def _l6_pair_basic(a: dict, b: dict, U: float) -> Tuple[float, dict]:
-    Ra, Rb = a["reach_1p"], b["reach_1p"]
-    if (a["start"] or dt.date.min) <= (b["start"] or dt.date.min):
-        G = _gap_days(a.get("end"), b.get("start"))
-    else:
-        G = _gap_days(b.get("end"), a.get("start"))
-    qt = q_temporal(G)
-    mu = universe_multiplier(U)
-    minr = min(Ra, Rb)
-    j_temporal = minr * qt * mu
-    j_residual = min(Ra * Rb / U, RESIDUAL_CAP * minr)
-    j_target = max(j_temporal, j_residual)
-    jmin, jmax = _pair_bounds(Ra, Rb, U)
-    j = min(jmax, max(jmin, j_target))
-    return j, {
-        "gap_days": G,
-        "q_temporal": qt,
-        "M_U": mu,
-        "J_temporal": j_temporal,
-        "J_residual": j_residual,
-        "J_target": j_target,
-        "J_min": jmin,
-        "J_max": jmax,
-        "bound_adjusted": abs(j - j_target) > 1e-8,
-    }
-
-
-def _aon_slice_reach(aon: dict, burst: dict, U: float) -> float:
-    a0, a1 = aon.get("start"), aon.get("end")
-    b0, b1 = burst.get("start"), burst.get("end")
-    if not a0 or not a1 or not b0 or not b1:
-        return min(aon["reach_1p"], burst["reach_1p"])
-    overlap_start = max(a0, b0)
-    overlap_end = min(a1, b1)
-    if overlap_end < overlap_start:
-        return 0.0
-    share = _duration_days(overlap_start, overlap_end) / _duration_days(a0, a1)
-    p = min(0.999999999, max(0.0, aon["reach_1p"] / U))
-    # Constant-hazard fallback: U*(1-(1-p)^share).
-    return U * (1.0 - (1.0 - p) ** share)
-
-
-def _l6_pair(a: dict, b: dict, U: float, diagnostics: List[dict]) -> Tuple[float, dict]:
-    if bool(a.get("is_common")) ^ bool(b.get("is_common")):
-        aon = a if a.get("is_common") else b
-        burst = b if a.get("is_common") else a
-        slice_r = _aon_slice_reach(aon, burst, U)
-        slice_ent = dict(aon)
-        slice_ent["reach_1p"] = slice_r
-        slice_ent["start"] = burst.get("start")
-        slice_ent["end"] = burst.get("end")
-        j1, meta1 = _l6_pair_basic(slice_ent, burst, U)
-        burst_remaining = max(0.0, burst["reach_1p"] - j1)
-        aon_rest = max(0.0, aon["reach_1p"] - slice_r)
-        j2 = min(
-            burst_remaining * aon_rest / U if U > 0 else 0.0,
-            RESIDUAL_CAP * min(burst_remaining, aon_rest),
-        )
-        j = j1 + j2
-        jmin, jmax = _pair_bounds(a["reach_1p"], b["reach_1p"], U)
-        j = min(jmax, max(jmin, j))
-        diagnostics.append({
-            "code": "AON_STAGED_MERGE",
-            "aon": aon["name"], "burst": burst["name"],
-            "slice_reach": slice_r,
-            "slice_source": "APPROXIMATION_CONSTANT_HAZARD",
-            "J_same_period": j1, "J_rest": j2,
-        })
-        return j, {
-            "aon_staged": True, "slice_reach": slice_r,
-            "J_same_period": j1, "J_rest": j2,
-            "J_min": jmin, "J_max": jmax,
-            "meta_same_period": meta1,
-        }
-    return _l6_pair_basic(a, b, U)
-
-
-def _normalize_flight_groups(plan) -> List[dict]:
-    raw = []
+def _flight_groups(plan) -> List[dict]:
+    groups: List[dict] = []
     for f in plan.flights:
-        start = f.period_start
-        end = f.period_end
-        if not start and f.intervals:
-            start = min(x[0] for x in f.intervals)
-        if not end and f.intervals:
-            end = max(x[1] for x in f.intervals)
-        raw.append({
-            "ids": [f.id], "label": f.label, "start": start, "end": end,
-            "ta_name": f.ta_name or "", "is_common": bool(f.is_common),
+        start = f.period_start or (min((x[0] for x in f.intervals), default=None) if f.intervals else None)
+        end = f.period_end or (max((x[1] for x in f.intervals), default=None) if f.intervals else None)
+        groups.append({
+            "id": f.id,
+            "label": f.label,
+            "start": start,
+            "end": end,
+            "ta_name": f.ta_name or "",
+            "is_common": bool(f.is_common),
+            "campaign": f.campaign or "",
         })
-    raw.sort(key=lambda x: (x["start"] or dt.date.max, x["end"] or dt.date.max))
-    out: List[dict] = []
-    for item in raw:
-        if not out:
-            out.append(item)
+    groups.sort(key=lambda x: (x["start"] or dt.date.max, x["end"] or dt.date.max, x["id"]))
+    return groups
+
+
+def _attach_aon_slices(flights: List[dict], q: dict, plan_id: str, diagnostics: List[dict]) -> None:
+    all_slices = q.get("aon_slices") or {}
+    p_slices = all_slices.get(plan_id) if isinstance(all_slices, Mapping) else {}
+    p_slices = p_slices if isinstance(p_slices, Mapping) else {}
+    by_id = {f["flight_id"]: f for f in flights}
+    for aon in flights:
+        if not aon.get("is_common"):
             continue
-        prev = out[-1]
-        compatible_ta = not prev["ta_name"] or not item["ta_name"] or _norm_ta(prev["ta_name"]) == _norm_ta(item["ta_name"])
-        if (not prev["is_common"] and not item["is_common"] and compatible_ta
-                and prev["end"] and item["start"] and _gap_days(prev["end"], item["start"]) == 0):
-            prev["ids"].extend(item["ids"])
-            prev["label"] = prev["label"] + " + " + item["label"]
-            prev["end"] = max(prev["end"], item["end"]) if item["end"] else prev["end"]
-        else:
-            out.append(item)
-    return out
-
-
-def level6_line(flights: Sequence[dict], U: float, diagnostics: List[dict]) -> dict:
-    if not flights:
-        return merge_entities([], U, model_path="L6_LINE")
-    if len(flights) == 1:
-        out = merge_entities(flights, U, model_path="L6_LINE")
-        out["flight_relaxation_lambda"] = 1.0
-        return out
-
-    pt = {}
-    meta = {}
-    for i in range(len(flights)):
-        for j in range(i + 1, len(flights)):
-            val, m = _l6_pair(flights[i], flights[j], U, diagnostics)
-            pt[(i, j)] = val
-            meta[(i, j)] = m
-
-    reaches = [f["reach_1p"] for f in flights]
-    lam = 1.0
-    if len(flights) >= 3 and not _is_feasible(reaches, U, pt):
-        # Common multiplier >=1 for MODEL_DEFAULT overlaps. Keep relative structure.
-        max_lam = float("inf")
-        for (i, j), v in pt.items():
-            if v <= 1e-12:
+        supplied = p_slices.get(aon["flight_id"]) if isinstance(p_slices, Mapping) else None
+        if not isinstance(supplied, Mapping):
+            continue
+        slices = []
+        for burst_id, reach in supplied.items():
+            burst = by_id.get(str(burst_id))
+            if burst is None or burst.get("is_common"):
                 continue
-            _, jmax = _pair_bounds(reaches[i], reaches[j], U)
-            max_lam = min(max_lam, jmax / v)
-        if not math.isfinite(max_lam):
-            max_lam = 8.0
-        max_lam = max(1.0, min(max_lam, 20.0))
-
-        found = None
-        steps = 80
-        prev = 1.0
-        for s in range(1, steps + 1):
-            cand = 1.0 + (max_lam - 1.0) * s / steps
-            cand_pt = {(i, j): min(_pair_bounds(reaches[i], reaches[j], U)[1], v * cand)
-                       for (i, j), v in pt.items()}
-            if _is_feasible(reaches, U, cand_pt):
-                found = (prev, cand)
-                break
-            prev = cand
-        if found is None:
-            raise V16Error("Level 6: MODEL_DEFAULT overlaps нельзя привести к global feasibility единым коэффициентом.")
-        lo, hi = found
-        for _ in range(40):
-            mid = (lo + hi) / 2.0
-            cand_pt = {(i, j): min(_pair_bounds(reaches[i], reaches[j], U)[1], v * mid)
-                       for (i, j), v in pt.items()}
-            if _is_feasible(reaches, U, cand_pt):
-                hi = mid
-            else:
-                lo = mid
-        lam = hi
-        new_pt = {}
-        cap_override = False
-        for (i, j), v in pt.items():
-            _, jmax = _pair_bounds(reaches[i], reaches[j], U)
-            nv = min(jmax, v * lam)
-            new_pt[(i, j)] = nv
-            minr = min(reaches[i], reaches[j])
-            if minr > 0 and nv > RESIDUAL_CAP * minr + 1e-8:
-                # 10% is a model residual target cap; hard global feasibility has priority.
-                cap_override = True
-        pt = new_pt
-        diagnostics.append({
-            "code": "DEFAULT_RELAXED_FOR_GLOBAL_FEASIBILITY",
-            "level": 6, "lambda": lam,
-        })
-        if cap_override:
+            slices.append({
+                "start": burst.get("start"),
+                "end": burst.get("end"),
+                "human_reach_1p_slice": m.finite(reach, "AON human Reach slice"),
+                "source": "USER_INPUT",
+                "burst_flight_id": burst_id,
+            })
+        aon["temporal_slices"] = slices
+        if slices:
             diagnostics.append({
-                "code": "RESIDUAL_CAP_OVERRIDDEN_BY_GLOBAL_FEASIBILITY",
-                "level": 6, "lambda": lam,
+                "code": "AON_TEMPORAL_FOOTPRINT",
+                "level": 6,
+                "flight": aon["name"],
+                "source": "USER_INPUT",
+                "slices": slices,
             })
 
-    out = merge_entities(flights, U, pair_targets=pt, model_path="L6_LINE")
-    out["flight_relaxation_lambda"] = lam
-    out["pair_meta"] = {
-        f"{flights[i]['name']} × {flights[j]['name']}": meta[(i, j)]
-        for (i, j) in meta
-    }
-    return out
 
-
-# --------------------------- Line / Brand orchestration ---------------------------
-
-def _plan_universe(plan, override: Optional[float]) -> float:
-    if override not in (None, ""):
-        return _positive(override, "Universe")
-    if plan.universe is not None and float(plan.universe) > 0:
-        return float(plan.universe)
-    raise V16Error(f"{plan.display_name or plan.line or 'Line'}: Universe не найден. Укажите его вручную.")
-
-
-def _line_ta(plan, groups: Sequence[dict]) -> str:
-    names = []
+def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
+    groups = _flight_groups(plan)
+    flights: List[dict] = []
     for g in groups:
-        if g.get("ta_name"):
-            n = " ".join(str(g["ta_name"]).split())
-            if n and n not in names:
-                names.append(n)
-    return names[0] if len(names) == 1 else (plan.line or plan.display_name or "")
-
-
-def calculate_line(plan, U: float, l2: dict, diagnostics: List[dict]) -> dict:
-    groups = _normalize_flight_groups(plan)
-    flights = []
-    for g in groups:
-        rows = plan.detail_rows(g["ids"])
-        channels = level4_channel(rows, U, l2, diagnostics)
-        flight = level5_flight(channels, U, diagnostics)
+        rows = list(plan.detail_rows([g["id"]]))
+        channels = _build_level4_channels(rows, U, cfg, q, plan_id, diagnostics)
+        flight = m.level5_flight(channels, U)
         flight.update({
             "name": g["label"],
-            "source_flight_ids": list(g["ids"]),
+            "flight_id": g["id"],
             "start": g["start"],
             "end": g["end"],
             "is_common": g["is_common"],
             "ta_name": g["ta_name"],
             "channels": channels,
+            "addressable_universe": U,
+            "addressable_universe_assumed": True,
+        })
+        atomic = sum(
+            u["reach_1p"]
+            for c in channels
+            for fam in c.get("families", [])
+            for u in fam.get("inventory_units", [])
+        )
+        flight["D_Campaign"] = 1.0 - flight["reach_1p"] / atomic if atomic > 0 else 0.0
+        diagnostics.extend({
+            **d,
+            "flight": g["label"],
+        } for d in flight.get("diagnostics", []))
+        diagnostics.append({
+            "code": "L5_FLIGHT",
+            "level": 5,
+            "flight": g["label"],
+            "U": U,
+            "channels": [c["name"] for c in channels],
+            "rho_target": flight.get("rho_target"),
+            "rho_effective": flight.get("rho_effective"),
+            "lambda": flight.get("relaxation_lambda"),
+            "pair_details": flight.get("pair_details"),
+            "model_path": flight.get("model_path"),
+            "feasibility": flight.get("feasibility"),
+            "solver_iterations": flight.get("solver_iterations"),
+            "solver_residual": flight.get("solver_residual"),
+            "D_Flight": flight.get("D_Flight"),
+            "D_Campaign": flight.get("D_Campaign"),
         })
         flights.append(flight)
 
-    line = level6_line(flights, U, diagnostics)
+    # Do not silently merge contiguous parser flights.  Their boundary can be real.
+    for a, b in zip(flights, flights[1:]):
+        if a.get("end") and b.get("start") and m.gap_days(a["end"], b["start"]) == 0:
+            diagnostics.append({
+                "code": "CONTIGUOUS_FLIGHT_BOUNDARY_REVIEW",
+                "level": 6,
+                "severity": "WARNING",
+                "flight_a": a["name"],
+                "flight_b": b["name"],
+                "message": "G=0. Если это один continuous delivery без реального burst boundary, его нужно нормализовать upstream.",
+            })
+
+    _attach_aon_slices(flights, q, plan_id, diagnostics)
+    try:
+        line = m.level6_line(flights, U)
+    except (m.ReachValidationError, m.ReachCalculationError) as exc:
+        raise V16Error(str(exc)) from exc
+    diagnostics.extend(line.get("diagnostics") or [])
+    diagnostics.append({
+        "code": "L6_LINE",
+        "level": 6,
+        "U": U,
+        "flights": [
+            {"name": f["name"], "start": _date(f.get("start")), "end": _date(f.get("end")), "is_common": f.get("is_common")}
+            for f in flights
+        ],
+        "pair_details": line.get("pair_details"),
+        "lambda": line.get("flight_relaxation_lambda"),
+        "chronological_incremental": line.get("chronological_incremental"),
+        "model_path": line.get("model_path"),
+        "feasibility": line.get("feasibility"),
+        "solver_iterations": line.get("solver_iterations"),
+        "solver_residual": line.get("solver_residual"),
+        "D_L6": line.get("D_L6"),
+    })
+
+    ta_names = sorted({
+        " ".join(str(g["ta_name"]).split())
+        for g in groups if g.get("ta_name") and not g.get("is_common")
+    })
+    ta_name = ta_names[0] if len(ta_names) == 1 else (_plan_ta(plan) or plan.line or plan.display_name or "")
     line.update({
         "name": plan.line or plan.display_name or plan.campaign or "Line",
         "brand": plan.brand or "",
         "universe": U,
-        "ta_name": _line_ta(plan, groups),
+        "ta_name": ta_name,
         "flights": flights,
         "l2": {
-            "requested_mode": l2["requested_mode"],
-            "effective_mode": l2["effective_mode"],
-            "K": l2["K"],
-            "U_D": l2["U_D"],
-            "B": l2["B"],
-            "D": l2["D"],
-            "L": l2["L"],
-            "B_source": l2["B_source"],
-            "D_source": l2["D_source"],
-            "B_min": l2["B_min"], "B_max": l2["B_max"],
-            "D_min": l2["D_min"], "D_max": l2["D_max"],
-            "age_range": l2["age_range"],
-            "fallback_reason": l2["fallback_reason"],
+            "requested_mode": cfg["requested_mode"],
+            "K": cfg["K"], "K_source": cfg["K_source"],
+            "B": cfg["B"], "B_source": cfg["B_source"],
+            "D": cfg["D"], "D_source": cfg["D_source"],
+            "L": cfg["L"], "L_source": cfg["L_source"],
+            "B_min": cfg["B_min"], "B_max": cfg["B_max"],
+            "D_min": cfg["D_min"], "D_max": cfg["D_max"],
+            "age_range": cfg["age_range"],
         },
+        "addressable_universe": U,
+        "addressable_universe_assumed": True,
     })
     return line
 
 
-def _brand_merge(lines: Sequence[dict], U: float, diagnostics: List[dict]) -> dict:
+def _brand_merge(lines: Sequence[dict], U: float, diagnostics: List[dict], q: Optional[dict] = None) -> dict:
+    q = q or {}
     if not lines:
-        return merge_entities([], U, model_path="L7_BRAND")
-    if len(lines) == 1:
-        out = merge_entities(lines, U, model_path="L7_BRAND")
-        out["name"] = lines[0].get("brand") or "Brand"
-        return out
+        return m.level7_brand([], U)
 
     ta_keys = {_norm_ta(x.get("ta_name")) for x in lines if _norm_ta(x.get("ta_name"))}
     if len(ta_keys) > 1:
         raise V16Error(
             "TA_NORMALIZATION_REQUIRED: Lines имеют разные ЦА. "
-            "Перед Level 7 пересчитайте все Lines на главную Brand TA."
+            "Все Lines должны быть пересчитаны upstream на Brand Master TA."
+        )
+    mismatched_u = [
+        {"line": x.get("label") or x.get("name"), "line_universe": x.get("universe")}
+        for x in lines
+        if abs(float(x.get("universe") or 0) - U) > max(1e-6, m.SOLVER_TOL * U)
+    ]
+    if mismatched_u:
+        raise V16Error(
+            "UNIVERSE_MISMATCH / TA_NORMALIZATION_REQUIRED: Brand Total нельзя строить из Line Reach, "
+            "рассчитанных на другом Universe. Задайте единый Brand Master Universe всем Lines upstream. "
+            + str(mismatched_u)
         )
 
-    # No structured geo / CRM / retargeting map can be reconstructed reliably from
-    # ordinary media-plan rows. Therefore use the documented unstructured neutral path.
-    out = merge_entities(lines, U, neutral_unstructured=True, model_path="L7_BRAND")
+    addressability_map = q.get("brand_addressability_map")
+    out = m.level7_brand(lines, U, addressability_map=addressability_map)
     out["name"] = next((x.get("brand") for x in lines if x.get("brand")), "Brand")
     diagnostics.append({
-        "code": "BRAND_ADDRESSABILITY_UNSTRUCTURED",
-        "message": "BrandAddressabilityMap не включена: структурные geo/CRM/pool inputs отсутствуют.",
+        "code": "L7_BRAND",
+        "level": 7,
+        "U_B": U,
+        "U_B_source": "USER_INPUT",
+        "TA": next(iter(ta_keys), ""),
+        "BrandAddressabilityMap": out.get("brand_addressability_status"),
+        "pair_details": out.get("pair_details"),
+        "model_path": out.get("model_path"),
+        "feasibility": out.get("feasibility"),
+        "solver_iterations": out.get("solver_iterations"),
+        "solver_residual": out.get("solver_residual"),
+        "D_L7": out.get("D_L7"),
     })
     return out
 
+
+def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> List[dict]:
+    out: List[dict] = []
+    seen = set()
+
+    def add(tag: str, level: Any, title: str, message: str, severity: str = "INFO"):
+        key = (tag, str(level), title, message)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "tag": tag, "level": level, "title": title,
+            "message": message, "severity": severity,
+        })
+
+    for d in ds:
+        code = str(d.get("code") or "")
+        level = d.get("level")
+        if code == "F_PRECISION_ASSUMED":
+            add("MODEL DEFAULT", 1, "Точность Frequency не указана",
+                "Для arithmetic validation принята точность 2 знака после запятой.", "INFO")
+        elif code == "L2_QUICK" and d.get("reason"):
+            add("FALLBACK", 2, "Level 2 рассчитан в Quick",
+                f"Причина: {d.get('reason')}. K={d.get('K')}.", "WARNING")
+        elif code in {"B_AVERAGED_APPROXIMATION", "D_AVERAGED_APPROXIMATION"}:
+            add("APPROXIMATION", 2, code,
+                "Сегментного Reach для нелинейного расчёта нет; применён разрешённый averaged fallback.", "WARNING")
+        elif code == "SAFARI_CHURN_NOT_MODELLED":
+            add("APPROXIMATION", 2, "Safari churn не моделировался Chromium L",
+                "Для Safari/WebKit не задан отдельный validated L; browser churn 2A не применён.", "WARNING")
+        elif code == "L3A_PLATFORM_FLIGHT" and d.get("model_path") == "AGGREGATE_FLIGHT_REACH_MODE":
+            add("FALLBACK", 3, "Нет weekly Human Reach",
+                "Использован AGGREGATE_FLIGHT_REACH_MODE; temporal week-by-week merge не запускался.", "WARNING")
+        elif code == "L3A_PLATFORM_FLIGHT" and d.get("platform_universe_assumed"):
+            add("MODEL DEFAULT", 3, "Platform Universe не измерен",
+                "Использовано U_p = Human Universe U с assumed flag.", "INFO")
+        elif code == "GLOBAL_FEASIBILITY_RELAXATION":
+            add("GLOBAL FEASIBILITY RELAXATION", level, "Model-default overlap скорректирован",
+                f"Применён единый λ={d.get('lambda'):.6g} только к MODEL_DEFAULT pairs.", "WARNING")
+        elif code == "RESIDUAL_CAP_OVERRIDDEN_BY_GLOBAL_FEASIBILITY":
+            add("RESIDUAL CAP OVERRIDE", 6, "Residual 10% превышен ради feasibility",
+                f"Общий λ={d.get('lambda'):.6g}; hard feasibility имеет приоритет.", "WARNING")
+        elif code == "AON_TEMPORAL_FOOTPRINT":
+            add("USER INPUT", 6, "AON temporal footprint",
+                "Для AON↔burst использован пользовательский deduplicated human Reach slice.", "INFO")
+        elif code == "CONTIGUOUS_FLIGHT_BOUNDARY_REVIEW":
+            add("VALIDATION REVIEW", 6, "Смежные Flights с G=0",
+                d.get("message") or "Проверьте, не является ли это одним continuous delivery.", "WARNING")
+        elif code == "DUPLICATE_LIKE_ROW_WARNING":
+            add("DATA QUALITY", "IMPORT", "Похожие строки медиаплана",
+                "Строки не удалялись автоматически. Проверьте, являются ли они реальными дублями.", "WARNING")
+        elif code in {"L4_CHANNEL", "L5_FLIGHT", "L6_LINE", "L7_BRAND"}:
+            path = d.get("model_path")
+            if path and ("MAXENT" in path or "ADDRESSABILITY_NEUTRAL" in path):
+                add("MAXENT", level, "Joint audience model",
+                    f"Использован {path}; global feasibility={d.get('feasibility')}.", "INFO")
+    if brand_error:
+        tag = "TA MISMATCH" if "TA_NORMALIZATION" in brand_error else (
+            "UNIVERSE MISMATCH" if "UNIVERSE_MISMATCH" in brand_error else "VALIDATION ERROR"
+        )
+        add(tag, 7, "Brand Total заблокирован", brand_error, "ERROR")
+    return out
+
+
+def _hierarchy(lines: Sequence[dict], brand: Optional[dict], brand_u: Optional[float]) -> List[dict]:
+    rows: List[dict] = []
+    keys = ("impressions", "reach_1p", "reach_2p", "reach_3p", "reach_4p", "reach_5p", "reach_6p", "avg_frequency",
+            "gross_reach_sum", "dedup_people", "dedup_rate", "model_path")
+    for line in lines:
+        for flight in line.get("flights", []):
+            for channel in flight.get("channels", []):
+                rows.append({
+                    "level": "Channel",
+                    "line": line.get("label") or line.get("name"),
+                    "flight": flight.get("name"),
+                    "name": channel.get("name"),
+                    "universe": line["universe"],
+                    **{k: channel.get(k) for k in keys},
+                })
+            rows.append({
+                "level": "Flight",
+                "line": line.get("label") or line.get("name"),
+                "flight": flight.get("name"),
+                "name": flight.get("name"),
+                "universe": line["universe"],
+                **{k: flight.get(k) for k in keys},
+            })
+        rows.append({
+            "level": "Line",
+            "line": line.get("label") or line.get("name"),
+            "flight": "",
+            "name": line.get("label") or line.get("name"),
+            "universe": line["universe"],
+            **{k: line.get(k) for k in keys},
+        })
+    if brand is not None and brand_u:
+        rows.append({
+            "level": "Brand",
+            "line": "", "flight": "",
+            "name": brand.get("name") or "Brand",
+            "universe": brand_u,
+            **{k: brand.get(k) for k in keys},
+        })
+    return rows
+
+
+def _contribution_rows(lines: Sequence[dict], brand: Optional[dict]) -> List[dict]:
+    rows: List[dict] = []
+    for line in lines:
+        for flight in line.get("flights", []):
+            for channel in flight.get("channels", []):
+                for c in channel.get("contributions", []) or []:
+                    rows.append({
+                        "scope": "Channel",
+                        "parent": channel.get("name"),
+                        "line": line.get("label"),
+                        **c,
+                        "parent_reach": channel.get("reach_1p"),
+                    })
+            for c in flight.get("contributions", []) or []:
+                rows.append({
+                    "scope": "Flight",
+                    "parent": flight.get("name"),
+                    "line": line.get("label"),
+                    **c,
+                    "parent_reach": flight.get("reach_1p"),
+                })
+        for c in line.get("contributions", []) or []:
+            rows.append({
+                "scope": "Line",
+                "parent": line.get("label") or line.get("name"),
+                "line": line.get("label"),
+                **c,
+                "parent_reach": line.get("reach_1p"),
+            })
+    if brand is not None:
+        for c in brand.get("contributions", []) or []:
+            rows.append({
+                "scope": "Brand",
+                "parent": brand.get("name") or "Brand",
+                "line": "",
+                **c,
+                "parent_reach": brand.get("reach_1p"),
+            })
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# JSON APIs used by the web tab
+# ---------------------------------------------------------------------------
 
 def discover(path: str) -> str:
     groups = discover_media_plan_groups(path)
     out = []
     for g in groups:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
+        ta = _plan_ta(plan)
+        units = _inventory_units(plan)
+        aon_pairs = []
+        fs = _flight_groups(plan)
+        for aon in [x for x in fs if x["is_common"]]:
+            for burst in [x for x in fs if not x["is_common"]]:
+                aon_pairs.append({
+                    "aon_flight_id": aon["id"],
+                    "aon_label": aon["label"],
+                    "burst_flight_id": burst["id"],
+                    "burst_label": burst["label"],
+                    "burst_start": _date(burst["start"]),
+                    "burst_end": _date(burst["end"]),
+                })
         out.append({
             "id": g.id,
             "label": g.label,
@@ -1276,15 +1204,25 @@ def discover(path: str) -> str:
             "line": g.line,
             "campaign": g.campaign,
             "universe": float(plan.universe) if plan.universe else None,
-            "ta_name": next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), ""),
+            "ta_name": ta,
             "flight_count": len(plan.flights),
             "placement_count": len(plan.detail_rows()),
-            "advanced_recommended": recommended_advanced_factors(
-                next((f.ta_name for f in plan.flights if f.ta_name and not f.is_common), "")
-            ),
+            "advanced_recommended": recommended_advanced_factors(ta),
             "input_profile": _plan_input_profile(plan),
+            "inventory_units": units,
+            "aon_pairs": aon_pairs,
+            "import_warnings": _duplicate_warnings(plan.detail_rows()),
         })
-    return _json({"version": VERSION, "plans": out, "model_catalog": model_catalog()})
+    return _json({
+        "version": VERSION,
+        "plans": out,
+        "model_catalog": model_catalog(),
+        "contract": {
+            "brand_universe_required_for_brand_total": True,
+            "family_mapping_confirmation_required": True,
+            "unknown_environment_auto_path": "QUICK_FALLBACK",
+        },
+    })
 
 
 def calculate(path: str, params_json: str = "{}") -> str:
@@ -1301,115 +1239,66 @@ def calculate(path: str, params_json: str = "{}") -> str:
     diagnostics: List[dict] = [{
         "code": "ENGINE_VERSION",
         "version": VERSION,
-        "l2_mode_requested": str(q.get("l2_mode") or "AUTO").upper(),
+        "canonical_spec": "Reach Engine Levels 1–7 FINAL v1.6 · 07.09.2026",
+        "production_052_isolated": True,
     }]
-    lines = []
+    lines: List[dict] = []
+
     for g in groups:
         plan = parse_media_plan(path, sheet_names=g.sheet_names)
+        diagnostics.extend(_duplicate_warnings(plan.detail_rows()))
         U = _plan_universe(plan, overrides.get(g.id))
-        l2 = _resolve_l2_line_params(plan, U, q, g.id)
+        cfg = _resolve_line_l2(plan, U, q, g.id)
         diagnostics.append({
-            "code": "L2_LINE_MODE",
+            "code": "LINE_SCOPE",
+            "level": "SCOPE",
             "plan_id": g.id,
-            "requested_mode": l2["requested_mode"],
-            "effective_mode": l2["effective_mode"],
-            "K": l2["K"],
-            "U_D": l2["U_D"],
-            "B": l2["B"], "D": l2["D"], "L": l2["L"],
-            "B_source": l2["B_source"], "D_source": l2["D_source"],
-            "fallback_reason": l2["fallback_reason"],
+            "U": U,
+            "TA": cfg["ta_name"],
+            "family_mapping_confirmed": _mapping_confirmed(q, g.id),
+            "l2_requested_mode": cfg["requested_mode"],
         })
-        line = calculate_line(plan, U, l2, diagnostics)
+        line = calculate_line(plan, U, cfg, q, g.id, diagnostics)
         line["plan_id"] = g.id
         line["label"] = g.label
         lines.append(line)
 
-    brand_U_raw = q.get("brand_universe")
-    brand_U = _positive(brand_U_raw, "Brand Universe") if brand_U_raw not in (None, "") else max(x["universe"] for x in lines)
-    for line in lines:
-        if line["reach_1p"] > brand_U + 1e-6:
-            raise V16Error(
-                f"Brand Universe {brand_U:.0f} меньше Line Reach {line['reach_1p']:.0f}."
-            )
+    brand_raw = q.get("brand_universe")
+    brand_confirmed = bool(q.get("brand_universe_confirmed"))
+    brand: Optional[dict] = None
+    brand_error: Optional[str] = None
+    brand_U: Optional[float] = None
 
-    brand_error = None
-    try:
-        brand = _brand_merge(lines, brand_U, diagnostics)
-        brand["universe"] = brand_U
-    except V16Error as e:
-        brand = None
-        brand_error = str(e)
-        diagnostics.append({"code": "BRAND_TOTAL_BLOCKED", "message": brand_error})
+    if brand_raw in (None, "") or not brand_confirmed:
+        brand_error = (
+            "BRAND_MASTER_UNIVERSE_REQUIRED: Brand Total требует явный подтверждённый U_B. "
+            "Max/сумма Line Universe не подставляются автоматически."
+        )
+        diagnostics.append({"code": "BRAND_TOTAL_BLOCKED", "level": 7, "message": brand_error})
+    else:
+        brand_U = m.positive(brand_raw, "Brand Master Universe U_B")
+        try:
+            brand = _brand_merge(lines, brand_U, diagnostics, q)
+            brand["universe"] = brand_U
+        except (V16Error, m.ReachValidationError, m.ReachCalculationError) as exc:
+            brand_error = str(exc)
+            diagnostics.append({"code": "BRAND_TOTAL_BLOCKED", "level": 7, "message": brand_error})
 
-    # Compact hierarchy for the UI.
-    hierarchy = []
-    for line in lines:
-        for f in line.get("flights", []):
-            for c in f.get("channels", []):
-                hierarchy.append({
-                    "level": "Channel", "line": line["label"], "flight": f["name"],
-                    "name": c["name"], "universe": line["universe"], **{
-                        k: c.get(k) for k in ("impressions","reach_1p","reach_2p","reach_3p","reach_4p","reach_5p","reach_6p","avg_frequency")
-                    }
-                })
-            hierarchy.append({
-                "level": "Flight", "line": line["label"], "flight": f["name"],
-                "name": f["name"], "universe": line["universe"], **{
-                    k: f.get(k) for k in ("impressions","reach_1p","reach_2p","reach_3p","reach_4p","reach_5p","reach_6p","avg_frequency")
-                }
-            })
-        hierarchy.append({
-            "level": "Line", "line": line["label"], "flight": "",
-            "name": line["label"], "universe": line["universe"], **{
-                k: line.get(k) for k in ("impressions","reach_1p","reach_2p","reach_3p","reach_4p","reach_5p","reach_6p","avg_frequency")
-            }
-        })
-    if brand is not None:
-        hierarchy.append({
-            "level": "Brand", "line": "", "flight": "", "name": brand.get("name") or "Brand",
-            "universe": brand_U, **{
-                k: brand.get(k) for k in ("impressions","reach_1p","reach_2p","reach_3p","reach_4p","reach_5p","reach_6p","avg_frequency")
-            }
-        })
-
-    contribution_rows = []
-    for line in lines:
-        for flight in line.get("flights", []):
-            for c in flight.get("contributions", []) or []:
-                contribution_rows.append({
-                    "scope": "Flight",
-                    "parent": flight.get("name"),
-                    "line": line.get("label"),
-                    **c,
-                    "parent_reach": flight.get("reach_1p"),
-                })
-        for c in line.get("contributions", []) or []:
-            contribution_rows.append({
-                "scope": "Line",
-                "parent": line.get("label"),
-                "line": line.get("label"),
-                **c,
-                "parent_reach": line.get("reach_1p"),
-            })
-    if brand is not None:
-        for c in brand.get("contributions", []) or []:
-            contribution_rows.append({
-                "scope": "Brand",
-                "parent": brand.get("name") or "Brand",
-                "line": "",
-                **c,
-                "parent_reach": brand.get("reach_1p"),
-            })
+    status = "GO" if brand is not None else "PARTIAL"
+    hierarchy = _hierarchy(lines, brand, brand_U)
+    contribution_rows = _contribution_rows(lines, brand)
+    business = _business_diagnostics(diagnostics, brand_error)
 
     return _json({
         "version": VERSION,
-        "status": "GO" if brand_error is None else "PARTIAL",
-        "l2_mode_requested": str(q.get("l2_mode") or "AUTO").upper(),
+        "status": status,
         "lines": lines,
         "brand_total": brand,
         "brand_error": brand_error,
+        "brand_universe": brand_U,
         "hierarchy": hierarchy,
         "contribution_rows": contribution_rows,
         "model_catalog": model_catalog(),
+        "business_diagnostics": business,
         "diagnostics": diagnostics,
     })
