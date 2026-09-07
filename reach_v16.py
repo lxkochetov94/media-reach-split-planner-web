@@ -38,8 +38,14 @@ class V16Error(ValueError):
     pass
 
 
+def _json_default(v: Any):
+    if isinstance(v, (dt.datetime, dt.date)):
+        return v.isoformat()
+    raise TypeError(f"Object of type {v.__class__.__name__} is not JSON serializable")
+
+
 def _json(v: Any) -> str:
-    return json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(v, ensure_ascii=False, separators=(",", ":"), default=_json_default)
 
 
 def _finite(v: Any, name: str) -> float:

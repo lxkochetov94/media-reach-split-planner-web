@@ -12,7 +12,7 @@
     await corePromise;
     if(!coreReady) throw new Error('Базовый парсер не готов');
     if(v16ModuleReady) return;
-    const resp=await fetch('reach_v16.py?v=1.6');
+    const resp=await fetch('reach_v16.py?v=1.6.1');
     if(!resp.ok) throw new Error('Не удалось загрузить Reach Engine v1.6');
     const txt=await resp.text();
     pyodide.FS.writeFile('/app/reach_v16.py',txt,{encoding:'utf8'});
@@ -25,6 +25,15 @@
     for(const [k,v] of Object.entries(globals)) pyodide.globals.set(k,v);
     const raw=pyodide.runPython(expr);
     return typeof raw==='string'?JSON.parse(raw):raw;
+  }
+
+  function v16ErrorMessage(error){
+    const raw=String(error?.message||error||'Неизвестная ошибка');
+    const lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    if(!lines.length)return 'Неизвестная ошибка';
+    const last=lines[lines.length-1]
+      .replace(/^(?:V16Error|ValueError|TypeError|RuntimeError):\s*/,'');
+    return last.length>420?last.slice(0,417)+'…':last;
   }
 
   function selectedPlans(){
@@ -90,7 +99,7 @@
       await calculateV16();
     }catch(e){
       console.error(e);
-      setStatus(ids.status,'Ошибка v1.6: '+esc(e.message),'err');
+      setStatus(ids.status,'Ошибка v1.6: '+esc(v16ErrorMessage(e)),'err');
     }
   }
 
@@ -172,8 +181,9 @@
       setStatus(ids.status,`✓ v1.6 рассчитан · ${v16Data.lines?.length||0} Line · production 0.52 не затронут`,'ok');
     }catch(e){
       console.error(e);
-      setStatus(ids.status,'Ошибка v1.6: '+esc(e.message),'err');
-      const warn=$(ids.warning);warn.textContent=e.message;warn.classList.remove('hidden');
+      const message=v16ErrorMessage(e);
+      setStatus(ids.status,'Ошибка v1.6: '+esc(message),'err');
+      const warn=$(ids.warning);warn.textContent=message;warn.classList.remove('hidden');
     }
   }
 

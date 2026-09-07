@@ -30,6 +30,19 @@ class FakeRow:
 
 
 class ReachV16Tests(unittest.TestCase):
+    def test_json_serializes_nested_dates(self):
+        payload = {
+            "lines": [{
+                "flights": [{
+                    "start": dt.date(2026, 1, 1),
+                    "end": dt.datetime(2026, 1, 31, 12, 30),
+                }]
+            }]
+        }
+        encoded = r._json(payload)
+        self.assertIn('"start":"2026-01-01"', encoded)
+        self.assertIn('"end":"2026-01-31T12:30:00"', encoded)
+
     def test_l1_frequency_below_one_is_error(self):
         row = FakeRow(impressions=1000, frequency=0.8, tech_reach=None)
         with self.assertRaises(r.V16Error):
