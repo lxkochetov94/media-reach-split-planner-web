@@ -212,7 +212,7 @@ class ReachV16Tests(unittest.TestCase):
         U = 10_000_000
         a = ent("L1", 3_000_000, start=dt.date(2026,1,1), end=dt.date(2026,3,31))
         a.update({
-            "ta_name":"Women 25-55","brand":"X","plan_id":"P1",
+            "ta_name":"Women 25-55","brand":"X","plan_id":"P1","universe":U,
             "addressable_universe":U,"addressable_universe_assumed":True,
         })
         q = {
