@@ -180,28 +180,14 @@
 
   function allUserState(){
     const plans=selectedPlans();
-    const family_mapping={},family_mapping_confirmed={},environments={},browser_families={},
-      unit_web_device_universes={},device_reaches={},web_device_universes={},aon_slices={},
-      line_scope_confirmed={},line_identity_confirmed={},aggregate_flight_technical_reaches={};
+    const web_device_universes={},line_scope_confirmed={},line_identity_confirmed={};
     plans.forEach(p=>{
-      const x=collectFamilyMapping(p);
-      family_mapping[p.id]=x.mapping;
-      family_mapping_confirmed[p.id]=x.confirmed;
-      environments[p.id]=x.env;
-      browser_families[p.id]=x.browsers;
-      unit_web_device_universes[p.id]=x.unitUD;
-      device_reaches[p.id]=x.deviceReach;
       const lud=lineUD(p); if(lud)web_device_universes[p.id]=lud;
-      const aon=collectAonSlices(p); if(Object.keys(aon).length)aon_slices[p.id]=aon;
       const lineScope=collectLineScope(p);
       line_scope_confirmed[p.id]=lineScope.scopeConfirmed;
       line_identity_confirmed[p.id]=lineScope.identityConfirmed;
-      const aggregateScopes=collectPlatformScopeInputs(p);
-      if(Object.keys(aggregateScopes).length)aggregate_flight_technical_reaches[p.id]=aggregateScopes;
     });
-    return {plans,family_mapping,family_mapping_confirmed,environments,browser_families,
-      unit_web_device_universes,device_reaches,web_device_universes,aon_slices,
-      line_scope_confirmed,line_identity_confirmed,aggregate_flight_technical_reaches};
+    return {plans,web_device_universes,line_scope_confirmed,line_identity_confirmed};
   }
 
   function markDirty(){
@@ -576,13 +562,6 @@
     const state=allUserState(),plans=state.plans;
     if(!plans.length){setStatus(ids.status,'Выберите хотя бы одну Line.','err');clearResults();return}
 
-    const missingMapping=plans.filter(p=>!collectFamilyMapping(p).confirmed);
-    if(missingMapping.length){
-      clearResults();
-      setStatus(ids.status,'Сначала подтвердите Audience Family mapping для каждой выбранной Line.','err');
-      return;
-    }
-
     const brandRaw=$(ids.brandU)?.value?.trim()||'';
     let q={
       selected_plan_ids:plans.map(x=>x.id),
@@ -592,18 +571,10 @@
       advanced:{
         L:Number($(ids.L)?.value||68),
         B:nval(ids.B),D:nval(ids.D),
-        web_device_universes:state.web_device_universes,
-        unit_web_device_universes:state.unit_web_device_universes,
-        environments:state.environments,
-        browser_families:state.browser_families,
-        device_reaches:state.device_reaches
+        web_device_universes:state.web_device_universes
       },
-      family_mapping:state.family_mapping,
-      family_mapping_confirmed:state.family_mapping_confirmed,
       line_scope_confirmed:state.line_scope_confirmed,
       line_identity_confirmed:state.line_identity_confirmed,
-      aggregate_flight_technical_reaches:state.aggregate_flight_technical_reaches,
-      aon_slices:state.aon_slices,
       brand_universe:brandRaw===''?null:Number(brandRaw),
       brand_universe_confirmed:brandRaw!=='' && (plans.length===1 || !!$(ids.brandUConfirm)?.checked),
       brand_master_ta:$(ids.brandTA)?.value?.trim()||'',
@@ -616,11 +587,11 @@
     try{
       q=deepMergeV16(q,expertCanonicalInputs());
       clearResults();
-      setStatus(ids.status,'<span class="spinner"></span>Считаю канонические Levels 1–7…');
+      setStatus(ids.status,'<span class="spinner"></span>Считаю Levels 1–7…');
       const data=await v16Call('reach_v16.calculate(p,q)',{p:v16Path,q:JSON.stringify(q)});
       v16Data=data;
       renderResults();
-      const suffix=v16Data.status==='GO'?'Brand Total рассчитан':'Результаты Lines рассчитаны; Brand Total требует проверки Level 7';
+      const suffix=v16Data.status==='GO'?'Reach рассчитан':'Lines рассчитаны; Brand Total требует проверки Level 7';
       setStatus(ids.status,`✓ ${suffix} · ${v16Data.lines?.length||0} Line`,'ok');
     }catch(e){
       console.error(e);
@@ -630,7 +601,6 @@
       renderPrecalc();
     }
   }
-
   async function openV16File(file){
     try{
       clearResults();
@@ -645,7 +615,7 @@
       renderPlanControls();
       prefillBrandScope();
       $(ids.controls).classList.remove('hidden');
-      setStatus(ids.status,`Файл распознан: ${v16Meta.plans.length} Line. Проверьте отмеченные входы и группировку площадок.`,'ok');
+      setStatus(ids.status,`Файл распознан: ${v16Meta.plans.length} Line. Охватные строки и технические параметры определены автоматически.`,'ok');
     }catch(e){
       console.error(e);clearResults();
       setStatus(ids.status,'Ошибка загрузки: '+esc(friendlyV16Error(errorMessage(e))),'err');
