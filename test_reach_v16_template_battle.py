@@ -62,8 +62,8 @@ class MixedTemplateBattleTests(unittest.TestCase):
         excluded = r._excluded_reach_rows(rows)
         self.assertEqual([x["platform"] for x in units], ["VK", "SlickJump"])
         self.assertEqual(len(excluded), 2)
-        self.assertEqual(excluded[0]["reason"], "FREQUENCY_AND_TECHNICAL_REACH_NOT_AVAILABLE")
-        self.assertEqual(excluded[1]["reason"], "IMPRESSIONS_NOT_AVAILABLE")
+        self.assertEqual(excluded[0]["reason"], "BUYING_MODEL_NOT_REACH_ELIGIBLE")
+        self.assertEqual(excluded[1]["reason"], "BUYING_MODEL_NOT_REACH_ELIGIBLE")
 
     def test_cpc_awareness_row_without_frequency_is_not_given_invented_reach(self):
         row = FakeRow(
@@ -72,7 +72,7 @@ class MixedTemplateBattleTests(unittest.TestCase):
         )
         state = r._reach_row_state(row)
         self.assertFalse(state["ready"])
-        self.assertEqual(state["reason"], "FREQUENCY_AND_TECHNICAL_REACH_NOT_AVAILABLE")
+        self.assertEqual(state["reason"], "BUYING_MODEL_NOT_REACH_ELIGIBLE")
 
     def test_platform_month_fragments_are_exposed_as_one_level3_scope(self):
         rows = [
@@ -88,7 +88,8 @@ class MixedTemplateBattleTests(unittest.TestCase):
         self.assertEqual(len(reqs), 1)
         self.assertEqual(reqs[0]["fragment_count"], 2)
         self.assertEqual(reqs[0]["platform"], "VK Video")
-        self.assertIn("aggregate_flight_technical_reaches", reqs[0]["required_input"])
+        self.assertIsNone(reqs[0]["required_input"])
+        self.assertEqual(reqs[0]["auto_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
 
     def test_vernel_battle_ta_mismatch_is_hard_error(self):
         groups = [
