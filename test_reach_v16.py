@@ -30,6 +30,27 @@ class FakeRow:
 
 
 class ReachV16Tests(unittest.TestCase):
+    def test_model_catalog_exposes_agreed_ranges(self):
+        c = r.model_catalog()
+        self.assertEqual(c["level2"]["quick_k"], 2.40)
+        self.assertEqual(c["level2"]["chromium_l_days"], 68.0)
+        self.assertEqual(c["level3"]["temporal_rho_profiles"]["BASE"], 0.65)
+        self.assertEqual(c["level3"]["sigma_default"], 2.50)
+        self.assertEqual(c["level3"]["sigma_calibration_iqr"], [2.42, 2.90])
+        self.assertEqual(c["level5"]["rho_channel_target"], -0.35)
+        self.assertEqual(c["level6"]["residual_cap"], 0.10)
+
+    def test_shapley_and_exclusive_contributions_sum_to_union(self):
+        U = 10_000_000
+        es = [ent("A", 2_000_000), ent("B", 2_500_000), ent("C", 1_500_000)]
+        pt = {(0,1): 500_000, (0,2): 300_000, (1,2): 375_000}
+        out = r.merge_entities(es, U, pair_targets=pt, model_path="TEST")
+        contrib = out["contributions"]
+        self.assertEqual(len(contrib), 3)
+        self.assertAlmostEqual(sum(x["shapley_people"] for x in contrib), out["reach_1p"], delta=1e-3)
+        self.assertTrue(all(x["exclusive_people"] >= 0 for x in contrib))
+        self.assertGreaterEqual(out["dedup_rate"], 0.0)
+
     def test_advanced_age_weighted_defaults_for_25_45(self):
         rec = r.recommended_advanced_factors("Ж 25-45 ВС")
         self.assertAlmostEqual(rec["B"], (10*1.90 + 10*1.90 + 1*1.75) / 21, places=6)
