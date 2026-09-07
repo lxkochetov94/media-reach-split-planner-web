@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Python syntax
         run: |
@@ -44,7 +46,7 @@ jobs:
       - name: Guard production 0.52 reach code
         shell: bash
         run: |
-          git fetch origin main --depth=1
+          git fetch origin main
           python - <<'PY'
           import subprocess
           diff = subprocess.check_output(
@@ -58,8 +60,6 @@ jobs:
               "async function recalcMultiReach()",
               "function combine_reach_union",
           ]
-          # Existing functions may appear as unchanged context in a patch only if the
-          # diff is large. Reject actual +/- edits to their definition lines.
           for line in diff.splitlines():
               if line.startswith(("+++","---")):
                   continue
