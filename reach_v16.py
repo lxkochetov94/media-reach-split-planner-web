@@ -251,10 +251,36 @@ def _age_weighted(ta_name: str, bands: Sequence[Tuple[int, int, float]], base: f
     return sum(vals) / len(vals), "AGE_WIDTH_APPROXIMATION"
 
 
+def _age_applicable_values(ta_name: str, bands: Sequence[Tuple[int, int, float]]) -> List[float]:
+    rng = _age_range(ta_name)
+    if rng is None:
+        return []
+    lo, hi = rng
+    vals = []
+    for age in range(lo, hi + 1):
+        match = next((v for a, b, v in bands if a <= age <= b), None)
+        if match is None:
+            return []
+        vals.append(match)
+    return vals
+
+
 def recommended_advanced_factors(ta_name: str) -> dict:
     B, src_b = _age_weighted(ta_name, _AGE_B, BASE_BROWSER)
     D, src_d = _age_weighted(ta_name, _AGE_D, BASE_DEVICE_FACTOR)
-    return {"B": B, "D": D, "B_source": src_b, "D_source": src_d}
+    bvals = _age_applicable_values(ta_name, _AGE_B)
+    dvals = _age_applicable_values(ta_name, _AGE_D)
+    return {
+        "B": B,
+        "D": D,
+        "B_source": src_b,
+        "D_source": src_d,
+        "B_min": min(bvals) if bvals else min(v for _, _, v in _AGE_B),
+        "B_max": max(bvals) if bvals else max(v for _, _, v in _AGE_B),
+        "D_min": min(dvals) if dvals else min(v for _, _, v in _AGE_D),
+        "D_max": max(dvals) if dvals else max(v for _, _, v in _AGE_D),
+        "age_range": list(_age_range(ta_name)) if _age_range(ta_name) else None,
+    }
 
 
 def level2_advanced_web(
@@ -358,6 +384,9 @@ def _resolve_l2_line_params(plan, U: float, q: dict, plan_id: str) -> dict:
         "L": L,
         "B_source": "USER_OVERRIDE" if B_raw not in (None, "") else rec["B_source"],
         "D_source": "USER_OVERRIDE" if D_raw not in (None, "") else rec["D_source"],
+        "B_min": rec["B_min"], "B_max": rec["B_max"],
+        "D_min": rec["D_min"], "D_max": rec["D_max"],
+        "age_range": rec["age_range"],
         "ta_name": ta_name,
         "fallback_reason": fallback_reason,
     }
@@ -1191,6 +1220,9 @@ def calculate_line(plan, U: float, l2: dict, diagnostics: List[dict]) -> dict:
             "L": l2["L"],
             "B_source": l2["B_source"],
             "D_source": l2["D_source"],
+            "B_min": l2["B_min"], "B_max": l2["B_max"],
+            "D_min": l2["D_min"], "D_max": l2["D_max"],
+            "age_range": l2["age_range"],
             "fallback_reason": l2["fallback_reason"],
         },
     })
