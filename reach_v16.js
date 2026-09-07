@@ -363,11 +363,31 @@
         </details>
 
         <details class="v16-plan-advanced">
-          <summary>Дополнительные технические входы Level 2</summary>
+          <summary>Как движок переводит браузеры и устройства в людей</summary>
+          <div class="v16-note" style="margin:8px 0 10px">
+            Эти параметры нужны только для Advanced Web-расчёта. Логика такая: Technical Reach → убираем повторные browser ID во времени → объединяем browser ID в устройства → объединяем устройства в людей.
+          </div>
           <div class="v16-auto-strip">
-            <div><span class="v16-auto-label">Model fallback</span><strong>B = ${num(rec.B,2)}</strong><small>${sourceLabel(rec.B_source)} · ${fmtRange(rec.B_min,rec.B_max)}</small></div>
-            <div><span class="v16-auto-label">Model fallback</span><strong>D = ${num(rec.D,2)}</strong><small>${sourceLabel(rec.D_source)} · ${fmtRange(rec.D_min,rec.D_max)}</small></div>
-            <div class="field"><label>Line-level U_D, если есть единый измеренный Web Universe устройств</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Не заполнять без измерения"></div>
+            <div>
+              <span class="v16-auto-label">Автоматически по ЦА</span>
+              <strong>${num(rec.B,2)} browser ID на 1 web-устройство <small>(B)</small></strong>
+              <small>Используется, чтобы несколько браузеров / browser ID одного устройства не считались разными устройствами. Диапазон модели для этой ЦА: ${fmtRange(rec.B_min,rec.B_max)}.</small>
+            </div>
+            <div>
+              <span class="v16-auto-label">Автоматически по ЦА</span>
+              <strong>${num(rec.D,2)} устройства на 1 человека <small>(D)</small></strong>
+              <small>Используется, чтобы один человек с телефоном, ноутбуком и другими устройствами не считался несколькими людьми. Диапазон модели для этой ЦА: ${fmtRange(rec.D_min,rec.D_max)}.</small>
+            </div>
+            <div>
+              <span class="v16-auto-label">Методология v1.6</span>
+              <strong>68 дней <small>(L)</small></strong>
+              <small>Модельный срок жизни / обновления browser ID Chromium. Нужен только для поправки на смену browser ID во времени; не применяется автоматически к Safari, приложениям и CTV.</small>
+            </div>
+          </div>
+          <div class="field v16-ud-human" style="margin-top:10px">
+            <label><strong>Есть измеренный размер базы web-устройств для этой ЦА?</strong> <span class="hint">(U_D)</span></label>
+            <input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если такого измерения нет">
+            <div class="hint">U_D — количество уникальных web-устройств в той же ЦА и том же периоде/географии. Это не количество людей. Если U_D нет, движок не выдумывает его и использует Quick fallback.</div>
           </div>
         </details>
         ${aon}
@@ -442,9 +462,9 @@
           <span>Web: 2A→2B→2C<br><small>App/CTV: browser correction OFF</small></span><b>→</b><span>R<sub>people</sub></span>
         </div>
         <div class="v16-param-row">
-          <span><b>B ${num(rec.B,2)}</b><small>${sourceLabel(rec.B_source)}; averaged fallback only</small></span>
-          <span><b>D ${num(rec.D,2)}</b><small>${sourceLabel(rec.D_source)}; averaged fallback only</small></span>
-          <span><b>Family mapping</b><small>${map.confirmed?'USER CONFIRMED':'NOT CONFIRMED'}</small></span>
+          <span><b>Browser ID на устройство: ${num(rec.B,2)} (B)</b><small>Автоматическая модельная оценка по возрасту ЦА; используется на шаге browser → device.</small></span>
+          <span><b>Устройств на человека: ${num(rec.D,2)} (D)</b><small>Автоматическая модельная оценка по возрасту ЦА; используется на шаге device → people.</small></span>
+          <span><b>Группировка площадок</b><small>${map.confirmed?'Проверена пользователем':'Ещё не подтверждена'}</small></span>
         </div>
       </div>`;
     }).join('')+'</div>';
@@ -461,8 +481,8 @@
       <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 1</div><strong>Placement → Technical Uniques</strong>
         <p>Supplied Reach либо I÷F. Если I/Reach/F заданы вместе — precision-aware arithmetic validation; fixed 3% tolerance больше не используется.</p>
       </div>
-      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Technical IDs → люди</strong>
-        <p>Quick K=${num(l2.quick_k,2)} — fallback. Advanced сохраняет environment: Web 2A→2B→2C; App/CTV без browser corrections.</p>
+      <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Технические идентификаторы → реальные люди</strong>
+        <p>Quick: делим Technical Reach на K=${num(l2.quick_k,2)}. Advanced Web считает подробнее: сначала поправка на смену browser ID во времени (L), затем browser ID → устройства (B и U_D), затем устройства → люди (D). Для App/CTV браузерные поправки не применяются.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 3A</div><strong>Weeks → Platform Flight</strong>
         <p>ρ LOW ${num(rho.LOW,2)} · BASE ${num(rho.BASE,2)} · HIGH ${num(rho.HIGH,2)}; gap decay ρ<sup>1+G</sup>. Без weekly Human Reach — explicit AGGREGATE_FLIGHT_REACH_MODE.</p>
