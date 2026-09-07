@@ -483,8 +483,10 @@
     const wrap=$(ids.l2Decision);if(!wrap)return;
     const state=allUserState(),mode=currentMode();
     if(!state.plans.length){wrap.innerHTML='';return}
+    const K=Number($(ids.k)?.value||2.4);
+
     wrap.innerHTML='<div class="v16-decision-list">'+state.plans.map(p=>{
-      const map=collectFamilyMapping(p),rec=p.meta.advanced_recommended||{};
+      const rec=p.meta.advanced_recommended||{};
       let adv=0,quick=0,blocked=0;
       const rows=[...p.root.querySelectorAll('.v16-unit-row')];
       rows.forEach(r=>{
@@ -502,36 +504,83 @@
         else if((env==='MOBILE_APP'||env==='CTV')&&device)adv++;
         else quick++;
       });
+
       const total=adv+quick+blocked;
       const kind=blocked?'error':adv?'advanced':'fallback';
-      const title=blocked?'Для части размещений не хватает данных':adv&&quick?'Используется смешанный путь расчёта':adv?'Используется детальный расчёт':'Используется базовый расчёт';
-      const summary=blocked
-        ? `${blocked} из ${total} размещений нельзя посчитать в принудительном Advanced-режиме без измеренных данных по устройствам.`
-        : adv&&quick
-          ? `${adv} размещений имеют данные для детального перевода в людей, а ${quick} считаются по стандартному Quick-пути.`
-          : adv
-            ? `Для всех ${adv} размещений хватает измеренных данных для детального перевода Technical Reach в людей.`
-            : `Для ${quick} размещений нет измеренного device universe. Это нормально: движок использует стандартный Quick-путь и явно показывает это как модельное допущение.`;
+      const badgeText=blocked?'Нужны измеренные данные':adv&&quick?'Смешанный расчёт':adv?'Детальный расчёт':'Стандартная оценка';
+
+      const quickBlock=`
+        <div class="v16-l2-human-card">
+          <div class="v16-l2-human-title"><strong>Что происходит в реальности</strong></div>
+          <p>Площадка сообщает <b>Technical Reach</b> — количество уникальных технических ID. Это могут быть cookie, browser ID или другие идентификаторы. <b>Technical Reach нельзя автоматически считать количеством людей</b>: один человек может иметь несколько ID.</p>
+        </div>
+        <div class="v16-l2-human-card">
+          <div class="v16-l2-human-title"><strong>Почему здесь используется стандартная модель</strong></div>
+          <p>В медиаплане нет измеренного <b>U_D — количества уникальных web-устройств</b> для этой ЦА и периода. Без него нельзя честно восстановить цепочку «browser ID → устройство → человек». Поэтому движок ничего не выдумывает.</p>
+        </div>
+        <div class="v16-l2-human-card emphasis">
+          <div class="v16-l2-human-title"><strong>Что делает движок</strong></div>
+          <p>Использует коэффициент <b>K = ${num(K,2)}</b>: в стандартной fallback-модели ${num(K,2)} технического ID соответствуют примерно одному реальному человеку.</p>
+          <div class="v16-l2-equation"><span>Technical Reach</span><b>÷ ${num(K,2)}</b><span>= Human Reach</span></div>
+          <small>Пример: 2,4 млн Technical Reach → примерно 1,0 млн Human Reach. Это модельная оценка, а не измерение площадки.</small>
+        </div>`;
+
+      const advancedBlock=`
+        <div class="v16-l2-human-card">
+          <div class="v16-l2-human-title"><strong>Что происходит в реальности</strong></div>
+          <p>Technical Reach состоит из технических ID. Чтобы приблизиться к реальным людям, движок последовательно убирает три источника дублей: смену browser ID во времени, несколько browser ID на одном устройстве и несколько устройств у одного человека.</p>
+        </div>
+        <div class="v16-l2-human-card emphasis">
+          <div class="v16-l2-human-title"><strong>Как именно переводим ID в людей</strong></div>
+          <div class="v16-l2-steps">
+            <span><b>L = 68 дней</b><small>учитываем смену browser ID Chromium во времени</small></span>
+            <span><b>B = ${num(rec.B,2)}</b><small>объединяем несколько browser ID в одно web-устройство</small></span>
+            <span><b>U_D</b><small>используем реальный измеренный Universe web-устройств</small></span>
+            <span><b>D = ${num(rec.D,2)}</b><small>объединяем несколько устройств в одного человека</small></span>
+          </div>
+        </div>
+        <div class="v16-l2-human-card">
+          <div class="v16-l2-human-title"><strong>Что получаем</strong></div>
+          <p><b>Human Reach</b> — оценку количества уникальных людей. Именно она дальше используется для частот 1+…6+, объединения площадок, каналов и флайтов.</p>
+        </div>`;
+
+      const mixedBlock=`
+        <div class="v16-l2-human-card">
+          <div class="v16-l2-human-title"><strong>Почему расчёт смешанный</strong></div>
+          <p>Для ${adv} размещений есть измеренные данные по устройствам — их считаем детально. Для ${quick} размещений таких данных нет — для них используем стандартную модель K=${num(K,2)}.</p>
+        </div>
+        <div class="v16-l2-human-card">
+          <div class="v16-l2-human-title"><strong>Что это означает</strong></div>
+          <p>Внутри одной Line разные площадки могут иметь разную глубину исходных данных. Движок не делает вид, что качество входов одинаковое, и явно показывает, где был детальный расчёт, а где модельная оценка.</p>
+        </div>`;
+
+      const blockedBlock=`
+        <div class="v16-l2-human-card error">
+          <div class="v16-l2-human-title"><strong>Почему расчёт заблокирован</strong></div>
+          <p>Выбран принудительный детальный режим, но для ${blocked} из ${total} размещений нет измеренных device-level данных. В этом режиме движок не имеет права подменить их модельным значением.</p>
+          <small><b>Что делать:</b> либо добавьте реальные U_D / Device Reach, либо верните режим AUTO, чтобы площадки без таких данных считались по стандартной модели.</small>
+        </div>`;
+
+      const body=blocked?blockedBlock:(adv&&quick?mixedBlock:(adv?advancedBlock:quickBlock));
 
       return `<div class="v16-decision ${kind}">
         <div class="v16-decision-head">
           <strong>${esc(p.meta.label||p.id)}</strong>
-          ${badge(blocked?'Нужны данные':adv&&quick?'Смешанный путь':adv?'Детальный путь':'Базовый путь',blocked?'err':adv?'ok':'warn')}
+          ${badge(badgeText,blocked?'err':adv?'ok':'warn')}
         </div>
-        <div class="v16-human-summary ${blocked?'err':adv?'ok':'warn'}"><strong>${title}</strong><span>${summary}</span></div>
-        <div class="v16-human-flow">
-          <div><b>1</b><span><strong>Берём Technical Reach</strong><small>Это технические уникальные идентификаторы из площадки/медиаплана.</small></span></div>
-          <div><b>2</b><span><strong>${adv?'Объединяем browser ID и устройства':'Применяем стандартный коэффициент K'}</strong><small>${adv?'Там, где есть измеренные device inputs, используем B, D, L и U_D.':'При отсутствии измерений Quick-путь переводит технические ID в оценку людей без выдумывания device data.'}</small></span></div>
-          <div><b>3</b><span><strong>Получаем Human Reach</strong><small>Именно этот охват в людях дальше используется для частот, каналов, флайтов и итогового Reach.</small></span></div>
+        <div class="v16-l2-plain-summary">
+          <strong>Задача этого шага: понять, сколько реальных людей стоит за Technical Reach площадок.</strong>
+          <span>Это не дедупликация каналов или флайтов. Здесь мы только переводим технические идентификаторы площадки в Human Reach.</span>
         </div>
+        <div class="v16-l2-human-grid">${body}</div>
         <details class="v16-technical-details">
-          <summary>Показать технические параметры этого шага</summary>
+          <summary>Показать технические параметры и термины</summary>
           <div class="v16-param-row">
-            <span><b>B = ${num(rec.B,2)}</b><small>Browser ID на одно web-устройство. Используется на шаге browser → device.</small></span>
-            <span><b>D = ${num(rec.D,2)}</b><small>Устройств на одного человека. Используется на шаге device → people.</small></span>
-            <span><b>L = 68 дней</b><small>Параметр смены browser ID Chromium во времени.</small></span>
-            <span><b>U_D</b><small>Измеренный Universe web-устройств; без него Advanced Web не запускается.</small></span>
-            <span><b>Группы площадок</b><small>${map.confirmed?'Проверены пользователем':'Ещё не подтверждены'}</small></span>
+            <span><b>K = ${num(K,2)}</b><small>Стандартный коэффициент Quick-модели: Technical Reach ÷ K → Human Reach.</small></span>
+            <span><b>B = ${num(rec.B,2)}</b><small>Среднее число browser ID на одно web-устройство. Используется только в детальном Web-пути.</small></span>
+            <span><b>D = ${num(rec.D,2)}</b><small>Среднее число устройств на человека. Используется только в детальном пути.</small></span>
+            <span><b>L = 68 дней</b><small>Параметр смены browser ID Chromium во времени. Используется только в детальном Web-пути.</small></span>
+            <span><b>U_D</b><small>Реально измеренный Universe web-устройств этой ЦА и периода. Не выводится из Human Universe автоматически.</small></span>
           </div>
         </details>
       </div>`;
