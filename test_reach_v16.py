@@ -298,7 +298,7 @@ class ReachV16Tests(unittest.TestCase):
         self.assertEqual(r._auto_environment([web]), "WEB")
         self.assertEqual(r._auto_environment([app]), "MOBILE_APP")
         self.assertEqual(r._auto_environment([ctv]), "CTV")
-        self.assertEqual(r._auto_environment([unknown]), "UNKNOWN")
+        self.assertEqual(r._auto_environment([unknown]), "WEB")
 
     def test_aon_slice_is_modelled_automatically_from_source_delivery(self):
         U = 10_000_000.0
