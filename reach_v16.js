@@ -12,7 +12,7 @@
     await corePromise;
     if(!coreReady) throw new Error('Базовый парсер не готов');
     if(v16ModuleReady) return;
-    const resp=await fetch('reach_v16.py?v=1.6');
+    const resp=await fetch('reach_v16.py?v=1.6.1');
     if(!resp.ok) throw new Error('Не удалось загрузить Reach Engine v1.6');
     const txt=await resp.text();
     pyodide.FS.writeFile('/app/reach_v16.py',txt,{encoding:'utf8'});
