@@ -49,15 +49,16 @@
   function friendlyV16Error(message){
     const raw=String(message||'');
     const rules=[
-      [/L3A_TEMPORAL_INPUT_REQUIRED/, 'Площадка разбита на несколько периодов, но нет общего Reach за весь флайт. Укажите aggregate Technical Reach или weekly Human Reach.'],
-      [/TA_NORMALIZATION_REQUIRED|L6_SCOPE_TA_MISMATCH/, 'Во флайтах разные целевые аудитории. Такой Reach нельзя объединять — сначала нужны входы, пересчитанные на одну Line Master TA.'],
-      [/L6_SCOPE_UNIVERSE_MISMATCH|LINE_MASTER_UNIVERSE_CONFIRMATION_REQUIRED|LINE_MASTER_UNIVERSE_OVERRIDE_CONFIRMATION_REQUIRED/, 'Во флайтах различается Universe. Проверьте, что TA, география и human-definition одинаковы, затем подтвердите единый Line Master Universe.'],
-      [/LINE_IDENTITY_HEADER_CONFLICT/, 'Названия листов и Campaign/Line headers противоречат друг другу. Подтвердите текущую разбивку только если это действительно разные Lines.'],
-      [/BRAND_MASTER_UNIVERSE_REQUIRED/, 'Для Brand Total нужен явный подтверждённый Brand Master Universe. Автоматический max Line U используется только как черновик.'],
-      [/GLOBAL.*FEASIB|infeasib/i, 'Заданные пересечения математически несовместимы. Движок не подгоняет измеренные/custom входы — проверьте исходные пересечения и Universe.']
+      [/TA_NORMALIZATION_REQUIRED|L6_SCOPE_TA_MISMATCH/, 'Во флайтах действительно указаны разные целевые аудитории. Их нельзя объединить в один охват, пока входы не приведены к одной ЦА.'],
+      [/LINE_IDENTITY_HEADER_CONFLICT/, 'В исходном файле расходятся названия Line/Campaign. Проверьте, это одна кампания или разные Lines.'],
+      [/BRAND_MASTER_UNIVERSE_REQUIRED/, 'Для общего результата нескольких Lines нужен единый Universe бренда.'],
+      [/BRAND_MASTER_TA_REQUIRED|BRAND_MASTER_SCOPE_CONFIRMATION_REQUIRED/, 'Для объединения нескольких Lines нужна единая целевая аудитория бренда.'],
+      [/BRAND_MASTER_GEO_REQUIRED/, 'Для объединения нескольких Lines нужна единая география бренда.'],
+      [/PLANNING_HORIZON_MISMATCH/, 'Периоды выбранных Lines не укладываются в общий период Brand Total.'],
+      [/GLOBAL.*FEASIB|infeasib/i, 'Заданные пересечения аудиторий математически несовместимы. Проверьте измеренные пересечения и Universe.']
     ];
-    for(const [re,txt] of rules)if(re.test(raw))return txt+' Техническая причина: '+raw;
-    return raw;
+    for(const [re,txt] of rules)if(re.test(raw))return txt;
+    return 'Не удалось завершить расчёт. Откройте техническую диагностику для подробностей.';
   }
 
   function nval(id){
@@ -205,18 +206,16 @@
       box.className='v16-plan';
       box.dataset.planId=p.id;
 
-      const lineScope=(p.source_universe_mismatch||p.source_ta_mismatch)?`
+      const lineScope=p.source_ta_mismatch?`
         <details class="v16-plan-advanced v16-required-input" open>
-          <summary>Проверка ЦА / Universe между флайтами</summary>
-          ${p.source_ta_mismatch?'<div class="warning">Во флайтах разные целевые аудитории. Их нельзя объединить без пересчёта на одну и ту же ЦА.</div>':''}
-          ${p.source_universe_mismatch?'<div class="v16-note" style="margin:7px 0">ЦА совпадает, но Universe в исходнике различается. Подтвердите единый Line Universe только если это одна и та же ЦА и география.</div>':''}
-          ${p.source_universe_mismatch?'<label class="v16-confirm-line"><input type="checkbox" class="v16-line-scope-confirm"><span><strong>Подтверждаю единый Line Universe</strong></span></label>':''}
+          <summary>Проверка целевой аудитории между флайтами</summary>
+          <div class="warning">Во флайтах указаны разные целевые аудитории. Это реальное противоречие исходного файла: их нельзя объединить без пересчёта на одну ЦА.</div>
         </details>`:'';
 
       const identity=p.line_identity_review_required?`
         <details class="v16-plan-advanced v16-required-input" open>
           <summary>Нужно подтвердить разбивку на Lines</summary>
-          <div class="v16-note">Названия листов похожи, но Campaign/Line headers расходятся. Подтверждение нужно только если это действительно отдельные Lines.</div>
+          <div class="v16-note">Названия листов похожи, но Campaign/Line в шапках расходятся. Подтверждение нужно только если это действительно отдельные Lines.</div>
           <label class="v16-confirm-line"><input type="checkbox" class="v16-line-identity-confirm"><span><strong>Это отдельные Lines</strong></span></label>
         </details>`:'';
 
@@ -236,19 +235,19 @@
 
         <div class="v16-auto-strip">
           <div>
-            <span class="v16-auto-label">Автоматически по ЦА</span>
+            <span class="v16-auto-label">B — browser ID на одно web-устройство</span>
             <strong>B = ${num(rec.B,2)}</strong>
-            <small><b>B — среднее число browser ID на одно web-устройство.</b> Диапазон для этой ЦА: ${fmtRange(rec.B_min,rec.B_max)}.</small>
+            <small>Диапазон для этой ЦА: ${fmtRange(rec.B_min,rec.B_max)} · рассчитывается автоматически по ЦА.</small>
           </div>
           <div>
-            <span class="v16-auto-label">Автоматически по ЦА</span>
+            <span class="v16-auto-label">D — устройств на одного человека</span>
             <strong>D = ${num(rec.D,2)}</strong>
-            <small><b>D — среднее число устройств на одного человека.</b> Диапазон для этой ЦА: ${fmtRange(rec.D_min,rec.D_max)}.</small>
+            <small>Диапазон для этой ЦА: ${fmtRange(rec.D_min,rec.D_max)} · рассчитывается автоматически по ЦА.</small>
           </div>
           <div>
-            <span class="v16-auto-label">Методология</span>
+            <span class="v16-auto-label">L — стабильность browser ID Chromium</span>
             <strong>L = 68 дней</strong>
-            <small><b>L — период стабильности browser ID Chromium.</b> Фиксированное значение методологии.</small>
+            <small>Фиксированное значение методологии v1.6 · применяется автоматически.</small>
           </div>
         </div>
 
@@ -256,17 +255,12 @@
           <summary>U<sub>D</sub> — если есть реальное измерение web-устройств</summary>
           <div class="v16-plan-advanced-body">
             <div class="field v16-ud-field"><label>U<sub>D</sub> для этой Line</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Оставьте пустым, если измерения нет"></div>
-            <div class="v16-note"><b>U<sub>D</sub> — измеренное количество уникальных web-устройств этой же ЦА, географии и периода.</b> Это не люди. Если такого измерения нет, движок сам остаётся на Quick-пути.</div>
+            <div class="v16-note"><b>U<sub>D</sub> — измеренное количество уникальных web-устройств этой же ЦА, географии и периода.</b> Это не люди. Если такого измерения нет, поле остаётся пустым.</div>
           </div>
         </details>
 
         ${lineScope}
         ${identity}
-
-        <div class="v16-auto-note">
-          <strong>Остальное определяется автоматически.</strong>
-          <span>Reach Engine сам фильтрует охватные модели закупки, определяет канал/формат, среду и Audience Family, объединяет повторные периоды площадки и обрабатывает Always-on.</span>
-        </div>
       `;
 
       wrap.appendChild(box);
@@ -305,20 +299,24 @@
     wrap.innerHTML='<div class="v16-decision-list">'+state.plans.map(p=>{
       const rec=p.meta.advanced_recommended||{};
       const hasUD=!!lineUD(p);
-      const effective=mode==='QUICK'
-        ?'Quick K='+num(K,2)
-        :(mode==='ADVANCED'||mode==='ADVANCED_WEB')
-          ?(hasUD?'Advanced Web':'Advanced: нужен U_D')
-          :(hasUD?'Advanced Web':'Quick K='+num(K,2));
-      const kind=effective.startsWith('Advanced Web')?'advanced':effective.includes('нужен')?'error':'fallback';
+      const forcedAdvanced=(mode==='ADVANCED'||mode==='ADVANCED_WEB');
+      const advanced=hasUD && mode!=='QUICK';
+      const blocked=forcedAdvanced&&!hasUD;
+      const status=blocked?'Advanced · нужен U_D':advanced?'Advanced Web':'Quick · модельная оценка';
+      const kind=blocked?'error':advanced?'advanced':'fallback';
       return `<details class="v16-decision ${kind}">
-        <summary><strong>${esc(p.meta.label||p.id)}</strong><span>${esc(effective)}</span></summary>
+        <summary><strong>${esc(p.meta.label||p.id)}</strong><span>${esc(status)}</span></summary>
         <div class="v16-decision-body">
           <div class="v16-formula-path compact">
-            <span>Technical Reach</span><b>→</b><span>${hasUD?'device-level перевод':'÷ K='+num(K,2)}</span><b>→</b><span>Human Reach</span>
+            <span>Technical Reach</span><b>→</b><span>${advanced?'device-level перевод':'÷ K'}</span><b>→</b><span>Human Reach</span>
           </div>
-          <div class="v16-decision-why">${hasUD?'Есть измеренный U_D, поэтому доступен более детальный Web-расчёт.':'U_D не задан — это нормальный сценарий. Движок использует Quick-модель и не просит ручных данных.'}</div>
+          <div class="v16-decision-why">${advanced
+            ?'Есть измеренный U_D, поэтому используется детальный Web-расчёт.'
+            :blocked
+              ?'Выбран принудительный Advanced Web, но измеренного U_D нет.'
+              :'Quick используется, когда нет измеренного device universe. K=2,40 — фиксированный рабочий model default методологии v1.6, а не измеренный универсальный коэффициент рынка. Реальный эквивалент K зависит от duration, frequency, B, D и U_D и определяется только при достаточных данных для Advanced.'}</div>
           <div class="v16-param-row">
+            <span><b>K = ${num(K,2)}</b><small>модельный fallback, не измеренный «реальный K»</small></span>
             <span><b>B = ${num(rec.B,2)}</b><small>browser ID на одно web-устройство</small></span>
             <span><b>D = ${num(rec.D,2)}</b><small>устройств на одного человека</small></span>
             <span><b>L = 68 дней</b><small>стабильность browser ID Chromium</small></span>
@@ -331,13 +329,13 @@
 
   function renderModelMap(){
     const wrap=$(ids.modelMap);if(!wrap)return;
-    const c=modelCatalog();
-    if(!c.level2){wrap.innerHTML='<div class="hint">Каталог модели загрузится после медиаплана.</div>';return}
+    const cat=modelCatalog();
+    if(!cat.level2){wrap.innerHTML='<div class="hint">Каталог модели загрузится после медиаплана.</div>';return}
     wrap.innerHTML=`
       <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 1</div><strong>Строка медиаплана → Technical Reach</strong><p>Проверяем показы, частоту и Reach одной строки.</p></div>
       <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Technical Reach → люди</strong><p>Переводим технические ID площадки в Human Reach.</p></div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 3A</div><strong>Площадка во времени</strong><p>Объединяем периоды одной площадки без двойного счёта людей.</p></div>
-      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3B</div><strong>Reach 1+…6+</strong><p>Считаем, сколько людей получили минимум 1, 2, 3 и больше контактов.</p></div>
+      <div class="v16-model-card"><div class="v16-model-level">LEVEL 3B</div><strong>@1+…@6+</strong><p>Считаем, сколько людей получили минимум 1, 2, 3 и больше контактов.</p></div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 4</div><strong>Площадки → канал</strong><p>Убираем пересечения пользователей между площадками одного канала.</p></div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 5</div><strong>Каналы → флайт</strong><p>Объединяем каналы в уникальный Reach одного флайта.</p></div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 6</div><strong>Флайты → Line</strong><p>Объединяем флайты с учётом повторной аудитории между периодами.</p></div>
