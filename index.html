@@ -134,39 +134,39 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
 
     <div class="card v16-section-card">
       <div class="v16-section-head">
-        <div><span class="v16-section-index">1</span><strong>Что нужно проверить перед расчётом</strong></div>
-        <p>Сначала — только то, что влияет на корректность результата. Если входы противоречат друг другу, движок не исправляет их молча.</p>
+        <div><span class="v16-section-index">1</span><strong>Проверка медиаплана перед расчётом</strong></div>
+        <p>Здесь простыми словами показано, хватает ли данных, совпадают ли ЦА и Universe, правильно ли сгруппированы площадки и что именно нужно исправить перед расчётом.</p>
       </div>
       <div id="v16InputAudit"></div>
       <div id="v16PlanWrap" class="v16-plan-list"></div>
     </div>
 
     <details class="card v16-section-card v16-scope-settings">
-      <summary><span class="v16-section-index">2</span><strong>Границы Brand-расчёта</strong><span>Нужно для объединения нескольких Lines в Brand Total</span></summary>
+      <summary><span class="v16-section-index">2</span><strong>Настройки общего результата по бренду</strong><span>Нужны только если объединяем несколько Lines в один итог</span></summary>
       <div class="v16-details-body">
         <div class="v16-scope-explain">
-          <strong>Что это значит</strong>
-          <p>Все Lines в Brand Total должны относиться к одной целевой аудитории, географии, human-definition и горизонту планирования. Готовый Reach между разными scope не масштабируется.</p>
+          <strong>Когда это нужно</strong>
+          <p>Если в файле несколько Lines и нужен один общий Reach бренда, все они должны быть пересчитаны на одну и ту же ЦА, географию, период и одинаковое определение уникального человека.</p>
         </div>
         <div class="v16-brand-scope-grid">
-          <div class="field"><label>Brand Master TA</label><input id="v16BrandMasterTA" type="text" placeholder="Например: Ж 25-45 BC"></div>
-          <div class="field"><label>География</label><input id="v16BrandMasterGeo" type="text" placeholder="Например: РФ"></div>
+          <div class="field"><label>Единая целевая аудитория бренда</label><input id="v16BrandMasterTA" type="text" placeholder="Например: Ж 25-45 BC"></div>
+          <div class="field"><label>Единая география</label><input id="v16BrandMasterGeo" type="text" placeholder="Например: РФ"></div>
           <div class="field"><label>Горизонт · начало</label><input id="v16BrandHorizonStart" type="date"></div>
           <div class="field"><label>Горизонт · конец</label><input id="v16BrandHorizonEnd" type="date"></div>
         </div>
         <label class="v16-confirm-line">
           <input id="v16BrandUniverseConfirm" type="checkbox">
-          <span><strong>Подтверждаю Brand Master Universe</strong><small>Введённое U_B — реальный размер одной и той же целевой аудитории, а не автоматически выбранный максимум.</small></span>
+          <span><strong>Подтверждаю единый размер ЦА бренда</strong><small>Введённое значение — реальный Universe одной и той же ЦА, а не автоматически выбранный максимум.</small></span>
         </label>
         <label class="v16-confirm-line">
           <input id="v16BrandScopeConfirm" type="checkbox">
-          <span><strong>Подтверждаю Brand Master scope</strong><small>Все выбранные Lines нормализованы на одну TA / geography / planning horizon / human-definition.</small></span>
+          <span><strong>Подтверждаю, что все Lines относятся к одной базе расчёта</strong><small>Одинаковые ЦА, география, период и определение уникального человека.</small></span>
         </label>
       </div>
     </details>
 
     <details class="card v16-section-card">
-      <summary><span class="v16-section-index">3</span><strong>Как Technical Reach переводится в людей</strong><span>Показываем применённый путь, defaults и fallback</span></summary>
+      <summary><span class="v16-section-index">3</span><strong>Как технический охват превращается в охват реальных людей</strong><span>Показываем, какой путь применён и почему</span></summary>
       <div class="v16-details-body">
         <div id="v16L2Decision"></div>
       </div>
@@ -199,7 +199,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
       </div>
 
       <div class="card v16-section-card">
-        <div class="v16-block-title"><strong>Вклад каналов и сущностей в итоговый Reach</strong><span>Shapley распределяет пересекающуюся аудиторию без зависимости от порядка добавления каналов. Exclusive показывает уникальную только для сущности аудиторию.</span></div>
+        <div class="v16-block-title"><strong>Что каждый канал добавляет в итоговый охват</strong><span><b>Вклад в Reach</b> — справедливо распределённая часть итогового охвата с учётом пересечений. <b>Эксклюзивная аудитория</b> — люди, которых даёт только этот канал. <b>Учтённые пересечения</b> — часть общей аудитории каналов, которая вошла во вклад этого канала.</span></div>
         <div class="table-wrap"><table id="v16ContributionTable" class="data-table v16-contrib-table"></table></div>
       </div>
 
