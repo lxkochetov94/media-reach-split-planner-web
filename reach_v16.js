@@ -48,12 +48,12 @@
     return raw===''?null:Number(raw);
   }
   function targetFrequency(){return Math.max(1,Math.min(6,Number($(ids.targetF)?.value||3)))}
-  function reachAt(obj,k){return obj?.[\`reach_\${k}p\`]}
+  function reachAt(obj,k){return obj?.[`reach_${k}p`]}
   function modelCatalog(){return v16Data?.model_catalog||v16Meta?.model_catalog||{}}
-  function badge(text,kind='neutral'){return \`<span class="v16-badge \${kind}">\${esc(text)}</span>\`}
+  function badge(text,kind='neutral'){return `<span class="v16-badge ${kind}">${esc(text)}</span>`}
   function fmtRange(a,b,d=2){
     if(a==null||b==null)return '—';
-    return Math.abs(Number(a)-Number(b))<1e-9?num(a,d):\`\${num(a,d)}–\${num(b,d)}\`;
+    return Math.abs(Number(a)-Number(b))<1e-9?num(a,d):`${num(a,d)}–${num(b,d)}`;
   }
   function sourceLabel(src){
     return ({
@@ -66,7 +66,7 @@
     })[src]||src||'—';
   }
 
-  function planNode(planId){return document.querySelector(\`.v16-plan[data-plan-id="\${CSS.escape(planId)}"]\`)}
+  function planNode(planId){return document.querySelector(`.v16-plan[data-plan-id="${CSS.escape(planId)}"]`)}
 
   function selectedPlans(){
     if(!v16Meta?.plans)return [];
@@ -146,12 +146,12 @@
       const box=document.createElement('div');
       box.className='v16-plan';
       box.dataset.planId=p.id;
-      const units=(p.inventory_units||[]).map(u=>\`
-        <tr class="v16-unit-row" data-unit-id="\${esc(u.id)}">
-          <td><strong>\${esc(u.platform||'')}</strong><span class="v16-th-sub">\${esc(u.sheet)} · строка \${u.row}</span></td>
-          <td>\${esc(u.format||'—')}</td>
-          <td>\${esc(u.channel||'—')}</td>
-          <td><input class="v16-family" value="\${esc(u.suggested_family||'')}" aria-label="Audience Family"></td>
+      const units=(p.inventory_units||[]).map(u=>`
+        <tr class="v16-unit-row" data-unit-id="${esc(u.id)}">
+          <td><strong>${esc(u.platform||'')}</strong><span class="v16-th-sub">${esc(u.sheet)} · строка ${u.row}</span></td>
+          <td>${esc(u.format||'—')}</td>
+          <td>${esc(u.channel||'—')}</td>
+          <td><input class="v16-family" value="${esc(u.suggested_family||'')}" aria-label="Audience Family"></td>
           <td>
             <select class="v16-env">
               <option value="UNKNOWN" selected>Не определено → Quick</option>
@@ -169,41 +169,41 @@
           </td>
           <td><input class="v16-unit-ud" type="number" min="1" step="1" placeholder="U_D, если есть"></td>
           <td><input class="v16-device-reach" type="number" min="0" step="1" placeholder="Device Reach"></td>
-        </tr>\`).join('');
+        </tr>`).join('');
 
-      const aon=(p.aon_pairs||[]).length?\`
+      const aon=(p.aon_pairs||[]).length?`
         <details class="v16-plan-advanced">
           <summary>Always-on temporal footprint · нужен только для AON ↔ burst</summary>
           <div class="v16-note" style="margin:8px 0">Годовой AON Reach не раскладывается автоматически. Введите deduplicated human Reach AON ровно за период соответствующего burst, если такой замер есть.</div>
           <div class="v16-aon-grid">
-            \${(p.aon_pairs||[]).map(x=>\`
+            ${(p.aon_pairs||[]).map(x=>`
               <div class="field">
-                <label>\${esc(x.aon_label)} → \${esc(x.burst_label)} · \${esc(x.burst_start||'')}—\${esc(x.burst_end||'')}</label>
-                <input class="v16-aon-slice" data-aon-id="\${esc(x.aon_flight_id)}" data-burst-id="\${esc(x.burst_flight_id)}"
+                <label>${esc(x.aon_label)} → ${esc(x.burst_label)} · ${esc(x.burst_start||'')}—${esc(x.burst_end||'')}</label>
+                <input class="v16-aon-slice" data-aon-id="${esc(x.aon_flight_id)}" data-burst-id="${esc(x.burst_flight_id)}"
                   type="number" min="0" step="1" placeholder="AON Human Reach slice">
-              </div>\`).join('')}
+              </div>`).join('')}
           </div>
-        </details>\`: '';
+        </details>`: '';
 
-      box.innerHTML=\`
+      box.innerHTML=`
         <div class="v16-plan-head">
           <label class="v16-plan-title">
             <input type="checkbox" class="v16-plan-cb" checked>
-            <span><strong>\${esc(p.label||p.line||p.campaign||p.id)}</strong>
-              <span class="hint">\${esc((p.sheet_names||[]).join(', '))}</span>
+            <span><strong>${esc(p.label||p.line||p.campaign||p.id)}</strong>
+              <span class="hint">${esc((p.sheet_names||[]).join(', '))}</span>
             </span>
           </label>
-          <div class="field"><label>Human Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="\${p.universe?Math.round(p.universe):''}" placeholder="Обязательный input"></div>
+          <div class="field"><label>Human Universe Line</label><input class="v16-universe" type="number" min="1" step="1" value="${p.universe?Math.round(p.universe):''}" placeholder="Обязательный input"></div>
           <div class="v16-plan-facts">
-            <span>ЦА: <strong>\${esc(p.ta_name||'не распознана')}</strong></span>
-            <span>\${p.flight_count||0} flight · \${p.placement_count||0} строк</span>
-            <span>Готовность L1: <strong>\${readiness}%</strong></span>
+            <span>ЦА: <strong>${esc(p.ta_name||'не распознана')}</strong></span>
+            <span>${p.flight_count||0} flight · ${p.placement_count||0} строк</span>
+            <span>Готовность L1: <strong>${readiness}%</strong></span>
           </div>
         </div>
 
         <div class="v16-auto-strip">
-          <div><span class="v16-auto-label">L2 model fallback</span><strong>B = \${num(rec.B,2)}</strong><small>\${sourceLabel(rec.B_source)} · \${fmtRange(rec.B_min,rec.B_max)}</small></div>
-          <div><span class="v16-auto-label">L2 model fallback</span><strong>D = \${num(rec.D,2)}</strong><small>\${sourceLabel(rec.D_source)} · \${fmtRange(rec.D_min,rec.D_max)}</small></div>
+          <div><span class="v16-auto-label">L2 model fallback</span><strong>B = ${num(rec.B,2)}</strong><small>${sourceLabel(rec.B_source)} · ${fmtRange(rec.B_min,rec.B_max)}</small></div>
+          <div><span class="v16-auto-label">L2 model fallback</span><strong>D = ${num(rec.D,2)}</strong><small>${sourceLabel(rec.D_source)} · ${fmtRange(rec.D_min,rec.D_max)}</small></div>
           <div class="field"><label>Line-level U_D, если замер одинаков для Web units</label><input class="v16-line-ud" type="number" min="1" step="1" placeholder="Не выдумывать"></div>
         </div>
 
@@ -215,7 +215,7 @@
           <div class="table-wrap">
             <table class="data-table v16-unit-table">
               <thead><tr><th>Inventory Unit</th><th>Формат</th><th>Канал</th><th>Audience Family</th><th>Environment</th><th>Browser family</th><th>U_D</th><th>Device Reach</th></tr></thead>
-              <tbody>\${units}</tbody>
+              <tbody>${units}</tbody>
             </table>
           </div>
           <label class="v16-confirm-line">
@@ -223,8 +223,8 @@
             <span><strong>Подтверждаю Audience Family mapping для этой Line</strong><small>Без подтверждения Level 4 блокируется — это защита от скрытого угадывания.</small></span>
           </label>
         </details>
-        \${aon}
-      \`;
+        ${aon}
+      `;
       wrap.appendChild(box);
     }
     wrap.querySelectorAll('input,select').forEach(el=>el.addEventListener('change',markDirty));
@@ -242,14 +242,14 @@
       const mapped=Object.values(mapping.mapping).filter(Boolean).length;
       const mappingReady=mapped===(p.meta.inventory_units||[]).length&&mapping.confirmed;
       const allU=Number.isFinite(p.universe)&&p.universe>0;
-      return \`<div class="v16-audit-card">
-        <div class="v16-audit-title">\${l1===rows?badge('L1 готов','ok'):badge('L1 проверить','warn')} \${mappingReady?badge('Family confirmed','ok'):badge('Family не подтверждена','warn')}<strong>\${esc(p.meta.label||p.id)}</strong></div>
+      return `<div class="v16-audit-card">
+        <div class="v16-audit-title">${l1===rows?badge('L1 готов','ok'):badge('L1 проверить','warn')} ${mappingReady?badge('Family confirmed','ok'):badge('Family не подтверждена','warn')}<strong>${esc(p.meta.label||p.id)}</strong></div>
         <div class="v16-audit-stats">
-          <span>Строк: <b>\${rows}</b></span><span>L1 ready: <b>\${l1}/\${rows}</b></span>
-          <span>Universe: <b>\${allU?num(p.universe,0):'нет'}</b></span><span>Family mapping: <b>\${mapped}/\${(p.meta.inventory_units||[]).length}</b></span>
-          <span>С датами: <b>\${x.dated_rows||0}</b></span><span>I+F: <b>\${x.impressions_frequency_rows||0}</b></span>
+          <span>Строк: <b>${rows}</b></span><span>L1 ready: <b>${l1}/${rows}</b></span>
+          <span>Universe: <b>${allU?num(p.universe,0):'нет'}</b></span><span>Family mapping: <b>${mapped}/${(p.meta.inventory_units||[]).length}</b></span>
+          <span>С датами: <b>${x.dated_rows||0}</b></span><span>I+F: <b>${x.impressions_frequency_rows||0}</b></span>
         </div>
-      </div>\`;
+      </div>`;
     }).join('')+'</div>';
   }
 
@@ -278,20 +278,20 @@
         else if((env==='MOBILE_APP'||env==='CTV')&&device)adv++;
         else quick++;
       });
-      return \`<div class="v16-decision \${blocked?'error':adv?'advanced':'fallback'}">
-        <div class="v16-decision-head"><strong>\${esc(p.meta.label||p.id)}</strong>
-          \${blocked?badge(\`\${blocked} Advanced не готовы\`,'err'):badge(\`\${adv} Advanced · \${quick} Quick\`,adv?'ok':'warn')}
+      return `<div class="v16-decision ${blocked?'error':adv?'advanced':'fallback'}">
+        <div class="v16-decision-head"><strong>${esc(p.meta.label||p.id)}</strong>
+          ${blocked?badge(`${blocked} Advanced не готовы`,'err'):badge(`${adv} Advanced · ${quick} Quick`,adv?'ok':'warn')}
         </div>
         <div class="v16-formula-path">
           <span>R<sub>tech</sub></span><b>→</b><span>Environment</span><b>→</b>
           <span>Web: 2A→2B→2C<br><small>App/CTV: browser correction OFF</small></span><b>→</b><span>R<sub>people</sub></span>
         </div>
         <div class="v16-param-row">
-          <span><b>B \${num(rec.B,2)}</b><small>\${sourceLabel(rec.B_source)}; averaged fallback only</small></span>
-          <span><b>D \${num(rec.D,2)}</b><small>\${sourceLabel(rec.D_source)}; averaged fallback only</small></span>
-          <span><b>Family mapping</b><small>\${map.confirmed?'USER CONFIRMED':'NOT CONFIRMED'}</small></span>
+          <span><b>B ${num(rec.B,2)}</b><small>${sourceLabel(rec.B_source)}; averaged fallback only</small></span>
+          <span><b>D ${num(rec.D,2)}</b><small>${sourceLabel(rec.D_source)}; averaged fallback only</small></span>
+          <span><b>Family mapping</b><small>${map.confirmed?'USER CONFIRMED':'NOT CONFIRMED'}</small></span>
         </div>
-      </div>\`;
+      </div>`;
     }).join('')+'</div>';
   }
 
@@ -301,35 +301,35 @@
     if(!c.level2){wrap.innerHTML='<div class="hint">Каталог модели загрузится после медиаплана.</div>';return}
     const l2=c.level2||{},l3=c.level3||{},l5=c.level5||{},l6=c.level6||{},eng=c.engineering||{};
     const rho=l3.temporal_rho_profiles||{};
-    const q=(l6.gap_curve||[]).map(x=>\`\${x.days}д=\${pct(x.overlap,1)}\`).join(' · ');
-    wrap.innerHTML=\`
+    const q=(l6.gap_curve||[]).map(x=>`${x.days}д=${pct(x.overlap,1)}`).join(' · ');
+    wrap.innerHTML=`
       <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 1</div><strong>Placement → Technical Uniques</strong>
         <p>Supplied Reach либо I÷F. Если I/Reach/F заданы вместе — precision-aware arithmetic validation; fixed 3% tolerance больше не используется.</p>
       </div>
       <div class="v16-model-card emphasis"><div class="v16-model-level">LEVEL 2</div><strong>Technical IDs → люди</strong>
-        <p>Quick K=\${num(l2.quick_k,2)} — fallback. Advanced сохраняет environment: Web 2A→2B→2C; App/CTV без browser corrections.</p>
+        <p>Quick K=${num(l2.quick_k,2)} — fallback. Advanced сохраняет environment: Web 2A→2B→2C; App/CTV без browser corrections.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 3A</div><strong>Weeks → Platform Flight</strong>
-        <p>ρ LOW \${num(rho.LOW,2)} · BASE \${num(rho.BASE,2)} · HIGH \${num(rho.HIGH,2)}; gap decay ρ<sup>1+G</sup>. Без weekly Human Reach — explicit AGGREGATE_FLIGHT_REACH_MODE.</p>
+        <p>ρ LOW ${num(rho.LOW,2)} · BASE ${num(rho.BASE,2)} · HIGH ${num(rho.HIGH,2)}; gap decay ρ<sup>1+G</sup>. Без weekly Human Reach — explicit AGGREGATE_FLIGHT_REACH_MODE.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 3B</div><strong>Effective Reach</strong>
-        <p>Poisson-Lognormal σ=\${num(l3.sigma_default,2)} model default; μ решается под фактическую Human F. F&lt;1 = validation error, не repair.</p>
+        <p>Poisson-Lognormal σ=${num(l3.sigma_default,2)} model default; μ решается под фактическую Human F. F&lt;1 = validation error, не repair.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 4</div><strong>Inventory Unit → Audience Family → Channel</strong>
         <p>Family не угадывается. Neutral unstructured — closed form; structured/dependent — global feasibility → MaxEnt.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 5</div><strong>Channels → Flight</strong>
-        <p>ρ target=\${num(l5.rho_channel_target,2)}. Для 3+ MODEL_DEFAULT один общий λ к 0 только при необходимости global feasibility.</p>
+        <p>ρ target=${num(l5.rho_channel_target,2)}. Для 3+ MODEL_DEFAULT один общий λ к 0 только при необходимости global feasibility.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 6</div><strong>Flights → Line</strong>
-        <p>\${esc(q)}. Residual ≤\${pct(l6.residual_cap??.10,0)} до global feasibility. AON↔burst требует temporal slice.</p>
+        <p>${esc(q)}. Residual ≤${pct(l6.residual_cap??.10,0)} до global feasibility. AON↔burst требует temporal slice.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">LEVEL 7</div><strong>Lines → Brand</strong>
         <p>Brand Master U_B и единая Brand TA обязательны. BrandAddressabilityMap применяется только к реальной geo/CRM/pool structure.</p>
       </div>
       <div class="v16-model-card"><div class="v16-model-level">SOLVER</div><strong>Feasibility отдельно от MaxEnt</strong>
-        <p>Guard ≤\${eng.max_entities||12} entities. Feasibility tol \${eng.feasibility_tolerance||'1e-9'}; solver tol \${eng.solver_constraint_tolerance||'1e-8'}; max \${eng.max_iterations||10000} iterations.</p>
-      </div>\`;
+        <p>Guard ≤${eng.max_entities||12} entities. Feasibility tol ${eng.feasibility_tolerance||'1e-9'}; solver tol ${eng.solver_constraint_tolerance||'1e-8'}; max ${eng.max_iterations||10000} iterations.</p>
+      </div>`;
   }
 
   function renderPrecalc(){renderInputAudit();renderL2Decision();renderModelMap()}
@@ -346,9 +346,9 @@
   function renderMetrics(){
     const top=topResult(),u=topUniverse(),tf=targetFrequency();
     if(!top){
-      $(ids.metrics).innerHTML=\`
-        <div class="metric"><div class="label">Статус</div><div class="value">\${esc(v16Data?.status||'PARTIAL')}</div></div>
-        <div class="metric"><div class="label">Brand Total</div><div class="value">заблокирован</div><div class="v16-note">Смотрите Lines и диагностику ниже.</div></div>\`;
+      $(ids.metrics).innerHTML=`
+        <div class="metric"><div class="label">Статус</div><div class="value">${esc(v16Data?.status||'PARTIAL')}</div></div>
+        <div class="metric"><div class="label">Brand Total</div><div class="value">заблокирован</div><div class="v16-note">Смотрите Lines и диагностику ниже.</div></div>`;
       return;
     }
     const r1=reachAt(top,1),rt=reachAt(top,tf);
@@ -358,14 +358,14 @@
       ['Impressions',top.impressions!=null?num(top.impressions,0):'—',''],
       ['Reach @1+ · люди',r1!=null?num(r1,0):'—',''],
       ['Reach @1+ · % U',u&&r1!=null?pct(r1/u,2):'—',''],
-      [\`Reach @\${tf}+ · люди\`,rt!=null?num(rt,0):'—','выбранный KPI'],
-      [\`Reach @\${tf}+ · % U\`,u&&rt!=null?pct(rt/u,2):'—','выбранный KPI'],
+      [`Reach @${tf}+ · люди`,rt!=null?num(rt,0):'—','выбранный KPI'],
+      [`Reach @${tf}+ · % U`,u&&rt!=null?pct(rt/u,2):'—','выбранный KPI'],
       ['Average Human F',top.avg_frequency!=null?num(top.avg_frequency,2):'—','I / deduplicated Reach 1+'],
       ['Gross Reach Sum',top.gross_reach_sum!=null?num(top.gross_reach_sum,0):'—','до текущего merge'],
       ['Dedup people',top.dedup_people!=null?num(top.dedup_people,0):'—',top.dedup_rate!=null?pct(top.dedup_rate,2):''],
       ['Merge path',top.model_path||'—',''],
     ];
-    $(ids.metrics).innerHTML=cards.map(([a,b,c])=>\`<div class="metric"><div class="label">\${esc(a)}</div><div class="value">\${esc(b)}</div>\${c?\`<div class="v16-note">\${esc(c)}</div>\`:''}</div>\`).join('');
+    $(ids.metrics).innerHTML=cards.map(([a,b,c])=>`<div class="metric"><div class="label">${esc(a)}</div><div class="value">${esc(b)}</div>${c?`<div class="v16-note">${esc(c)}</div>`:''}</div>`).join('');
   }
 
   function renderFrequencyProfile(){
@@ -374,11 +374,11 @@
     const tf=targetFrequency();
     wrap.innerHTML='<div class="v16-profile-grid">'+[1,2,3,4,5,6].map(k=>{
       const val=Number(reachAt(top,k)||0),share=Math.max(0,Math.min(1,val/u));
-      return \`<div class="v16-profile-row \${k===tf?'selected':''}">
-        <div class="v16-profile-label">@\${k}+</div>
-        <div class="v16-profile-track"><span style="width:\${(share*100).toFixed(3)}%"></span></div>
-        <div class="v16-profile-value"><strong>\${num(val,0)}</strong><span>\${pct(share,2)}</span></div>
-      </div>\`;
+      return `<div class="v16-profile-row ${k===tf?'selected':''}">
+        <div class="v16-profile-label">@${k}+</div>
+        <div class="v16-profile-track"><span style="width:${(share*100).toFixed(3)}%"></span></div>
+        <div class="v16-profile-value"><strong>${num(val,0)}</strong><span>${pct(share,2)}</span></div>
+      </div>`;
     }).join('')+'</div>';
   }
 
@@ -388,26 +388,26 @@
     const reached=Number(top.reach_1p||0),labels=['ровно 1','ровно 2','ровно 3','ровно 4','ровно 5','6+'];
     wrap.innerHTML='<div class="v16-exact-grid">'+top.exact_counts.map((v,i)=>{
       const people=Number(v||0);
-      return \`<div class="v16-exact-card"><div class="v16-exact-k">\${labels[i]}</div><strong>\${num(people,0)}</strong><span>\${pct(people/u,2)} от U</span><small>\${reached?pct(people/reached,2):'—'} среди достигнутых</small></div>\`;
+      return `<div class="v16-exact-card"><div class="v16-exact-k">${labels[i]}</div><strong>${num(people,0)}</strong><span>${pct(people/u,2)} от U</span><small>${reached?pct(people/reached,2):'—'} среди достигнутых</small></div>`;
     }).join('')+'</div>';
   }
 
   function reachCell(r,k){
-    const u=Number(r.universe),val=Number(r[\`reach_\${k}p\`]);
+    const u=Number(r.universe),val=Number(r[`reach_${k}p`]);
     if(!Number.isFinite(val))return '<span class="na">—</span>';
-    return \`<strong>\${num(val,0)}</strong><span class="v16-pct">\${u>0?pct(val/u,2):'—'}</span>\`;
+    return `<strong>${num(val,0)}</strong><span class="v16-pct">${u>0?pct(val/u,2):'—'}</span>`;
   }
   function rowClass(level){return level==='Brand'?'v16-level-brand':level==='Line'?'v16-level-line':level==='Flight'?'v16-level-flight':'v16-level-channel'}
   function indentLabel(r){return r.level==='Brand'?'BRAND · '+r.name:r.level==='Line'?'LINE · '+r.name:r.level==='Flight'?'↳ FLIGHT · '+r.name:'↳↳ CHANNEL · '+r.name}
   function renderTable(){
     const rows=v16Data?.hierarchy||[];
     let h='<thead><tr><th>Уровень</th><th>Line</th><th>Flight</th><th class="num">Universe</th><th class="num">Impressions</th>'+
-      [1,2,3,4,5,6].map(k=>\`<th class="num">Reach @\${k}+<span class="v16-th-sub">люди · % U</span></th>\`).join('')+
+      [1,2,3,4,5,6].map(k=>`<th class="num">Reach @${k}+<span class="v16-th-sub">люди · % U</span></th>`).join('')+
       '<th class="num">Avg F</th><th class="num">Gross Reach</th><th class="num">Dedup</th><th>Merge path</th></tr></thead><tbody>';
     for(const r of rows){
-      h+=\`<tr class="\${rowClass(r.level)}"><td><strong>\${esc(indentLabel(r))}</strong></td><td>\${esc(r.line||'')}</td><td>\${esc(r.flight||'')}</td><td class="num">\${num(r.universe,0)}</td><td class="num">\${num(r.impressions,0)}</td>\`;
-      for(let k=1;k<=6;k++)h+=\`<td class="num v16-reach-cell">\${reachCell(r,k)}</td>\`;
-      h+=\`<td class="num">\${num(r.avg_frequency,2)}</td><td class="num">\${r.gross_reach_sum!=null?num(r.gross_reach_sum,0):'—'}</td><td class="num">\${r.dedup_people!=null?num(r.dedup_people,0):'—'}\${r.dedup_rate!=null?'<span class="v16-pct">'+pct(r.dedup_rate,2)+'</span>':''}</td><td>\${esc(r.model_path||'—')}</td></tr>\`;
+      h+=`<tr class="${rowClass(r.level)}"><td><strong>${esc(indentLabel(r))}</strong></td><td>${esc(r.line||'')}</td><td>${esc(r.flight||'')}</td><td class="num">${num(r.universe,0)}</td><td class="num">${num(r.impressions,0)}</td>`;
+      for(let k=1;k<=6;k++)h+=`<td class="num v16-reach-cell">${reachCell(r,k)}</td>`;
+      h+=`<td class="num">${num(r.avg_frequency,2)}</td><td class="num">${r.gross_reach_sum!=null?num(r.gross_reach_sum,0):'—'}</td><td class="num">${r.dedup_people!=null?num(r.dedup_people,0):'—'}${r.dedup_rate!=null?'<span class="v16-pct">'+pct(r.dedup_rate,2)+'</span>':''}</td><td>${esc(r.model_path||'—')}</td></tr>`;
     }
     $(ids.table).innerHTML=h+'</tbody>';
   }
@@ -418,7 +418,7 @@
     let h='<thead><tr><th>Scope</th><th>Родитель</th><th>Сущность</th><th class="num">Shapley, люди</th><th class="num">% итогового Reach</th><th class="num">Exclusive, люди</th><th class="num">% итогового Reach</th></tr></thead><tbody>';
     for(const r of rows){
       const parent=Number(r.parent_reach||0),sh=Number(r.shapley_people||0),ex=Number(r.exclusive_people||0);
-      h+=\`<tr><td>\${esc(r.scope||'')}</td><td>\${esc(r.parent||'')}</td><td><strong>\${esc(r.name||'')}</strong></td><td class="num">\${num(sh,0)}</td><td class="num">\${parent?pct(sh/parent,2):'—'}</td><td class="num">\${num(ex,0)}</td><td class="num">\${parent?pct(ex/parent,2):'—'}</td></tr>\`;
+      h+=`<tr><td>${esc(r.scope||'')}</td><td>${esc(r.parent||'')}</td><td><strong>${esc(r.name||'')}</strong></td><td class="num">${num(sh,0)}</td><td class="num">${parent?pct(sh/parent,2):'—'}</td><td class="num">${num(ex,0)}</td><td class="num">${parent?pct(ex/parent,2):'—'}</td></tr>`;
     }
     table.innerHTML=h+'</tbody>';
   }
@@ -429,24 +429,24 @@
     if(!rows.length){wrap.innerHTML='<div class="v16-business-ok">Нет business-level предупреждений. Технический лог остаётся доступен ниже.</div>';return}
     wrap.innerHTML='<div class="v16-business-list">'+rows.map(d=>{
       const kind=d.severity==='ERROR'?'err':d.severity==='WARNING'?'warn':'ok';
-      return \`<div class="v16-business-item \${kind}">
-        <div class="v16-business-head">\${badge(d.tag||'INFO',kind)}<strong>\${esc(d.title||'')}</strong><span>Level \${esc(d.level??'—')}</span></div>
-        <div>\${esc(d.message||'')}</div>
-      </div>\`;
+      return `<div class="v16-business-item ${kind}">
+        <div class="v16-business-head">${badge(d.tag||'INFO',kind)}<strong>${esc(d.title||'')}</strong><span>Level ${esc(d.level??'—')}</span></div>
+        <div>${esc(d.message||'')}</div>
+      </div>`;
     }).join('')+'</div>';
   }
 
   function formatTrace(d){
     const code=d.code||'';
-    if(code==='L1_TECHNICAL_REACH')return \`Technical Reach = \${num(d.R_tech,0)} · source \${d.source} · F tolerance \${d.frequency_tolerance}\`;
-    if(code==='L2_QUICK')return \`Quick: Rpeople=Rtech/K · K=\${num(d.K,2)} · reason=\${d.reason||'selected'}\`;
-    if(code==='L2_ADVANCED')return \`Advanced \${d.environment}: \${(d.path||[]).join(' → ')} · K_time=\${num(d.K_time,4)} · Rstable=\${num(d.R_stable,0)} · Rdevice=\${num(d.R_device,0)} · Rpeople=\${num(d.R_people,0)}\`;
-    if(code==='L3A_PLATFORM_FLIGHT')return \`\${d.model_path} · U_p=\${num(d.U_p,0)}\${d.platform_universe_assumed?' (assumed U)':''} · ρ=\${d.rho_base??'N/A'}\`;
-    if(code==='L3B_EFFECTIVE_REACH')return \`\${d.model} · Fhuman=\${num(d.F_human,3)} · σ=\${d.sigma??'N/A'} · μ=\${d.mu==null?'N/A':num(d.mu,4)} · residual=\${d.solver_residual??0}\`;
-    if(code==='L4_CHANNEL')return \`\${d.channel}: \${d.model_path} · D overall=\${pct(d.D_overall||0,2)} · solver \${d.solver_iterations??0} iter\`;
-    if(code==='L5_FLIGHT')return \`\${d.flight}: ρ target=\${d.rho_target} → effective=\${d.rho_effective} · λ=\${d.lambda} · \${d.model_path}\`;
-    if(code==='L6_LINE')return \`Flights → Line · λ=\${d.lambda??1} · \${d.model_path} · D=\${pct(d.D_L6||0,2)}\`;
-    if(code==='L7_BRAND')return \`Lines → Brand · U_B=\${num(d.U_B,0)} · \${d.BrandAddressabilityMap} · \${d.model_path}\`;
+    if(code==='L1_TECHNICAL_REACH')return `Technical Reach = ${num(d.R_tech,0)} · source ${d.source} · F tolerance ${d.frequency_tolerance}`;
+    if(code==='L2_QUICK')return `Quick: Rpeople=Rtech/K · K=${num(d.K,2)} · reason=${d.reason||'selected'}`;
+    if(code==='L2_ADVANCED')return `Advanced ${d.environment}: ${(d.path||[]).join(' → ')} · K_time=${num(d.K_time,4)} · Rstable=${num(d.R_stable,0)} · Rdevice=${num(d.R_device,0)} · Rpeople=${num(d.R_people,0)}`;
+    if(code==='L3A_PLATFORM_FLIGHT')return `${d.model_path} · U_p=${num(d.U_p,0)}${d.platform_universe_assumed?' (assumed U)':''} · ρ=${d.rho_base??'N/A'}`;
+    if(code==='L3B_EFFECTIVE_REACH')return `${d.model} · Fhuman=${num(d.F_human,3)} · σ=${d.sigma??'N/A'} · μ=${d.mu==null?'N/A':num(d.mu,4)} · residual=${d.solver_residual??0}`;
+    if(code==='L4_CHANNEL')return `${d.channel}: ${d.model_path} · D overall=${pct(d.D_overall||0,2)} · solver ${d.solver_iterations??0} iter`;
+    if(code==='L5_FLIGHT')return `${d.flight}: ρ target=${d.rho_target} → effective=${d.rho_effective} · λ=${d.lambda} · ${d.model_path}`;
+    if(code==='L6_LINE')return `Flights → Line · λ=${d.lambda??1} · ${d.model_path} · D=${pct(d.D_L6||0,2)}`;
+    if(code==='L7_BRAND')return `Lines → Brand · U_B=${num(d.U_B,0)} · ${d.BrandAddressabilityMap} · ${d.model_path}`;
     return JSON.stringify(d);
   }
 
@@ -458,11 +458,11 @@
     if(!rows.length){wrap.innerHTML='<div class="hint">Расчётный trace не сформирован.</div>';return}
     const grouped={};
     rows.forEach(d=>{const l=String(d.level||'?');(grouped[l]??=[]).push(d)});
-    wrap.innerHTML=Object.keys(grouped).sort().map(level=>\`
-      <details class="v16-trace-level" \${['1','2','3'].includes(level)?'open':''}>
-        <summary><strong>LEVEL \${esc(level)}</strong><span>\${grouped[level].length} операций</span></summary>
-        <div class="v16-trace-items">\${grouped[level].map(d=>\`<div><code>\${esc(d.code)}</code><span>\${esc(formatTrace(d))}</span></div>\`).join('')}</div>
-      </details>\`).join('');
+    wrap.innerHTML=Object.keys(grouped).sort().map(level=>`
+      <details class="v16-trace-level" ${['1','2','3'].includes(level)?'open':''}>
+        <summary><strong>LEVEL ${esc(level)}</strong><span>${grouped[level].length} операций</span></summary>
+        <div class="v16-trace-items">${grouped[level].map(d=>`<div><code>${esc(d.code)}</code><span>${esc(formatTrace(d))}</span></div>`).join('')}</div>
+      </details>`).join('');
   }
 
   function renderDiagnostics(){
@@ -531,7 +531,7 @@
       v16Data=data;
       renderResults();
       const suffix=v16Data.status==='GO'?'Brand Total рассчитан':'Lines рассчитаны; Brand Total заблокирован входами Level 7';
-      setStatus(ids.status,\`✓ \${suffix} · \${v16Data.lines?.length||0} Line · production 0.52 не затронут\`,'ok');
+      setStatus(ids.status,`✓ ${suffix} · ${v16Data.lines?.length||0} Line · production 0.52 не затронут`,'ok');
     }catch(e){
       console.error(e);
       const message=errorMessage(e);
@@ -554,7 +554,7 @@
       if(!v16Meta.plans?.length)throw new Error('В файле не найден рабочий медиаплан');
       renderPlanControls();
       $(ids.controls).classList.remove('hidden');
-      setStatus(ids.status,\`✓ Распознано \${v16Meta.plans.length} Line. Проверьте Family mapping, environment и Brand scope.\`,'ok');
+      setStatus(ids.status,`✓ Распознано ${v16Meta.plans.length} Line. Проверьте Family mapping, environment и Brand scope.`,'ok');
     }catch(e){
       console.error(e);clearResults();
       setStatus(ids.status,'Ошибка Reach Engine v1.6: '+esc(errorMessage(e)),'err');
