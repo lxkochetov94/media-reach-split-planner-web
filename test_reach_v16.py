@@ -57,6 +57,10 @@ class ReachV16Tests(unittest.TestCase):
         self.assertAlmostEqual(rec["D"], (10*2.35 + 10*2.25 + 1*2.15) / 21, places=6)
         self.assertEqual(rec["B_source"], "AGE_WIDTH_APPROXIMATION")
         self.assertEqual(rec["D_source"], "AGE_WIDTH_APPROXIMATION")
+        self.assertEqual(rec["B_min"], 1.75)
+        self.assertEqual(rec["B_max"], 1.90)
+        self.assertEqual(rec["D_min"], 2.15)
+        self.assertEqual(rec["D_max"], 2.35)
 
     def test_advanced_web_level2_invariants(self):
         out = r.level2_advanced_web(
