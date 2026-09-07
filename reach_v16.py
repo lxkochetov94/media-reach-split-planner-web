@@ -1377,6 +1377,8 @@ def _flight_groups(plan) -> List[dict]:
             "start": start,
             "end": end,
             "ta_name": f.ta_name or "",
+            "source_universe": f.universe,
+            "source_universe_source": f.universe_source or "",
             "is_common": bool(f.is_common),
             "campaign": f.campaign or "",
         })
@@ -1477,6 +1479,22 @@ def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics
             "D_Campaign": flight.get("D_Campaign"),
         })
         flights.append(flight)
+
+    l6_ta = {
+        _norm_ta(f.get("ta_name"))
+        for f in flights
+        if not f.get("is_common") and _norm_ta(f.get("ta_name"))
+    }
+    if len(l6_ta) > 1:
+        detail = [
+            {"flight": f.get("name"), "ta": f.get("ta_name")}
+            for f in flights if not f.get("is_common")
+        ]
+        raise V16Error(
+            "L6_SCOPE_TA_MISMATCH / TA_NORMALIZATION_REQUIRED: "
+            "Flights внутри одной Line имеют разные ЦА и не могут быть дедуплицированы "
+            "до upstream-нормализации на одну Line Master TA. " + str(detail)
+        )
 
     for a, b in zip(flights, flights[1:]):
         if a.get("end") and b.get("start") and m.gap_days(a["end"], b["start"]) == 0:
