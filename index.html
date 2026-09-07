@@ -89,158 +89,130 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
 <div class="card"><div class="row"><strong>Итоги по каналам</strong><span id="intersectionLabel" class="status"></span></div><div class="table-wrap" style="margin-top:10px"><table id="channelTable" class="data-table"></table></div></div>
 <div class="card"><strong>Размещения</strong><div class="table-wrap" style="margin-top:10px"><table id="detailTable" class="data-table"></table></div></div></div></section>
 <section id="tab-reach16" class="tab">
-<div class="v16-shell">
-  <div class="v16-hero">
-    <div>
-      <div class="v16-eyebrow">REACH ENGINE · CANONICAL v1.6</div>
-      <h2>Расчёт совокупного охвата digital-кампании</h2>
-      <p>Один расчётный контур: Placement → Platform → Channel → Flight → Line → Brand. На каждом Reach N+ одновременно показываем людей и % целевой аудитории.</p>
-    </div>
-    <div class="v16-local-badge"><span>✓</span><div><strong>Локальный расчёт</strong><small>Медиаплан обрабатывается в браузере и не отправляется во внешние сервисы.</small></div></div>
+<div class="v16-banner">
+  <div>
+    <strong>Reach Engine v1.6 · модельный контур</strong>
+    <div class="v16-note">Пользователь задаёт бизнес-входы. Модельные коэффициенты движок выбирает сам по методологии и показывает, почему применил именно их. Ручные коэффициенты спрятаны в экспертные настройки.</div>
   </div>
+</div>
 
-  <div class="card v16-upload-card">
-    <div id="v16Dropzone" class="dropzone v16-dropzone">
-      <strong>Загрузите медиаплан</strong>
-      <span>Перетащите .xlsx / .xlsm или нажмите для выбора</span>
-      <input id="v16FileInput" type="file" accept=".xlsx,.xlsm" hidden>
-    </div>
-    <div id="v16FileName" class="v16-file-state">Файл не выбран.</div>
+<div class="card">
+  <div id="v16Dropzone" class="dropzone">
+    <strong>Загрузите медиаплан</strong>
+    <span>Перетащите .xlsx / .xlsm или нажмите для выбора. Файл обрабатывается локально в браузере.</span>
+    <input id="v16FileInput" type="file" accept=".xlsx,.xlsm" hidden>
   </div>
+  <div id="v16FileName" class="status" style="margin-top:8px">Файл не выбран.</div>
+</div>
 
-  <div id="v16Controls" class="hidden">
-    <div class="card v16-command-card">
-      <div class="v16-command-copy">
-        <strong>Параметры итогового расчёта</strong>
-        <span>Выберите KPI-частоту и подтвердите Universe. Остальные коэффициенты движок выбирает по методологии и раскрывает в объяснении.</span>
-      </div>
+<div id="v16Controls" class="hidden">
+  <div class="card">
+    <div class="v16-step-head">
+      <div class="v16-step-num">1</div>
+      <div><strong>Что требуется от пользователя</strong><div class="hint">Только измеряемые бизнес-входы и нужный KPI. Модельные параметры ниже рассчитываются автоматически.</div></div>
+    </div>
+    <div class="v16-user-input-grid">
       <div class="field">
-        <label>Частота KPI</label>
+        <label>Эффективная частота KPI</label>
         <select id="v16TargetFrequency">
-          <option value="1">Reach 1+</option><option value="2">Reach 2+</option><option value="3" selected>Reach 3+</option>
-          <option value="4">Reach 4+</option><option value="5">Reach 5+</option><option value="6">Reach 6+</option>
+          <option value="1">@1+</option><option value="2">@2+</option><option value="3" selected>@3+</option>
+          <option value="4">@4+</option><option value="5">@5+</option><option value="6">@6+</option>
         </select>
+        <div class="hint">На итогах покажем и людей, и % Universe.</div>
       </div>
       <div class="field">
         <label>Brand Universe</label>
-        <div class="v16-inline-input">
-          <input id="v16BrandUniverse" type="number" min="1" step="1" placeholder="Brand Master U_B">
-          <button id="v16BrandUniverseAuto" type="button" class="btn small">Черновик max U</button>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+          <input id="v16BrandUniverse" type="number" min="1" step="1" placeholder="Авто по главной ЦА">
+          <button id="v16BrandUniverseAuto" type="button" class="btn small">Авто</button>
         </div>
+        <div class="hint">Главная, самая широкая ЦА Brand scope.</div>
       </div>
-      <button id="v16Calc" class="btn primary v16-calc-btn">Рассчитать</button>
-      <div id="v16Status" class="v16-command-status">Проверьте входные данные.</div>
+      <div class="v16-user-rule">
+        <span class="v16-user-rule-icon">✓</span>
+        <div><strong>B, D, L, K, ρ, σ, q(G), M<sub>U</sub></strong><div class="hint">Это не обязательные поля пользователя. Движок выбирает их по правилам v1.6 и раскрывает ниже.</div></div>
+      </div>
     </div>
+  </div>
 
-    <div class="card v16-section-card">
-      <div class="v16-section-head">
-        <div><span class="v16-section-index">1</span><strong>Проверка медиаплана перед расчётом</strong></div>
-        <p>Здесь простыми словами показано, хватает ли данных, совпадают ли ЦА и Universe, правильно ли сгруппированы площадки и что именно нужно исправить перед расчётом.</p>
-      </div>
-      <div id="v16InputAudit"></div>
-      <div id="v16PlanWrap" class="v16-plan-list"></div>
+  <div class="card">
+    <div class="v16-step-head">
+      <div class="v16-step-num">2</div>
+      <div><strong>Lines и входные данные</strong><div class="hint">Universe Line можно поправить. Остальные поля движок читает из медиаплана и проверяет сам.</div></div>
     </div>
+    <div id="v16PlanWrap" class="v16-plan-list" style="margin-top:12px"></div>
+    <div id="v16InputAudit" style="margin-top:12px"></div>
+  </div>
 
-    <details class="card v16-section-card v16-scope-settings">
-      <summary><span class="v16-section-index">2</span><strong>Настройки общего результата по бренду</strong><span>Нужны только если объединяем несколько Lines в один итог</span></summary>
-      <div class="v16-details-body">
-        <div class="v16-scope-explain">
-          <strong>Когда это нужно</strong>
-          <p>Если в файле несколько Lines и нужен один общий Reach бренда, все они должны быть пересчитаны на одну и ту же ЦА, географию, период и одинаковое определение уникального человека.</p>
-        </div>
-        <div class="v16-brand-scope-grid">
-          <div class="field"><label>Единая целевая аудитория бренда</label><input id="v16BrandMasterTA" type="text" placeholder="Например: Ж 25-45 BC"></div>
-          <div class="field"><label>Единая география</label><input id="v16BrandMasterGeo" type="text" placeholder="Например: РФ"></div>
-          <div class="field"><label>Горизонт · начало</label><input id="v16BrandHorizonStart" type="date"></div>
-          <div class="field"><label>Горизонт · конец</label><input id="v16BrandHorizonEnd" type="date"></div>
-        </div>
-        <label class="v16-confirm-line">
-          <input id="v16BrandUniverseConfirm" type="checkbox">
-          <span><strong>Подтверждаю единый размер ЦА бренда</strong><small>Введённое значение — реальный Universe одной и той же ЦА, а не автоматически выбранный максимум.</small></span>
-        </label>
-        <label class="v16-confirm-line">
-          <input id="v16BrandScopeConfirm" type="checkbox">
-          <span><strong>Подтверждаю, что все Lines относятся к одной базе расчёта</strong><small>Одинаковые ЦА, география, период и определение уникального человека.</small></span>
-        </label>
-      </div>
-    </details>
-
-    <details class="card v16-section-card">
-      <summary><span class="v16-section-index">3</span><strong>Как технический охват превращается в охват реальных людей</strong><span>Показываем, какой путь применён и почему</span></summary>
-      <div class="v16-details-body">
-        <div id="v16L2Decision"></div>
-      </div>
-    </details>
-
-    <div id="v16Results" class="hidden">
-      <div class="card v16-results-card">
-        <div class="v16-section-head compact">
-          <div><span class="v16-section-index result">✓</span><strong>Итоговый охват кампании</strong></div>
-          <p>Reach всегда показывается единообразно: частота + % целевой аудитории + люди.</p>
-        </div>
-        <div id="v16Metrics"></div>
-        <div id="v16Warning" class="warning hidden" style="margin-top:10px"></div>
-      </div>
-
-      <div class="v16-result-grid">
-        <div class="card v16-section-card">
-          <div class="v16-block-title"><strong>Охват по частоте</strong><span>Cumulative Reach: человек относится к N+, если получил не менее N контактов.</span></div>
-          <div id="v16FrequencyProfile"></div>
-        </div>
-        <div class="card v16-section-card">
-          <div class="v16-block-title"><strong>Точное распределение контактов</strong><span>Сколько людей получили ровно 1, 2, 3, 4, 5 или 6+ контактов.</span></div>
-          <div id="v16ExactFrequency"></div>
-        </div>
-      </div>
-
-      <div class="card v16-section-card">
-        <div class="v16-block-title"><strong>Иерархия результата</strong><span>Channel → Flight → Line → Brand. Для каждого Reach 1+…6+ одновременно видны люди и % соответствующего Universe.</span></div>
-        <div class="table-wrap v16-hierarchy-wrap"><table id="v16Table" class="data-table v16-table"></table></div>
-      </div>
-
-      <div class="card v16-section-card">
-        <div class="v16-block-title"><strong>Что каждый канал добавляет в итоговый охват</strong><span><b>Вклад в Reach</b> — справедливо распределённая часть итогового охвата с учётом пересечений. <b>Эксклюзивная аудитория</b> — люди, которых даёт только этот канал. <b>Учтённые пересечения</b> — часть общей аудитории каналов, которая вошла во вклад этого канала.</span></div>
-        <div class="table-wrap"><table id="v16ContributionTable" class="data-table v16-contrib-table"></table></div>
-      </div>
-
-      <div class="card v16-section-card">
-        <div class="v16-block-title"><strong>Пояснения и предупреждения</strong><span>Сначала человеческое объяснение: что произошло, почему это важно и что делать. Технический код остаётся доступен внутри карточки.</span></div>
-        <div id="v16BusinessDiagnostics"></div>
-      </div>
-
-      <details class="card v16-section-card">
-        <summary><span class="v16-section-index">4</span><strong>Как движок собирает итоговый охват</strong><span>От одной строки медиаплана до общего Reach бренда</span></summary>
-        <div class="v16-details-body">
-          <div id="v16AppliedTrace"></div>
-          <div class="v16-method-divider"></div>
-          <div id="v16ModelMap" class="v16-model-map"></div>
-        </div>
-      </details>
-
-      <details class="card v16-section-card">
-        <summary><span class="v16-section-index">5</span><strong>Техническая диагностика</strong><span>Полный лог для аудита расчёта</span></summary>
-        <div class="v16-details-body"><pre id="v16Diagnostics" class="v16-diag"></pre></div>
-      </details>
+  <div class="card">
+    <div class="v16-step-head">
+      <div class="v16-step-num">3</div>
+      <div><strong>Как движок переводит Technical Reach в людей</strong><div class="hint">Не набор полей, а цепочка решений: какие зависимости доступны, что рассчитано по ЦА, что является модельным default и где нужен fallback.</div></div>
     </div>
+    <div id="v16L2Decision" style="margin-top:12px"></div>
 
-    <details class="card v16-section-card v16-expert" id="v16ExpertSettings">
-      <summary><span class="v16-section-index">⚙</span><strong>Экспертный режим</strong><span>Ручные overrides, измеренные входы и JSON — по умолчанию скрыты</span></summary>
-      <div class="v16-details-body v16-expert-body">
-        <div class="warning">Ручной override используется только когда у вас есть подтверждённый вход. Движок не требует заполнять эти поля для стандартного расчёта.</div>
+    <details class="v16-expert" id="v16ExpertSettings">
+      <summary>Экспертные настройки и ручные overrides</summary>
+      <div class="v16-expert-body">
+        <div class="warning">Обычно этот блок не нужен. Ручное изменение переводит параметр из автоматического model path в USER_OVERRIDE и должно быть видно в диагностике.</div>
         <div class="v16-grid v16-grid-5" style="margin-top:10px">
-          <div class="field"><label>Способ перевода технических ID в людей</label><select id="v16L2Mode"><option value="AUTO" selected>Автоматически по доступным данным</option><option value="ADVANCED">Только детальный расчёт по устройствам</option><option value="QUICK">Только стандартная модель</option></select></div>
-          <div class="field v16-quick-setting"><label>Технических ID на одного человека (K)</label><input id="v16K" type="number" min="1" step="0.01" value="2.40"><div class="hint">Используется только в стандартной модели: Human Reach = Technical Reach ÷ K.</div></div>
-          <div class="field v16-advanced-setting"><label>Стабильность browser ID Chromium, дней (L)</label><input id="v16L" type="number" min="1" step="1" value="68"><div class="hint">Поправка на смену browser ID во времени.</div></div>
-          <div class="field v16-advanced-setting"><label>Browser ID на одно web-устройство (B)</label><input id="v16B" type="number" min="1" step="0.01" placeholder="Автоматически по ЦА"><div class="hint">Нужно для объединения нескольких browser ID одного устройства.</div></div>
-          <div class="field v16-advanced-setting"><label>Устройств на одного человека (D)</label><input id="v16D" type="number" min="1" step="0.01" placeholder="Автоматически по ЦА"><div class="hint">Нужно для объединения нескольких устройств одного человека.</div></div>
-        </div>
-        <div class="field" style="margin-top:12px">
-          <label>Canonical measured inputs · JSON (опционально)</label>
-          <textarea id="v16ExpertJson" class="v16-expert-json" rows="8" spellcheck="false" placeholder='{"weekly_human_reaches": {...}, "platform_universes": {...}, "pair_inputs": [...], "brand_addressability_map": {"cells": [...]}}'></textarea>
-          <div class="hint">Для weekly Human Reach, U_p/U_i/U_F/U_c/U_f/U_l, browser/device segments, exact frequency, caps, L4/L5/L6/L7 pair relations и BrandAddressabilityMap.</div>
+          <div class="field"><label>Способ перевода Technical Reach в людей</label><select id="v16L2Mode"><option value="AUTO" selected>Автоматически по данным</option><option value="ADVANCED_WEB">Только детальный Web-расчёт</option><option value="QUICK">Только Quick-модель</option></select></div>
+          <div class="field v16-quick-setting"><label>K — технических ID на одного человека</label><input id="v16K" type="number" min="1" step="0.01" value="2.40"><div class="hint">Quick: Human Reach = Technical Reach ÷ K.</div></div>
+          <div class="field v16-advanced-setting"><label>L — стабильность browser ID, дней</label><input id="v16L" type="number" min="1" step="1" value="68"></div>
+          <div class="field v16-advanced-setting"><label>B — browser ID на устройство</label><input id="v16B" type="number" min="1" step="0.01" placeholder="AUTO по ЦА"></div>
+          <div class="field v16-advanced-setting"><label>D — устройств на человека</label><input id="v16D" type="number" min="1" step="0.01" placeholder="AUTO по ЦА"></div>
         </div>
       </div>
     </details>
+  </div>
+
+  <div class="card">
+    <div class="v16-step-head">
+      <div class="v16-step-num">4</div>
+      <div><strong>Карта модели Levels 2–7</strong><div class="hint">Текущие значения, зависимости и диапазоны, которые мы закладывали в методологию. Это объяснение расчёта, а не форма для ручного ввода.</div></div>
+    </div>
+    <div id="v16ModelMap" class="v16-model-map" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card v16-action-card">
+    <div class="row">
+      <button id="v16Calc" class="btn primary">Рассчитать Reach Engine v1.6</button>
+      <div id="v16Status" class="status">Загрузите медиаплан.</div>
+    </div>
+  </div>
+
+  <div id="v16Results">
+    <div class="card"><div id="v16Metrics" class="v16-kpis"></div><div id="v16Warning" class="warning hidden" style="margin-top:10px"></div></div>
+
+    <div class="card">
+      <strong>Кривая Effective Reach</strong>
+      <div class="hint" style="margin:4px 0 10px">Cumulative Reach @1+…@6+: одновременно люди и % Universe. Выбранная KPI-частота подсвечена.</div>
+      <div id="v16FrequencyProfile"></div>
+    </div>
+
+    <div class="card">
+      <strong>Точное распределение контактов</strong>
+      <div class="hint" style="margin:4px 0 10px">Не cumulative Reach, а exact buckets: ровно 1, 2, 3, 4, 5 и 6+ контактов. Показываем людей, % Universe и % среди достигнутых.</div>
+      <div id="v16ExactFrequency"></div>
+    </div>
+
+    <div class="card">
+      <strong>Вклад в итоговый Reach</strong>
+      <div class="hint" style="margin:4px 0 10px">Shapley — основной нейтральный вклад в union Reach; Exclusive — аудитория, доступная только одной сущности внутри данного merge.</div>
+      <div class="table-wrap"><table id="v16ContributionTable" class="data-table v16-contrib-table"></table></div>
+    </div>
+
+    <div class="card">
+      <strong>Иерархия Reach Engine v1.6</strong>
+      <div class="hint" style="margin-top:4px">Channel → Flight → Line → Brand. На каждой частоте — люди и % Universe. Верхние уровни используют convolution + mixture без повторного Poisson-Lognormal refit.</div>
+      <div class="table-wrap" style="margin-top:10px"><table id="v16Table" class="data-table v16-table"></table></div>
+    </div>
+
+    <div class="card">
+      <strong>Техническая диагностика</strong>
+      <div class="hint" style="margin:4px 0 10px">Полный лог defaults, inputs, overrides, pairwise bounds, solver path, AON и global feasibility. Нужен для аудита, а не для обычной работы.</div>
+      <pre id="v16Diagnostics" class="v16-diag"></pre>
+    </div>
   </div>
 </div>
 </section>
