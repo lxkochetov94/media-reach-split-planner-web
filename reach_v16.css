@@ -106,3 +106,11 @@
 .v16-expert-json{width:100%;min-height:150px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.45}
 @media(max-width:900px){.v16-brand-scope-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.v16-brand-scope-grid{grid-template-columns:1fr}}
+
+
+.v16-scope-flight-list{display:grid;gap:6px;margin-top:8px}
+.v16-scope-flight{display:grid;grid-template-columns:minmax(110px,1.2fr) 1fr 1fr 1.3fr;gap:8px;align-items:center;padding:7px 9px;border:1px solid #e1e8ed;border-radius:8px;background:#fbfcfd;font-size:10px}
+.v16-scope-flight strong{font-size:11px;color:var(--blue)}
+.v16-scope-flight span{color:var(--muted);font-variant-numeric:tabular-nums}
+.v16-line-identity-warning .v16-confirm-line{background:#fff}
+@media(max-width:900px){.v16-scope-flight{grid-template-columns:1fr 1fr}}
