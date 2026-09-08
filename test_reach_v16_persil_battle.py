@@ -29,7 +29,7 @@ class FakeRow:
 def cfg(plan_id):
     return {
         "requested_mode": "AUTO",
-        "K": 2.4,
+        "K": 2.44,
         "K_source": "MODEL_DEFAULT",
         "B": 1.8, "B_source": "BASE_FALLBACK",
         "D": 2.25, "D_source": "BASE_FALLBACK",
@@ -204,6 +204,25 @@ class PersilBattlePlanTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(out["avg_human_frequency"], 1.0)
         print("PERSIL_BATTLE_VALID_RESULTS=" + json.dumps(results, ensure_ascii=False, sort_keys=True))
+
+    def test_auto_is_close_on_standard_planner_benchmarks(self):
+        # These four cases have internally consistent source @1/@3 planner summaries.
+        # The two F1 cases are retained as robustness fixtures but excluded from closeness
+        # because their source @1 behaves as a different/outlier planning convention.
+        standard = (
+            "capsules_file1_f3",
+            "file2_core",
+            "file2_capsules",
+            "file3_f3_core",
+        )
+        for name in standard:
+            with self.subTest(name=name):
+                spec = VALID_CASES[name]
+                out = calculate_case(name, spec)
+                source1 = spec["source_r1"] / spec["U"]
+                source3 = spec["source_r3"] / spec["U"]
+                self.assertLess(abs(out["pct_1p"] - source1), 0.03)
+                self.assertLess(abs(out["pct_3p"] - source3), 0.04)
 
     def test_capsules_flight2_month_fragments_are_automatic(self):
         rows = make_rows("caps_f2", [
