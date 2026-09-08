@@ -671,6 +671,15 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("<b>${Number.isFinite(val)?num(val,0):'—'}</b>", self.js)
         self.assertNotIn("num(val,0)+' человек'", self.js)
 
+    def test_exact_frequency_grid_aligns_with_chart_bottom(self):
+        self.assertIn("Align exact-frequency cards with the bottom of the Effective Reach chart", self.css)
+        self.assertIn(".v16-frequency-exact-panel{", self.css)
+        self.assertIn("display:flex", self.css)
+        self.assertIn("flex-direction:column", self.css)
+        self.assertIn("grid-template-rows:repeat(3,minmax(0,1fr))", self.css)
+        self.assertIn("align-content:stretch", self.css)
+        self.assertIn("height:100%", self.css)
+
     def test_compact_polish_matches_latest_feedback(self):
         self.assertIn("Compact polish batch", self.css)
         self.assertIn("min-height:300px", self.css)
