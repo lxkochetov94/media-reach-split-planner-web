@@ -587,7 +587,9 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
     def test_overview_status_and_frequency_layout_match_feedback(self):
         self.assertIn('class="v16-overview-card v16-overview-status', self.js)
         self.assertIn("v16-overview-status-detail", self.js)
-        self.assertIn("Это не ошибка расчёта", self.js)
+        self.assertIn("Расчёт выполнен автоматически", self.js)
+        self.assertIn("Расчёт выполнен с заданным K", self.js)
+        self.assertIn("Детальный Web-расчёт применён", self.js)
         self.assertIn('class="v16-overview-card v16-overview-frequency"', self.js)
         self.assertIn("Охват по частоте", self.js)
         self.assertNotIn("выбранная KPI-частота", self.js)
