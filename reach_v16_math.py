@@ -35,6 +35,18 @@ AUTO_BASE_PEOPLE_FACTOR = (
     AUTO_TARGET_AFFINITY / (AUTO_COOKIE_PEOPLE_BASE * AUTO_LAG_VISIBLE_SHARE)
 )
 
+# Stable mass-planning reachability profile. These coefficients are fixed model
+# defaults validated across the project's LAB/Persil planning fixtures; they are
+# never read or fitted from the currently uploaded workbook.
+AUTO_REACHABILITY = {
+    1: 1.00,
+    2: 0.77,
+    3: 0.77,
+    4: 0.65,
+    5: 0.55,
+    6: 0.45,
+}
+
 CHROMIUM_L_DEFAULT = 68.0
 BASE_BROWSER = 1.80
 BASE_DEVICE_FACTOR = 2.25
@@ -280,9 +292,10 @@ def auto_frequency_reach(
         cumulative = []
         previous = R
         for threshold in range(1, 7):
-            ratio = 1.0 if threshold == 1 else (
+            poisson_ratio = 1.0 if threshold == 1 else (
                 _auto_poisson_tail(lam, threshold) / p1 if p1 > 0 else 0.0
             )
+            ratio = poisson_ratio * AUTO_REACHABILITY.get(threshold, 1.0)
             value = min(previous, max(0.0, R * ratio))
             cumulative.append(value)
             previous = value
@@ -301,6 +314,7 @@ def auto_frequency_reach(
         "frequency_model_assumed": True,
         "technical_frequency": F,
         "lambda": lam,
+        "reachability_coefficients": dict(AUTO_REACHABILITY),
         "sigma": None,
         "sigma_source": None,
         "mu": None,
