@@ -538,10 +538,15 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("v16-frequency-analysis-grid", self.html)
         self.assertIn("v16-frequency-chart-panel", self.html)
         self.assertIn("v16-frequency-exact-panel", self.html)
-        self.assertIn("const W=360,H=300", self.js)
+        self.assertIn("const W=360,H=300,L=42,PLOT_L=62", self.js)
+        self.assertIn("const y=p=>T+(100-p)*(H-T-B)/100", self.js)
+        self.assertIn("const grid=[0,25,50,75,100]", self.js)
+        self.assertNotIn("const maxPct=Math.max", self.js)
         self.assertIn("<polyline points=", self.js)
         self.assertIn('aria-label="Кривая Effective Reach @1+…@6+"', self.js)
         self.assertIn("grid-template-columns:minmax(320px,.72fr) minmax(620px,1.28fr)", self.css)
+        self.assertIn("<b>${Number.isFinite(val)?num(val,0):'—'}</b>", self.js)
+        self.assertNotIn("num(val,0)+' человек'", self.js)
 
     def test_compact_polish_matches_latest_feedback(self):
         self.assertIn("Compact polish batch", self.css)
@@ -552,6 +557,17 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("background:#557188!important", self.css)
         self.assertIn(".v16-level-flight .v16-reach-cell.selected", self.css)
         self.assertIn(".v16-level-line .v16-reach-cell.selected", self.css)
+
+    def test_final_density_axis_and_beige_highlight(self):
+        self.assertIn("Final density + 100% axis + unified KPI highlight", self.css)
+        self.assertIn("min-height:28px", self.css)
+        self.assertIn("padding:4px 8px", self.css)
+        self.assertIn("fill:#fff1d6", self.css)
+        self.assertIn("stroke:#d59a24", self.css)
+        self.assertIn(".v16-level-channel .v16-reach-cell.selected", self.css)
+        self.assertIn(".v16-level-flight .v16-reach-cell.selected", self.css)
+        self.assertIn(".v16-level-line .v16-reach-cell.selected", self.css)
+        self.assertIn("background:#fff7e6!important", self.css)
 
     def test_quick_k_stays_canonical_default(self):
         self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.40)
