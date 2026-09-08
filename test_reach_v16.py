@@ -513,16 +513,18 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("v16-hierarchy-toggle", self.js)
         self.assertIn("v16-platform-child hidden", self.js)
         self.assertIn("Показать площадки", self.js)
+        self.assertIn("level==='Platform'?'':'Канал'", self.js)
+        self.assertNotIn("level==='Platform'?'Площадка'", self.js)
         self.assertIn("const tf=targetFrequency()", self.js)
         self.assertIn("tf===1?[1]:[1,tf]", self.js)
         self.assertIn("выбранная частота", self.js)
         self.assertNotIn("↳", self.js)
 
-    def test_dedup_cell_shows_people_then_percent_and_checks_invariant(self):
+    def test_dedup_cell_keeps_channel_values_but_blanks_zero_totals(self):
         self.assertIn('Дедупликация<span class="v16-th-sub">чел. · % Gross Reach</span>', self.js)
-        start = self.js.index('data-label="Дедупликация"')
-        cell = self.js[start:start + 500]
-        self.assertLess(cell.index("num(r.dedup_people,0)"), cell.index("pct(r.dedup_rate,2)"))
+        self.assertIn("const isTotalLevel=level==='Flight'||level==='Line'||level==='Brand'", self.js)
+        self.assertIn("hideZeroTotalDedup=isTotalLevel && Math.abs(dedup)<=1e-6", self.js)
+        self.assertIn("const dedupHtml=hideZeroTotalDedup", self.js)
         self.assertIn("gross-dedup", self.js)
 
     def test_overview_status_and_frequency_layout_match_feedback(self):
@@ -536,10 +538,20 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("v16-frequency-analysis-grid", self.html)
         self.assertIn("v16-frequency-chart-panel", self.html)
         self.assertIn("v16-frequency-exact-panel", self.html)
-        self.assertIn("const W=360,H=190", self.js)
+        self.assertIn("const W=360,H=300", self.js)
         self.assertIn("<polyline points=", self.js)
         self.assertIn('aria-label="Кривая Effective Reach @1+…@6+"', self.js)
         self.assertIn("grid-template-columns:minmax(320px,.72fr) minmax(620px,1.28fr)", self.css)
+
+    def test_compact_polish_matches_latest_feedback(self):
+        self.assertIn("Compact polish batch", self.css)
+        self.assertIn("min-height:300px", self.css)
+        self.assertIn("padding:5px 8px", self.css)
+        self.assertIn("box-shadow:none!important", self.css)
+        self.assertIn(".v16-level-brand .v16-reach-cell.selected", self.css)
+        self.assertIn("background:#557188!important", self.css)
+        self.assertIn(".v16-level-flight .v16-reach-cell.selected", self.css)
+        self.assertIn(".v16-level-line .v16-reach-cell.selected", self.css)
 
     def test_quick_k_stays_canonical_default(self):
         self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.40)

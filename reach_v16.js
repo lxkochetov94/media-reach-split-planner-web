@@ -462,7 +462,7 @@
       return {k,val,share,pct:share*100};
     });
     const maxPct=Math.max(1,...pts.map(x=>x.pct));
-    const W=360,H=190,L=42,R=12,T=18,B=36;
+    const W=360,H=300,L=42,R=12,T=20,B=38;
     const x=k=>L+(k-1)*(W-L-R)/5;
     const y=p=>T+(maxPct-p)*(H-T-B)/maxPct;
     const poly=pts.map(p=>`${x(p.k).toFixed(1)},${y(p.pct).toFixed(1)}`).join(' ');
@@ -504,7 +504,7 @@
   }
 
   function hierarchyType(level){
-    return level==='Brand'?'Кампания':level==='Line'?'Линейка':level==='Flight'?'Флайт':level==='Platform'?'Площадка':'Канал';
+    return level==='Brand'?'Кампания':level==='Line'?'Линейка':level==='Flight'?'Флайт':level==='Platform'?'':'Канал';
   }
   function hierarchyClass(level){
     return level==='Brand'?'v16-level-brand':level==='Line'?'v16-level-line':level==='Flight'?'v16-level-flight':level==='Platform'?'v16-level-platform':'v16-level-channel';
@@ -530,7 +530,8 @@
       const toggle=hasPlatforms
         ?`<button type="button" class="v16-hierarchy-toggle" data-channel-key="${esc(key)}" aria-expanded="false" title="Показать площадки">+</button>`
         :'<span class="v16-hierarchy-toggle-spacer"></span>';
-      const object=`<div class="v16-hierarchy-object">${isPlatform?'<span class="v16-hierarchy-toggle-spacer"></span>':toggle}<span class="v16-hierarchy-type ${level.toLowerCase()}">${esc(type)}</span><strong>${esc(r.name||'—')}</strong></div>`;
+      const typeBadge=type?`<span class="v16-hierarchy-type ${level.toLowerCase()}">${esc(type)}</span>`:'';
+      const object=`<div class="v16-hierarchy-object">${isPlatform?'<span class="v16-hierarchy-toggle-spacer"></span>':toggle}${typeBadge}<strong>${esc(r.name||'—')}</strong></div>`;
       const gross=Number(r.gross_reach_sum||0),dedup=Number(r.dedup_people||0),unique=Number(r.reach_1p||0);
       const invariantOk=!gross||Math.abs((gross-dedup)-unique)<=Math.max(1,Math.abs(gross)*1e-8) && dedup>=-1e-6 && dedup<=gross+1e-6;
       const rowAttrs=isPlatform?` data-parent-channel="${esc(key||'')}"`:'';
@@ -541,8 +542,13 @@
         <td data-label="Universe" class="num">${num(r.universe,0)}</td>
         <td data-label="Impressions" class="num">${r.impressions!=null?num(r.impressions,0):'—'}</td>`;
       for(const k of freqs)h+=`<td data-label="@${k}+" class="num v16-reach-cell ${k===tf?'selected':''}">${reachCell(r,k)}</td>`;
+      const isTotalLevel=level==='Flight'||level==='Line'||level==='Brand';
+      const hideZeroTotalDedup=isTotalLevel && Math.abs(dedup)<=1e-6;
+      const dedupHtml=hideZeroTotalDedup
+        ?''
+        :`<strong>${r.dedup_people!=null?num(r.dedup_people,0):'—'}</strong><span class="v16-pct">${r.dedup_rate!=null?pct(r.dedup_rate,2):'—'}</span>`;
       h+=`<td data-label="Среднее число контактов" class="num"><strong>${r.avg_frequency!=null?num(r.avg_frequency,1)+' на @1+ человека':'—'}</strong></td>
-        <td data-label="Дедупликация" class="num v16-dedup-cell ${invariantOk?'':'invalid'}"><strong>${r.dedup_people!=null?num(r.dedup_people,0):'—'}</strong><span class="v16-pct">${r.dedup_rate!=null?pct(r.dedup_rate,2):'—'}</span></td>
+        <td data-label="Дедупликация" class="num v16-dedup-cell ${invariantOk?'':'invalid'}">${dedupHtml}</td>
         <td data-label="Модель объединения">${r.model_path?esc(friendlyModelPath(r.model_path)):'—'}</td></tr>`;
     }
     table.innerHTML=h+'</tbody>';
