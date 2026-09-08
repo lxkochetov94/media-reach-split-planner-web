@@ -26,7 +26,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
 .section-title{font-size:12px;font-weight:800;color:var(--blue);margin:14px 0 8px}.hint{font-size:11px;color:var(--muted);line-height:1.4}.intersection-grid{display:grid;grid-template-columns:repeat(6,minmax(125px,1fr));gap:10px}.factor-grid{display:grid;grid-template-columns:repeat(6,minmax(125px,1fr));gap:10px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}.factor-product{font-weight:800;color:var(--blue)}.mode-disabled{}.detected-note{margin-top:8px;padding:8px 10px;border-radius:7px;background:#f7fafc;border:1px solid var(--line);font-size:11px;color:#60717d}
 .multi-plan-list{display:grid;gap:10px;margin-top:10px}.multi-plan-box{border:1px solid var(--line);border-radius:9px;padding:10px;background:#fbfcfd}.multi-plan-head{display:grid;grid-template-columns:minmax(180px,1fr) 180px;gap:10px;align-items:center}.multi-plan-title{font-weight:800;color:var(--blue)}.multi-reach-subtotal td{font-weight:800;background:#eef5fa}.multi-reach-grand td{font-weight:900;background:var(--blue2);color:#fff}.multi-reach-flight td:first-child{padding-left:28px;color:#60717d}.multi-reach-note{margin-top:8px;font-size:11px;color:#60717d}
 @media(max-width:900px){main{padding:0 10px}.topbar,.tabs{padding-left:10px;padding-right:10px}.controls{grid-template-columns:repeat(2,minmax(120px,1fr))}.intersection-grid,.factor-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}.metric-cards{grid-template-columns:repeat(2,minmax(140px,1fr))}}
-</style><link rel="stylesheet" href="reach_v16.css?v=1.6.21"><script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script></head>
+</style><link rel="stylesheet" href="reach_v16.css?v=1.6.21"><script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script><script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script><script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script></head>
 <body><header><div class="topbar"><div class="brand">Media Reach Planner<small>Web Portable · ядро 0.52</small></div><div id="fileName" class="file-name">Файл не выбран</div><div id="coreStatus" class="status"><span class="spinner"></span>Загрузка ядра…</div><span class="status">Локальная web-версия</span></div><nav class="tabs"><button class="tab-btn active" data-tab="reach">Охваты и KPI</button><button class="tab-btn" data-tab="reach16">Reach Engine v1.6</button><button class="tab-btn" data-tab="flow">Флоучарт</button><button class="tab-btn" data-tab="splits">Сплиты</button><button class="tab-btn" data-tab="details">Подробнее</button></nav></header>
 <main>
 <section id="tab-reach" class="tab active"><div class="card"><div id="dropzone" class="dropzone"><strong>Перетащите медиаплан сюда</strong><span>или нажмите, чтобы выбрать .xlsx / .xlsm</span><input id="fileInput" type="file" accept=".xlsx,.xlsm" hidden></div></div>
@@ -214,7 +214,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
   </div>
 </div>
 </section>
-<section id="tab-flow" class="tab"><div class="card"><div class="row"><div class="grow"><strong>Мультиплановый годовой флоучарт</strong><div class="hint">Представление данных Stage 8: План → Flight → SUBTOTAL → TOTAL выбранных планов. Никакой отдельной медиалогики во флоучарте нет.</div></div><span class="status">Выбор линейки и флайтов берётся из блока «Мультиплановый охват»</span></div><div id="flowWrap" class="flow-wrap" style="margin-top:12px"></div></div></section>
+<section id="tab-flow" class="tab"><div class="card"><div class="row"><div class="grow"><strong>Мультиплановый годовой флоучарт</strong><div class="hint">Представление данных Stage 8: План → Flight → SUBTOTAL → TOTAL выбранных планов. Никакой отдельной медиалогики во флоучарте нет. Выбор линейки и флайтов берётся из блока «Мультиплановый охват».</div></div><button id="exportFlowPptx" class="btn" disabled title="Экспортирует текущую визуализацию флоучарта в PowerPoint 1:1">Скачать PPTX</button><span id="flowExportStatus" class="status">Сначала постройте флоучарт.</span></div><div id="flowWrap" class="flow-wrap" style="margin-top:12px"></div></div></section>
 <section id="tab-splits" class="tab">
 <div class="card">
   <div id="splitDropzone" class="dropzone"><strong>Перетащите медиаплан для Сплитов сюда</strong><span>или нажмите, чтобы выбрать .xlsx / .xlsm</span><input id="splitFileInput" type="file" accept=".xlsx,.xlsm" hidden></div>
@@ -675,10 +675,97 @@ function renderMultiFlow(){
   if(g.warning)h+=`<div class="flow-footnote">${esc(g.warning)}</div>`;
   $('flowWrap').innerHTML=h;
 }
-function renderFlow(){
-  if(multiReachData?.lines?.length)return renderMultiFlow();
-  return renderSingleFlow();
+function syncFlowExportButton(){
+  const btn=$('exportFlowPptx'),ready=!!$('flowWrap')?.querySelector('.flow');
+  if(btn)btn.disabled=!ready;
+  if(!ready&&$('flowExportStatus'))setStatus('flowExportStatus','Сначала постройте флоучарт.');
 }
+function renderFlow(){
+  const result=multiReachData?.lines?.length?renderMultiFlow():renderSingleFlow();
+  syncFlowExportButton();
+  return result;
+}
+function flowExportFileBase(){
+  const raw=currentFile?.name||planData?.display_name||'media';
+  return String(raw).replace(/\.[^.]+$/,'').replace(/[\\/:*?"<>|]+/g,'_').trim()||'media';
+}
+async function exportFlowPptx(){
+  const btn=$('exportFlowPptx');
+  try{
+    renderFlow();
+    const flow=$('flowWrap')?.querySelector('.flow');
+    if(!flow)throw new Error('Сначала постройте флоучарт.');
+    if(typeof html2canvas!=='function'||typeof PptxGenJS!=='function')throw new Error('Модуль экспорта PowerPoint не загрузился. Обновите страницу и попробуйте ещё раз.');
+    if(btn)btn.disabled=true;
+    setStatus('flowExportStatus','<span class="spinner"></span>Готовлю PPTX…');
+    if(document.fonts?.ready)await document.fonts.ready;
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+
+    const width=Math.ceil(flow.scrollWidth),height=Math.ceil(flow.scrollHeight);
+    if(!width||!height)throw new Error('Не удалось определить размер флоучарта.');
+    const maxCanvasDimension=12000;
+    const scale=Math.max(1,Math.min(2,maxCanvasDimension/Math.max(width,height)));
+    const canvas=await html2canvas(flow,{
+      backgroundColor:'#ffffff',
+      scale,
+      useCORS:true,
+      logging:false,
+      width,
+      height,
+      scrollX:0,
+      scrollY:0,
+      windowWidth:Math.max(document.documentElement.clientWidth,width),
+      windowHeight:Math.max(document.documentElement.clientHeight,height),
+      onclone:doc=>{
+        const wrap=doc.getElementById('flowWrap');
+        if(wrap){
+          wrap.style.overflow='visible';
+          wrap.style.width=width+'px';
+          wrap.style.maxHeight='none';
+        }
+        const clonedFlow=wrap?.querySelector('.flow');
+        if(clonedFlow){
+          clonedFlow.style.width=width+'px';
+          clonedFlow.style.minWidth=width+'px';
+        }
+        const head=wrap?.querySelector('.flow-head');
+        if(head){
+          head.style.position='static';
+          head.style.top='auto';
+        }
+      }
+    });
+
+    const pptx=new PptxGenJS();
+    pptx.layout='LAYOUT_WIDE';
+    pptx.author='Media Reach Planner';
+    pptx.subject='Годовой флоучарт';
+    pptx.title='Флоучарт '+flowExportFileBase();
+    pptx.company='Media Reach Planner';
+    pptx.lang='ru-RU';
+
+    const slide=pptx.addSlide();
+    slide.background={color:'FFFFFF'};
+    const slideW=13.333,slideH=7.5,pad=0.18;
+    const fit=Math.min((slideW-pad*2)/width,(slideH-pad*2)/height);
+    const imageW=width*fit,imageH=height*fit;
+    slide.addImage({
+      data:canvas.toDataURL('image/png'),
+      x:(slideW-imageW)/2,
+      y:(slideH-imageH)/2,
+      w:imageW,
+      h:imageH
+    });
+    await pptx.writeFile({fileName:'Флоучарт_'+flowExportFileBase()+'.pptx'});
+    setStatus('flowExportStatus','✓ PPTX готов · визуализация сохранена 1:1','ok');
+  }catch(e){
+    console.error(e);
+    setStatus('flowExportStatus','Ошибка PPTX: '+esc(e.message),'err');
+  }finally{
+    syncFlowExportButton();
+  }
+}
+$('exportFlowPptx').onclick=exportFlowPptx;
 
 async function openSplitFile(file){
   try{
