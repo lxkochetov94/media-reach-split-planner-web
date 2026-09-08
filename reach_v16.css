@@ -1212,3 +1212,28 @@ details.v16-decision>summary span{font-size:10px;font-weight:700;color:var(--mut
   background:#fff7e6!important;
   box-shadow:none!important;
 }
+
+
+/* Level 2 mode UX: readable dynamic explanation without enlarging the whole dashboard */
+#tab-reach16 .v16-overview-status-detail{
+  min-height:78px;
+  padding:10px 11px;
+  gap:5px;
+  align-content:start;
+}
+#tab-reach16 .v16-overview-status-detail b{
+  font-size:10.5px;
+  line-height:1.35;
+}
+#tab-reach16 .v16-overview-status-detail span{
+  font-size:9.5px;
+  line-height:1.45;
+}
+#tab-reach16 .v16-overview-status-detail small{
+  font-size:8.5px;
+  line-height:1.4;
+}
+#tab-reach16 .v16-decision-why{
+  min-height:42px;
+  line-height:1.45;
+}
