@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 
 import reach_v16 as r
+import reach_v16_math as m
 
 
 def ent(name, reach, impressions=None, start=None, end=None, common=False):
@@ -136,10 +137,11 @@ class ReachV16Tests(unittest.TestCase):
             scope_id="NON_WEB_TEST", source_refs=[],
             environment_hint="CTV", browser_family_hint="UNKNOWN",
         )
-        self.assertEqual(out["mode"], "QUICK")
-        self.assertAlmostEqual(out["R_people"], 1_000_000.0)
-        quick = [d for d in diagnostics if d.get("code") == "L2_QUICK"]
-        self.assertEqual(quick[0]["reason"], "ADVANCED_WEB_NOT_APPLICABLE_TO_ENVIRONMENT")
+        self.assertEqual(out["mode"], "AUTO")
+        expected = m.level2_auto(2_440_000.0, 10_000_000.0, 2.44)["R_people"]
+        self.assertAlmostEqual(out["R_people"], expected)
+        auto = [d for d in diagnostics if d.get("code") == "L2_AUTO"]
+        self.assertEqual(auto[0]["reason"], "ADVANCED_WEB_NOT_APPLICABLE_TO_ENVIRONMENT")
 
     def test_detailed_web_unknown_row_uses_web_chromium_assumptions_and_d_is_sensitive(self):
         base_cfg = {
@@ -182,36 +184,23 @@ class ReachV16Tests(unittest.TestCase):
         self.assertTrue(any(d.get("code") == "L2_ADVANCED_WEB_ENVIRONMENT_ASSUMED" for d in d1))
         self.assertTrue(any(d.get("code") == "L2_ADVANCED_WEB_BROWSER_ASSUMED" for d in d1))
 
-    def test_source_curve_calibration_hits_test_plan_baseline_and_keeps_sensitivity(self):
-        U = 15_182_450.0
-        source = {
-            1: 0.49820623403302366,
-            2: 0.32831948449969445,
-            3: 0.2587308776679805,
-            4: 0.14757881045720347,
-        }
-        ref = {
-            "reach_1p": 5_484_475.0,
-            "reach_2p": 3_484_001.0,
-            "reach_3p": 2_586_154.0,
-            "reach_4p": 2_067_405.0,
-            "reach_5p": 1_726_096.0,
-            "reach_6p": 1_483_037.0,
-            "impressions": 61_854_110.0,
-            "gross_reach_sum": 6_500_000.0,
-            "flights": [],
-        }
-        baseline = dict(ref)
-        r._calibrate_result_to_source(baseline, ref, source, U)
-        self.assertAlmostEqual(baseline["reach_1p"] / U, source[1], places=9)
-        self.assertAlmostEqual(baseline["reach_3p"] / U, source[3], places=9)
-
-        current = dict(ref)
-        for k in range(1, 7):
-            current[f"reach_{k}p"] *= 1.10
-        r._calibrate_result_to_source(current, ref, source, U)
-        self.assertGreater(current["reach_1p"], baseline["reach_1p"])
-        self.assertGreater(current["reach_3p"], baseline["reach_3p"])
+    def test_auto_level2_is_independent_and_k_sensitive(self):
+        rtech = 3_000_000.0
+        U = 15_000_000.0
+        base = m.level2_auto(rtech, U, 2.44)
+        lower_k = m.level2_auto(rtech, U, 2.10)
+        higher_k = m.level2_auto(rtech, U, 2.80)
+        self.assertGreater(lower_k["R_people"], base["R_people"])
+        self.assertGreater(base["R_people"], higher_k["R_people"])
+        self.assertAlmostEqual(
+            base["R_people"],
+            rtech * m.AUTO_BASE_PEOPLE_FACTOR,
+            places=6,
+        )
+        self.assertEqual(m.AUTO_REACHABILITY[3], 0.77)
+        curve = m.auto_frequency_reach(base["R_people"], 9_000_000.0, 3.0)
+        self.assertLess(curve["reach_3p"] / curve["reach_1p"], 0.50)
+        self.assertNotIn("_calibrate_result_to_source", dir(r))
 
     def test_advanced_web_requires_capacity_validity(self):
         with self.assertRaises(r.V16Error):
@@ -662,8 +651,8 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
     def test_overview_status_and_frequency_layout_match_feedback(self):
         self.assertIn('class="v16-overview-card v16-overview-status', self.js)
         self.assertIn("v16-overview-status-detail", self.js)
-        self.assertIn("Расчёт выполнен автоматически", self.js)
-        self.assertIn("Расчёт выполнен с заданным K", self.js)
+        self.assertIn("AUTO рассчитан независимо от готового Reach в медиаплане", self.js)
+        self.assertIn("AUTO рассчитан с заданным K", self.js)
         self.assertIn("Детальный Web-расчёт применён", self.js)
         self.assertIn('class="v16-overview-card v16-overview-frequency"', self.js)
         self.assertIn("Охват по частоте", self.js)
@@ -717,7 +706,9 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("el.disabled=!detailed", self.js)
         self.assertIn("currentMode()==='ADVANCED_WEB'?nval(ids.B):null", self.js)
         self.assertIn("source_reach_pct_curve", self.js)
-        self.assertIn("SOURCE_REACH_CALIBRATION", self.py)
+        self.assertIn("SOURCE_REACH_COMPARISON", self.py)
+        self.assertNotIn("SOURCE_REACH_CALIBRATION", self.py)
+        self.assertIn("готовый Reach из медиаплана не влияет на результат", self.html)
         self.assertIn("Level 2 mode UX: readable dynamic explanation", self.css)
         self.assertIn("min-height:78px", self.css)
 

@@ -23,6 +23,33 @@ LAMBDA_TOL = 1e-6
 NUMERICAL_TOL = SOLVER_TOL
 
 K_DEFAULT = 2.44
+
+# AUTO is intentionally the fast, planner-like path. Its baseline comes from the
+# pre-v1.6 production planner defaults that were already used in this project, not
+# from any Reach value found in the uploaded workbook.
+AUTO_K_REFERENCE = 2.44
+AUTO_COOKIE_PEOPLE_BASE = 2.1125083718004576
+AUTO_LAG_VISIBLE_SHARE = 0.6566358687813219
+AUTO_TARGET_AFFINITY = 0.65
+AUTO_PLANNER_SCALE = 0.95
+AUTO_BASE_PEOPLE_FACTOR = (
+    AUTO_TARGET_AFFINITY
+    / (AUTO_COOKIE_PEOPLE_BASE * AUTO_LAG_VISIBLE_SHARE)
+    * AUTO_PLANNER_SCALE
+)
+
+# Stable mass-planning reachability profile. These coefficients are fixed model
+# defaults validated across the project's LAB/Persil planning fixtures; they are
+# never read or fitted from the currently uploaded workbook.
+AUTO_REACHABILITY = {
+    1: 1.00,
+    2: 0.77,
+    3: 0.77,
+    4: 0.65,
+    5: 0.55,
+    6: 0.45,
+}
+
 CHROMIUM_L_DEFAULT = 68.0
 BASE_BROWSER = 1.80
 BASE_DEVICE_FACTOR = 2.25
@@ -177,6 +204,128 @@ def level1_technical(
 # ---------------------------------------------------------------------------
 # Level 2
 # ---------------------------------------------------------------------------
+
+def level2_auto(rtech: float, universe: float, k: float = K_DEFAULT) -> dict:
+    """Fast planner-like Technical Reach -> people conversion.
+
+    K is a user sensitivity coefficient around the reference 2.44. The baseline
+    people factor is inherited from the project's earlier mass-planning model and
+    is independent of any source Reach summary in the workbook.
+    """
+    rtech = finite(rtech, "R_tech")
+    U = positive(universe, "Human Universe")
+    K = finite(k, "K")
+    if rtech < 0:
+        raise ReachValidationError("R_tech < 0.")
+    if K < 1:
+        raise ReachValidationError("K должен быть >= 1.")
+    factor = AUTO_BASE_PEOPLE_FACTOR * (AUTO_K_REFERENCE / K)
+    r = rtech * factor
+    if r > U + NUMERICAL_TOL:
+        raise ReachValidationError(
+            f"Level 2 AUTO: Human Reach {r:.0f} превышает Universe {U:.0f}."
+        )
+    return {
+        "R_people": r,
+        "mode": "AUTO",
+        "K": K,
+        "K_reference": AUTO_K_REFERENCE,
+        "people_factor": factor,
+        "base_people_factor": AUTO_BASE_PEOPLE_FACTOR,
+        "K_source": "MODEL_DEFAULT" if abs(K - K_DEFAULT) <= 1e-12 else "USER_OVERRIDE",
+        "diagnostics": [],
+    }
+
+
+def _auto_zt_poisson_lambda(mean_frequency: float) -> float:
+    """Lambda for a zero-truncated Poisson with the requested exposed-user mean."""
+    f = max(1.0000001, finite(mean_frequency, "Technical Frequency"))
+    if f <= 1.000001:
+        return 1e-6
+    lo, hi = 1e-8, max(8.0, f * 2.0 + 2.0)
+    for _ in range(90):
+        mid = (lo + hi) / 2.0
+        denom = 1.0 - math.exp(-mid)
+        value = mid / denom if denom > 0 else 1.0
+        if value < f:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def _auto_poisson_tail(lam: float, threshold: int) -> float:
+    if threshold <= 0:
+        return 1.0
+    term = math.exp(-lam)
+    cumulative = term
+    for k in range(1, threshold):
+        term *= lam / k
+        cumulative += term
+    return max(0.0, min(1.0, 1.0 - cumulative))
+
+
+def auto_frequency_reach(
+    reach_1p: float,
+    impressions: float,
+    technical_frequency: float,
+) -> dict:
+    """Fast AUTO @1+…@6+ curve from the plan's technical average frequency.
+
+    Unlike Detailed Web, AUTO deliberately does not fit a Poisson-lognormal model to
+    the inferred human frequency. It reproduces the simple planning convention:
+    derive a zero-truncated Poisson contact curve from source Technical Frequency,
+    then apply it to the independently estimated human @1+.
+    """
+    R = finite(reach_1p, "AUTO Reach 1+")
+    I = finite(impressions, "AUTO Impressions")
+    F = finite(technical_frequency, "AUTO Technical Frequency")
+    if R < 0 or I < 0:
+        raise ReachValidationError("Reach/Impressions не могут быть отрицательными.")
+    if F < 1 - NUMERICAL_TOL:
+        raise ReachValidationError("AUTO Technical Frequency должна быть >=1.")
+    if R == 0:
+        exact_counts = [0.0] * 6
+        cumulative = [0.0] * 6
+        exact = [1.0, 0, 0, 0, 0, 0]
+        lam = None
+    else:
+        lam = _auto_zt_poisson_lambda(max(1.000001, F))
+        p1 = _auto_poisson_tail(lam, 1)
+        cumulative = []
+        previous = R
+        for threshold in range(1, 7):
+            poisson_ratio = 1.0 if threshold == 1 else (
+                _auto_poisson_tail(lam, threshold) / p1 if p1 > 0 else 0.0
+            )
+            ratio = poisson_ratio * AUTO_REACHABILITY.get(threshold, 1.0)
+            value = min(previous, max(0.0, R * ratio))
+            cumulative.append(value)
+            previous = value
+        exact_counts = [
+            max(0.0, cumulative[k] - cumulative[k + 1]) for k in range(5)
+        ] + [max(0.0, cumulative[5])]
+        exact = [x / R for x in exact_counts]
+    avg_human = I / R if R > 0 else None
+    return {
+        **{f"reach_{k+1}p": cumulative[k] for k in range(6)},
+        "exact_counts": exact_counts,
+        "freq_dist": exact,
+        "impressions": I,
+        "avg_frequency": avg_human,
+        "frequency_model": "AUTO_ZT_POISSON_TECH_FREQUENCY",
+        "frequency_model_assumed": True,
+        "technical_frequency": F,
+        "lambda": lam,
+        "reachability_coefficients": dict(AUTO_REACHABILITY),
+        "sigma": None,
+        "sigma_source": None,
+        "mu": None,
+        "solver_iterations_frequency": 0,
+        "solver_residual_frequency": 0.0,
+        "cap": None,
+    }
+
 
 def level2_quick(rtech: float, universe: float, k: float = K_DEFAULT) -> dict:
     rtech = finite(rtech, "R_tech")

@@ -1038,41 +1038,35 @@ def _l2_for_scope(
             reason = "ADVANCED_WEB_NOT_APPLICABLE_TO_ENVIRONMENT"
 
     elif requested == "AUTO":
-        if environment == "WEB":
-            use_advanced = bool(
-                U_D not in (None, "", 0, "0")
-                and start and end and frequency is not None
-            )
-            if not use_advanced:
-                reason = "INSUFFICIENT_WEB_ADVANCED_INPUTS"
-        elif environment in {"MOBILE_APP", "CTV"}:
-            use_advanced = device_reach not in (None, "")
-            if not use_advanced:
-                reason = "DEVICE_LEVEL_REACH_NOT_AVAILABLE"
-        else:
-            use_advanced = False
-            reason = "ENVIRONMENT_NOT_CONFIRMED"
+        use_advanced = False
+        reason = "AUTO_PLANNER_PATH"
 
     if not use_advanced:
-        quick = m.level2_quick(rtech, U, cfg["K"])
+        is_auto_path = requested in {"AUTO", "ADVANCED_WEB"}
+        quick = (
+            m.level2_auto(rtech, U, cfg["K"])
+            if is_auto_path else m.level2_quick(rtech, U, cfg["K"])
+        )
+        code = "L2_AUTO" if is_auto_path else "L2_QUICK"
         diagnostics.append({
-            "code": "L2_QUICK",
+            "code": code,
             "level": 2,
             "scope_id": scope_id,
             "source_refs": list(source_refs),
             "requested_mode": requested,
-            "effective_mode": "QUICK",
+            "effective_mode": "AUTO" if is_auto_path else "QUICK",
             "reason": reason or ("USER_SELECTED_QUICK" if requested == "QUICK" else None),
             "K": quick["K"], "K_source": cfg["K_source"],
+            "people_factor": quick.get("people_factor"),
             "source": (
                 "USER_OVERRIDE" if cfg["K_source"] == "USER_OVERRIDE"
-                else "FALLBACK" if requested in {"AUTO", "ADVANCED_WEB"}
-                else "USER_OVERRIDE"
+                else "MODEL_DEFAULT" if requested == "AUTO"
+                else "FALLBACK"
             ),
         })
         return {
             "R_people": quick["R_people"],
-            "mode": "QUICK",
+            "mode": "AUTO" if is_auto_path else "QUICK",
             "environment": environment,
             "l1": l1,
             "details": quick,
@@ -1427,6 +1421,10 @@ def _platform_entity(
     I_scope = source_impressions if explicit_I in (None, "") else m.finite(
         explicit_I, f"{scope_id} aggregate Flight Impressions"
     )
+    source_rtech_sum = sum(float(v.get("R_tech") or 0.0) for v in row_l1.values())
+    technical_frequency_scope = (
+        I_scope / source_rtech_sum if source_rtech_sum > 0 else 1.0
+    )
     if explicit_I not in (None, ""):
         tol = max(1e-6, m.SOLVER_TOL * max(1.0, I_scope))
         if abs(I_scope - source_impressions) > tol:
@@ -1596,12 +1594,18 @@ def _platform_entity(
     )
     sigma_source = "CUSTOM" if float(sigma) != m.SIGMA_DEFAULT else "MODEL_DEFAULT"
     try:
-        l3b = m.level3_effective_reach(
-            l3a["R_1p"], I_scope,
-            sigma=float(sigma), sigma_source=sigma_source,
-            hard_cap=None if cap in (None, "") else int(cap),
-            measured_exact=measured_freq,
-        )
+        if cfg["requested_mode"] == "AUTO" and measured_freq is None:
+            l3b = m.auto_frequency_reach(
+                l3a["R_1p"], I_scope, technical_frequency_scope,
+            )
+            sigma_source = "AUTO_NOT_USED"
+        else:
+            l3b = m.level3_effective_reach(
+                l3a["R_1p"], I_scope,
+                sigma=float(sigma), sigma_source=sigma_source,
+                hard_cap=None if cap in (None, "") else int(cap),
+                measured_exact=measured_freq,
+            )
     except (m.ReachValidationError, m.ReachCalculationError) as exc:
         raise V16Error(f"{scope_id}: {exc}") from exc
     diagnostics.append({
@@ -1621,6 +1625,7 @@ def _platform_entity(
         "solver_iterations": l3b["solver_iterations_frequency"],
         "solver_residual": l3b["solver_residual_frequency"],
         "frequency_model_assumed": l3b["frequency_model_assumed"],
+        "technical_frequency": l3b.get("technical_frequency"),
         "cap": l3b["cap"],
     })
 
@@ -2071,10 +2076,10 @@ def _attach_aon_slices(
 
 
 def _valid_source_reach_curve(plan) -> Optional[Dict[int, float]]:
-    """Return a consistent source summary Reach curve when the media plan provides one.
+    """Return a consistent source summary Reach curve for QA comparison only.
 
-    The curve is not copied blindly: it becomes a calibration benchmark for the
-    independent model. Invalid/non-monotonic or conflicting sheet curves are ignored.
+    Source Reach never changes AUTO or Detailed results. Invalid/non-monotonic or
+    conflicting sheet curves are ignored.
     """
     curves: List[Dict[int, float]] = []
     for meta in (getattr(plan, "sheet_meta", {}) or {}).values():
@@ -2113,154 +2118,6 @@ def _valid_source_reach_curve(plan) -> Optional[Dict[int, float]]:
         if k2 > k1 and r2 > r1 + 1e-12:
             return None
     return merged
-
-
-def _l2_reference_cfg(plan, cfg: dict) -> dict:
-    """Reference parameter set used only for source-benchmark sensitivity calibration."""
-    ref = dict(cfg)
-    rec = recommended_advanced_factors(_plan_ta(plan))
-    ref.update({
-        "K": m.K_DEFAULT,
-        "K_source": "MODEL_DEFAULT",
-        "B": rec["B"],
-        "D": rec["D"],
-        "L": m.CHROMIUM_L_DEFAULT,
-        "B_auto": rec["B"],
-        "D_auto": rec["D"],
-        "L_auto": m.CHROMIUM_L_DEFAULT,
-        "B_source": rec["B_source"],
-        "D_source": rec["D_source"],
-        "L_source": "MODEL_DEFAULT",
-    })
-    return ref
-
-
-def _cfg_is_reference(cfg: dict, ref: dict) -> bool:
-    return all(
-        abs(float(cfg.get(k) or 0) - float(ref.get(k) or 0)) <= 1e-12
-        for k in ("K", "B", "D", "L")
-    )
-
-
-def _calibrate_result_to_source(
-    result: dict,
-    reference: dict,
-    source_curve_pct: Mapping[int, float],
-    U: float,
-) -> dict:
-    """Calibrate a cumulative Reach result to a valid source benchmark.
-
-    At reference parameters the model reproduces source @1+…available thresholds.
-    User changes preserve the model's own sensitivity through current/reference ratios.
-    Missing source thresholds (usually @5+/@6+) retain the reference model tail shape.
-    """
-    if not result or not reference or 1 not in source_curve_pct:
-        return result
-    source_people = {int(k): float(v) * U for k, v in source_curve_pct.items()}
-    available = sorted(k for k in source_people if 1 <= k <= 6)
-    if not available:
-        return result
-    last_source_k = max(available)
-
-    calibrated: Dict[int, float] = {}
-    prev = U
-    impressions = float(result.get("impressions") or 0.0)
-    for k in range(1, 7):
-        ref_k = float(reference.get(f"reach_{k}p") or 0.0)
-        cur_k = float(result.get(f"reach_{k}p") or 0.0)
-        if k in source_people:
-            base = source_people[k]
-        else:
-            anchor = max(x for x in available if x <= last_source_k)
-            ref_anchor = float(reference.get(f"reach_{anchor}p") or 0.0)
-            tail_ratio = (ref_k / ref_anchor) if ref_anchor > 0 else 0.0
-            base = source_people[anchor] * tail_ratio
-
-        sensitivity = (cur_k / ref_k) if ref_k > 0 else 1.0
-        value = max(0.0, min(U, base * sensitivity))
-        if impressions > 0:
-            value = min(value, impressions / k)
-        value = min(value, prev)
-        calibrated[k] = value
-        prev = value
-
-    # Set-theory floor: a parent cannot be below its largest child. If the source
-    # benchmark conflicts with the modeled child hierarchy, calibration is not applied.
-    children = result.get("channels") or result.get("flights") or []
-    if children:
-        for k in range(1, 7):
-            floor = max((float(x.get(f"reach_{k}p") or 0.0) for x in children), default=0.0)
-            if calibrated[k] + max(1e-6, m.SOLVER_TOL * max(1.0, floor)) < floor:
-                return result
-
-    for k, value in calibrated.items():
-        result[f"reach_{k}p"] = value
-    exact_counts = [
-        max(0.0, calibrated[k] - calibrated[k + 1]) for k in range(1, 6)
-    ] + [max(0.0, calibrated[6])]
-    r1 = calibrated[1]
-    result["exact_counts"] = exact_counts
-    result["freq_dist"] = [x / r1 for x in exact_counts] if r1 > 0 else [1.0, 0, 0, 0, 0, 0]
-    result["avg_frequency"] = impressions / r1 if r1 > 0 and impressions > 0 else None
-    gross = float(result.get("gross_reach_sum") or 0.0)
-    if gross > 0:
-        dedup = max(0.0, gross - r1)
-        result["dedup_people"] = dedup
-        result["dedup_rate"] = dedup / gross
-    result["model_path"] = str(result.get("model_path") or "") + "_SOURCE_CALIBRATED"
-    result["source_calibrated"] = True
-    return result
-
-
-def _apply_source_curve_calibration(
-    line: dict,
-    reference_line: dict,
-    source_curve_pct: Mapping[int, float],
-    U: float,
-    cfg: dict,
-    diagnostics: List[dict],
-    plan_id: str,
-) -> dict:
-    before = {k: float(line.get(f"reach_{k}p") or 0.0) for k in range(1, 7)}
-
-    # Calibrate the sole Flight first. The Line identity then sees a calibrated child,
-    # so set-theory floor checks remain valid even when the raw Detailed Web result was
-    # above the source benchmark.
-    flights = line.get("flights") or []
-    ref_flights = reference_line.get("flights") or []
-    if len(flights) == 1 and len(ref_flights) == 1:
-        _calibrate_result_to_source(flights[0], ref_flights[0], source_curve_pct, U)
-
-    _calibrate_result_to_source(line, reference_line, source_curve_pct, U)
-
-    if line.get("source_calibrated"):
-        line["source_calibration"] = {
-            "source": "MEDIA_PLAN_SUMMARY_REACH_CURVE",
-            "source_curve_pct": {str(k): float(v) for k, v in source_curve_pct.items()},
-            "requested_mode": cfg.get("requested_mode"),
-            "K": cfg.get("K"),
-            "B": cfg.get("B"),
-            "D": cfg.get("D"),
-            "L": cfg.get("L"),
-        }
-        diagnostics.append({
-            "code": "SOURCE_REACH_CALIBRATION",
-            "level": "CALIBRATION",
-            "severity": "INFO",
-            "plan_id": plan_id,
-            "source_curve_pct": {str(k): float(v) for k, v in source_curve_pct.items()},
-            "raw_reach_pct": {str(k): before[k] / U for k in before},
-            "calibrated_reach_pct": {
-                str(k): float(line.get(f"reach_{k}p") or 0.0) / U for k in range(1, 7)
-            },
-            "requested_mode": cfg.get("requested_mode"),
-            "message": (
-                "Валидная Reach-кривая медиаплана использована как calibration benchmark. "
-                "При reference-параметрах результат совпадает с источником; ручные изменения "
-                "K/B/D/L двигают Reach по чувствительности независимой модели."
-            ),
-        })
-    return line
 
 
 def calculate_line(plan, U: float, cfg: dict, q: dict, plan_id: str, diagnostics: List[dict]) -> dict:
@@ -2585,18 +2442,17 @@ def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> Lis
         if code == "F_PRECISION_ASSUMED":
             add("MODEL DEFAULT", 1, "Точность Frequency не указана",
                 "Для arithmetic validation принята точность 2 знака после запятой.", "INFO")
-        elif code == "L2_QUICK" and d.get("reason"):
-            requested = str(d.get("requested_mode") or "")
+        elif code == "L2_AUTO":
             k_source = str(d.get("K_source") or "")
             if k_source == "USER_OVERRIDE":
-                add("USER INPUT", 2, "Использован заданный коэффициент K",
-                    f"Quick-перевод Technical Reach в людей выполнен с K={d.get('K')}.", "INFO")
-            elif requested in {"AUTO", "ADVANCED_WEB"}:
-                add("AUTO MODEL", 2, "Level 2 выбран автоматически",
-                    f"Для этого размещения применён K={d.get('K')}; причина выбора пути: {d.get('reason')}.", "INFO")
+                add("USER INPUT", 2, "AUTO рассчитан с заданным K",
+                    f"Использован K={d.get('K')}; source Reach не участвует в расчёте.", "INFO")
             else:
-                add("FALLBACK", 2, "Level 2 рассчитан в Quick",
-                    f"Причина: {d.get('reason')}. K={d.get('K')}.", "WARNING")
+                add("AUTO MODEL", 2, "Быстрый AUTO-перевод Technical Reach в людей",
+                    f"Использован стандартный K={d.get('K')}; source Reach не участвует в формуле.", "INFO")
+        elif code == "L2_QUICK" and d.get("reason"):
+            add("FALLBACK", 2, "Level 2 рассчитан в legacy Quick",
+                f"Причина: {d.get('reason')}. K={d.get('K')}.", "WARNING")
         elif code == "L2_WEB_DEVICE_UNIVERSE_MODELED":
             add("MODEL DEFAULT", 2, "Web-device Universe рассчитан модельно",
                 f"Для детального Web-пути использовано U_D = U × auto-D = {d.get('U_D'):.0f}.", "INFO")
@@ -2606,9 +2462,18 @@ def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> Lis
         elif code == "L2_ADVANCED_WEB_BROWSER_ASSUMED":
             add("MODEL ASSUMPTION", 2, "Detailed Web: browser family принята как Chromium",
                 "Browser family не была размечена; L применяется как прозрачное Chromium-допущение.", "INFO")
-        elif code == "SOURCE_REACH_CALIBRATION":
-            add("SOURCE CALIBRATION", "CAL", "Результат откалиброван по Reach-кривой медиаплана",
-                "Источник используется как benchmark baseline; изменение коэффициентов продолжает менять результат через модельную чувствительность.", "INFO")
+        elif code == "SOURCE_REACH_COMPARISON":
+            deltas = d.get("delta_pp") or {}
+            d1 = deltas.get("1") if "1" in deltas else deltas.get(1)
+            d3 = deltas.get("3") if "3" in deltas else deltas.get(3)
+            summary = []
+            if d1 is not None:
+                summary.append(f"@1+ {float(d1):+.1f} п.п.")
+            if d3 is not None:
+                summary.append(f"@3+ {float(d3):+.1f} п.п.")
+            add("SOURCE QA", "QA", "Сравнение с Reach из медиаплана",
+                ("Разница модели и source: " + ", ".join(summary) + ". " if summary else "") +
+                "Source Reach используется только для проверки и не влияет на результат.", "INFO")
         elif code in {"B_AVERAGED_APPROXIMATION", "D_AVERAGED_APPROXIMATION"}:
             add("APPROXIMATION", 2, code,
                 "Сегментного Reach для нелинейного расчёта нет; применён разрешённый averaged fallback.", "WARNING")
@@ -2973,16 +2838,34 @@ def calculate(path: str, params_json: str = "{}") -> str:
 
         source_curve = _valid_source_reach_curve(plan)
         if source_curve:
-            ref_cfg = _l2_reference_cfg(plan, cfg)
-            if _cfg_is_reference(cfg, ref_cfg):
-                reference_line = copy.deepcopy(line)
-            else:
-                # Reference run is internal calibration math only; its diagnostics must
-                # not be shown as if they were applied to the user's current scenario.
-                reference_line = calculate_line(plan, U, ref_cfg, q, g.id, [])
-            line = _apply_source_curve_calibration(
-                line, reference_line, source_curve, U, cfg, diagnostics, g.id
-            )
+            modeled_pct = {
+                k: float(line.get(f"reach_{k}p") or 0.0) / U for k in range(1, 7)
+            }
+            deltas_pp = {
+                k: (modeled_pct[k] - float(v)) * 100.0
+                for k, v in source_curve.items()
+            }
+            line["source_reach_comparison"] = {
+                "source": "MEDIA_PLAN_SUMMARY_REACH_CURVE",
+                "source_curve_pct": {str(k): float(v) for k, v in source_curve.items()},
+                "modeled_curve_pct": {str(k): modeled_pct[k] for k in modeled_pct},
+                "delta_pp": {str(k): deltas_pp[k] for k in deltas_pp},
+                "qa_only": True,
+            }
+            diagnostics.append({
+                "code": "SOURCE_REACH_COMPARISON",
+                "level": "QA",
+                "severity": "INFO",
+                "plan_id": g.id,
+                "source_curve_pct": {str(k): float(v) for k, v in source_curve.items()},
+                "modeled_curve_pct": {str(k): modeled_pct[k] for k in modeled_pct},
+                "delta_pp": {str(k): deltas_pp[k] for k in deltas_pp},
+                "requested_mode": cfg.get("requested_mode"),
+                "message": (
+                    "Source Reach из медиаплана используется только для QA-сравнения "
+                    "и не участвует в формуле расчёта."
+                ),
+            })
 
         line["plan_id"] = g.id
         line["label"] = g.label
