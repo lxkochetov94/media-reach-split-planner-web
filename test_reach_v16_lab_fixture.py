@@ -170,6 +170,12 @@ class LabPlanCanonicalFixtureTests(unittest.TestCase):
         }
         print("LAB_FIXTURE_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
+    def test_auto_baseline_is_close_to_workbook_only_as_qa(self):
+        _atoms, _flights, line, _brand, _detail = calculate_fixture()
+        # Source Reach is used only in assertions here; it is never passed to AUTO math.
+        self.assertLess(abs(line["reach_1p"] - SOURCE_MP_R1) / U, 0.03)
+        self.assertLess(abs(line["reach_3p"] - SOURCE_MP_R3) / U, 0.03)
+
     def test_auto_is_independent_from_source_reach_and_k_is_sensitive(self):
         _atoms, _flights, line_default, _brand, _detail = calculate_fixture()
 
