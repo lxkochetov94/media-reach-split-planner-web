@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import math
 import unittest
+from types import SimpleNamespace
 
 import reach_v16 as r
 import reach_v16_math as m
@@ -126,7 +127,131 @@ def calculate_fixture():
     return atoms, flights, line, brand, detail
 
 
+def browser_like_rows():
+    """Normalized one-Flight representation matching the actual uploaded workbook path."""
+    channel_map = {
+        "OLV": "OLV",
+        "Banners, CPM": "Banners",
+        "Social nets, CPM": "Social Nets",
+    }
+    format_map = {
+        "OLV": "Pre-roll Instream 100%",
+        "Banners, CPM": "Баннеры",
+        "Social nets, CPM": "Promo post",
+    }
+    platform_map = {
+        "VK Video": "VK Видео",
+        "Media Today": "Media Today",
+        "Otclick": "Otclick",
+        "Solta": "Solta",
+        "VK Social": "VK",
+    }
+    out = []
+    for i, (month, channel, family, impressions, rtech) in enumerate(ROWS):
+        start, end = DATES[month]
+        out.append(SimpleNamespace(
+            sheet="Mediaplan 3 флайт",
+            source_row=17 + i,
+            flight="Flight 3",
+            channel=channel_map[channel],
+            placement_class=channel_map[channel],
+            placement_class_reason="",
+            platform=platform_map[family],
+            platform_canonical=platform_map[family],
+            format=format_map[channel],
+            raw_text="desktop+mobile",
+            buying_model="CPM",
+            impressions=impressions,
+            frequency=3.0,
+            tech_reach=rtech,
+            start=start,
+            end=end,
+            budget=0.0,
+        ))
+    return out
+
+
+def browser_cfg(mode="AUTO", K=2.44, B=1.89, D=2.29, L=68.0):
+    return {
+        "requested_mode": mode,
+        "K": K,
+        "K_source": "MODEL_DEFAULT" if abs(K - 2.44) <= 1e-12 else "USER_OVERRIDE",
+        "B": B, "D": D, "L": L,
+        "B_auto": 1.89, "D_auto": 2.29, "L_auto": 68.0,
+        "B_source": "MODEL_DEFAULT" if abs(B - 1.89) <= 1e-12 else "USER_OVERRIDE",
+        "D_source": "MODEL_DEFAULT" if abs(D - 2.29) <= 1e-12 else "USER_OVERRIDE",
+        "L_source": "MODEL_DEFAULT" if abs(L - 68.0) <= 1e-12 else "USER_OVERRIDE",
+        "web_device_universes": {},
+        "unit_web_device_universes": {},
+        "environments": {},
+        "browser_families": {},
+        "device_reaches": {},
+        "browser_segments": {},
+        "device_segments": {},
+        "safari_l": None,
+        "plan_id": "P1",
+    }
+
+
+def calculate_browser_like(mode="AUTO", K=2.44, B=1.89, D=2.29, L=68.0):
+    diagnostics = []
+    rows = browser_like_rows()
+    cfg = browser_cfg(mode=mode, K=K, B=B, D=D, L=L)
+    channels = r._build_level4_channels(
+        rows, U, cfg, {}, "P1", "F3", diagnostics
+    )
+    flight = m.level5_flight(channels, U)
+    flight.update({
+        "name": "Flight 3",
+        "start": DATES["August"][0],
+        "end": DATES["October"][1],
+        "is_common": False,
+        "addressable_universe": U,
+    })
+    line = m.level6_line([flight], U)
+    return line, channels, diagnostics
+
+
+
 class LabPlanCanonicalFixtureTests(unittest.TestCase):
+    def test_browser_like_auto_matches_planner_fixture_and_source_qa(self):
+        line, _channels, diagnostics = calculate_browser_like("AUTO")
+        self.assertLess(abs(line["reach_1p"] / U - SOURCE_MP_R1 / U), 0.03)
+        self.assertLess(abs(line["reach_3p"] / U - SOURCE_MP_R3 / U), 0.03)
+        self.assertTrue(any(d.get("code") == "L3A_AUTO_AGGREGATE_PLATFORM" for d in diagnostics))
+        self.assertFalse(any(d.get("code") == "L3A_AUTO_PERIODIC_PLATFORM" for d in diagnostics))
+        print("LAB_BROWSER_AUTO_RESULT=" + json.dumps({
+            "reach_1p": line["reach_1p"],
+            "reach_3p": line["reach_3p"],
+            "pct_1p": line["reach_1p"] / U,
+            "pct_3p": line["reach_3p"] / U,
+            "source_pct_1p": SOURCE_MP_R1 / U,
+            "source_pct_3p": SOURCE_MP_R3 / U,
+        }, ensure_ascii=False, sort_keys=True))
+
+    def test_browser_like_auto_k_really_changes_result(self):
+        low, _c1, _d1 = calculate_browser_like("AUTO", K=2.10)
+        base, _c2, _d2 = calculate_browser_like("AUTO", K=2.44)
+        high, _c3, _d3 = calculate_browser_like("AUTO", K=2.80)
+        self.assertGreater(low["reach_1p"], base["reach_1p"])
+        self.assertGreater(base["reach_1p"], high["reach_1p"])
+        self.assertGreater(low["reach_3p"], base["reach_3p"])
+        self.assertGreater(base["reach_3p"], high["reach_3p"])
+
+    def test_browser_like_detailed_controls_change_full_plan(self):
+        base, _c1, d1 = calculate_browser_like("ADVANCED_WEB", B=1.89, D=2.29, L=68.0)
+        changed, _c2, d2 = calculate_browser_like("ADVANCED_WEB", B=2.15, D=2.75, L=45.0)
+        self.assertNotAlmostEqual(base["reach_1p"], changed["reach_1p"], delta=1.0)
+        self.assertNotAlmostEqual(base["reach_3p"], changed["reach_3p"], delta=1.0)
+        self.assertTrue(any(d.get("code") == "L3A_AUTO_PERIODIC_PLATFORM" for d in d1))
+        self.assertTrue(any(d.get("code") == "L2_ADVANCED" for d in d1))
+        print("LAB_BROWSER_DETAILED_RESULT=" + json.dumps({
+            "default_pct_1p": base["reach_1p"] / U,
+            "default_pct_3p": base["reach_3p"] / U,
+            "changed_pct_1p": changed["reach_1p"] / U,
+            "changed_pct_3p": changed["reach_3p"] / U,
+        }, ensure_ascii=False, sort_keys=True))
+
     def test_uploaded_plan_normalized_fixture_end_to_end(self):
         atoms, flights, line, brand, detail = calculate_fixture()
         self.assertEqual(len(atoms), 21)

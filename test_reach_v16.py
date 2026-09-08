@@ -712,6 +712,16 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("Level 2 mode UX: readable dynamic explanation", self.css)
         self.assertIn("min-height:78px", self.css)
 
+    def test_browser_path_parity_and_detailed_input_copy(self):
+        self.assertIn("AUTO_AGGREGATE_PLATFORM_FRAGMENTS", self.py)
+        self.assertIn("L3A_AUTO_AGGREGATE_PLATFORM", self.py)
+        self.assertIn('placeholder="AUTO по ЦА или введите свой вариант"', self.html)
+        self.assertIn("Оставьте поле пустым для AUTO по ЦА или введите собственный B.", self.html)
+        self.assertIn("Оставьте поле пустым для AUTO по ЦА или введите собственный D.", self.html)
+        self.assertIn("меньше K — выше прогнозный Reach, больше K — ниже", self.html)
+        self.assertIn("reach_v16.py?v=1.6.20", self.js)
+        self.assertIn("reach_v16.js?v=1.6.20", self.html)
+
     def test_automatic_exclusions_stay_out_of_main_business_diagnostics(self):
         out = r._business_diagnostics([
             {"code": "SOURCE_IMPORT_WARNING", "level": "IMPORT", "message": "parser detail"},
