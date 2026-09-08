@@ -710,7 +710,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn('value="ADVANCED_WEB">Детальный Web-расчёт</option>', self.html)
         self.assertNotIn('value="QUICK">Только Quick-модель</option>', self.html)
         self.assertIn("function currentK(){return Number($(ids.k)?.value||2.44)}", self.js)
-        self.assertIn("Расчёт выполняется автоматически", self.js)
+        self.assertIn("AUTO использует только K как пользовательский параметр", self.js)
         self.assertIn("USER_OVERRIDE", self.js)
         self.assertIn("MODEL_DERIVED_U_X_D_AUTO", self.py)
         self.assertIn("function syncL2ModeControls()", self.js)
