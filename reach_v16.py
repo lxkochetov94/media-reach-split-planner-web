@@ -2358,12 +2358,18 @@ def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> Lis
         elif code == "DUPLICATE_LIKE_ROW_WARNING":
             add("DATA QUALITY", "IMPORT", "Похожие строки медиаплана",
                 "Строки не удалялись автоматически. Проверьте, являются ли они реальными дублями.", "WARNING")
+        elif code == "REACH_SCOPE_ROWS_EXCLUDED":
+            add("SCOPE EXCLUSION", "SCOPE", "Часть медиаплана вне Reach scope",
+                f"Исключено строк: {d.get('count')}. Для них нет полного Level-1/3 input; Reach не моделировался.", "WARNING")
         elif code == "SOURCE_REACH_CURVE_INVALID":
             add("DATA QUALITY", "IMPORT", "Невалидная source Reach-кривая",
                 d.get("message") or "В исходном МП Reach @N+ нарушает монотонность.", "ERROR")
         elif code == "SOURCE_DATE_RANGE_INVALID":
             add("DATA QUALITY", "IMPORT", "Ошибка диапазона дат в исходном МП",
                 d.get("message") or "Дата окончания раньше даты начала; silent repair запрещён.", "ERROR")
+        elif code == "SOURCE_IMPORT_WARNING":
+            add("DATA QUALITY", "IMPORT", "Предупреждение парсера",
+                d.get("message") or "Источник требует проверки.", "WARNING")
         elif code in {"L4_CHANNEL", "L5_FLIGHT", "L6_LINE", "L7_BRAND"}:
             path = d.get("model_path")
             if path and ("MAXENT" in path or "ADDRESSABILITY_NEUTRAL" in path):

@@ -235,19 +235,19 @@
 
         <div class="v16-auto-strip">
           <div>
-            <span class="v16-auto-label">B — browser ID на одно web-устройство</span>
+            <span class="v16-auto-label">B — среднее число browser ID на одно web-устройство</span>
             <strong>B = ${num(rec.B,2)}</strong>
             <small>Диапазон для этой ЦА: ${fmtRange(rec.B_min,rec.B_max)} · рассчитывается автоматически по ЦА.</small>
           </div>
           <div>
-            <span class="v16-auto-label">D — устройств на одного человека</span>
+            <span class="v16-auto-label">D — среднее число устройств на одного человека</span>
             <strong>D = ${num(rec.D,2)}</strong>
             <small>Диапазон для этой ЦА: ${fmtRange(rec.D_min,rec.D_max)} · рассчитывается автоматически по ЦА.</small>
           </div>
           <div>
             <span class="v16-auto-label">L — период стабильности browser ID Chromium</span>
             <strong>L = 68 дней</strong>
-            <small>Фиксированное значение методологии v1.6.</small>
+            <small>Фиксированное значение методологии v1.6 · применяется автоматически.</small>
           </div>
         </div>
 
@@ -468,7 +468,7 @@
     const rows=v16Data?.hierarchy||[];
     let h='<thead><tr><th>Уровень</th><th>Line</th><th>Flight</th><th class="num">Universe</th><th class="num">Impressions</th>'+
       [1,2,3,4,5,6].map(k=>`<th class="num">@${k}+<span class="v16-th-sub">% U · чел.</span></th>`).join('')+
-      '<th class="num">Среднее число контактов</th><th class="num">Gross Reach</th><th class="num">Дедупликация<span class="v16-th-sub">чел. · % от Gross Reach</span></th><th>Модель объединения</th></tr></thead><tbody>';
+      '<th class="num">Среднее число контактов</th><th class="num">Gross Reach</th><th class="num">Повторная аудитория<span class="v16-th-sub">% Gross Reach · чел.</span></th><th>Модель объединения</th></tr></thead><tbody>';
     for(const r of rows){
       h+=`<tr class="${rowClass(r.level)}">
         <td data-label="Уровень"><strong>${esc(indentLabel(r))}</strong></td>
@@ -481,7 +481,7 @@
       const invariantOk=Math.abs((gross-dedup)-unique)<=Math.max(1,Math.abs(gross)*1e-8) && dedup>=-1e-6 && dedup<=gross+1e-6;
       h+=`<td data-label="Среднее число контактов" class="num"><strong>${r.avg_frequency!=null?num(r.avg_frequency,1):'—'} на @1+ человека</strong></td>
         <td data-label="Gross Reach" class="num">${r.gross_reach_sum!=null?num(r.gross_reach_sum,0):'—'}</td>
-        <td data-label="Дедупликация" class="num v16-dedup-cell ${invariantOk?'':'invalid'}"><strong>${r.dedup_people!=null?num(r.dedup_people,0):'—'}</strong><span class="v16-pct">${r.dedup_rate!=null?pct(r.dedup_rate,2):'—'}</span></td>
+        <td data-label="Повторная аудитория" class="num v16-dedup-cell ${invariantOk?'':'invalid'}"><strong>${r.dedup_rate!=null?pct(r.dedup_rate,2):'—'}</strong><span class="v16-pct">${r.dedup_people!=null?num(r.dedup_people,0):'—'}</span></td>
         <td data-label="Модель объединения">${esc(friendlyModelPath(r.model_path))}</td></tr>`;
     }
     $(ids.table).innerHTML=h+'</tbody>';
@@ -490,7 +490,7 @@
   function renderContributions(){
     const rows=v16Data?.contribution_rows||[],table=$(ids.contrib);
     if(!rows.length){table.innerHTML='<tbody><tr><td class="hint">Нет данных для сравнения вклада площадок.</td></tr></tbody>';return}
-    let h='<thead><tr><th>Канал</th><th>Площадка</th><th>Формат</th><th class="num">Вклад в Reach, чел.<span class="v16-th-sub">% от родительского Reach</span></th><th class="num">Эксклюзивная аудитория, чел.<span class="v16-th-sub">% от родительского Reach</span></th><th class="num">Учтённые пересечения, чел.<span class="v16-th-sub">% от родительского Reach</span></th></tr></thead><tbody>';
+    let h='<thead><tr><th>Канал</th><th>Площадка</th><th>Формат</th><th class="num">Вклад в Reach (чел.)</th><th class="num">Эксклюзивная аудитория (чел.)</th><th class="num">Учтённая часть пересечений (чел.)</th></tr></thead><tbody>';
     let lastFlight=null;
     for(const r of rows){
       if(r.flight!==lastFlight){
@@ -498,7 +498,7 @@
         lastFlight=r.flight;
       }
       const parent=Number(r.parent_reach||0),sh=Number(r.shapley_people||0),ex=Number(r.exclusive_people||0),shared=Number(r.shared_people??Math.max(0,sh-ex));
-      const cell=(value)=>`<strong>${num(value,0)}</strong><span class="v16-pct">${parent?pct(value/parent,2):'—'}</span>`;
+      const cell=(value)=>`<strong>${parent?pct(value/parent,2):'—'}</strong><span class="v16-pct">${num(value,0)}</span>`;
       if(r.kind==='channel_subtotal'){
         h+=`<tr class="v16-channel-subtotal">
           <td><strong>Итого ${esc(r.channel||'')}</strong></td><td></td><td></td>
@@ -537,7 +537,7 @@
       const kind=d.severity==='ERROR'?'err':d.severity==='WARNING'?'warn':'ok',e=explain(d);
       return `<div class="v16-business-item ${kind}">
         <div class="v16-business-head">${badge(d.tag||'INFO',kind)}<strong>${esc(d.title||'')}</strong><span>Level ${esc(d.level??'—')}</span></div>
-        <div class="v16-business-message">${esc((d.severity==='ERROR'?friendlyV16Error(d.message):d.message)||'')}</div>
+        <div class="v16-business-message">${esc(d.message||'')}</div>
         <div class="v16-business-help"><div><b>${esc(e[0])}</b><span>${esc(e[1])}</span></div><div><b>${esc(e[2])}</b><span>${esc(e[3])}</span></div></div>
       </div>`;
     }).join('')+'</div>';
