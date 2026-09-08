@@ -433,6 +433,45 @@ class ReachV16Tests(unittest.TestCase):
         )
 
 
+    def test_hierarchy_exposes_platform_rows_under_channel(self):
+        U = 10_000_000.0
+        unit = {
+            "unit_id": "u1", "platform": "VK", "name": "VK",
+            "impressions": 3_000_000.0, "reach_1p": 1_500_000.0,
+            "reach_2p": 900_000.0, "reach_3p": 600_000.0,
+            "reach_4p": 450_000.0, "reach_5p": 350_000.0,
+            "reach_6p": 280_000.0, "avg_frequency": 2.0,
+        }
+        channel = {
+            "name": "OLV", "impressions": 3_000_000.0,
+            "reach_1p": 1_500_000.0, "reach_2p": 900_000.0,
+            "reach_3p": 600_000.0, "reach_4p": 450_000.0,
+            "reach_5p": 350_000.0, "reach_6p": 280_000.0,
+            "avg_frequency": 2.0, "families": [{"inventory_units": [unit]}],
+        }
+        flight = {
+            "name": "Flight 1", "channels": [channel],
+            "impressions": 3_000_000.0, "reach_1p": 1_500_000.0,
+            "reach_2p": 900_000.0, "reach_3p": 600_000.0,
+            "reach_4p": 450_000.0, "reach_5p": 350_000.0,
+            "reach_6p": 280_000.0, "avg_frequency": 2.0,
+        }
+        line = {
+            "label": "Line A", "name": "Line A", "universe": U,
+            "flights": [flight], "impressions": 3_000_000.0,
+            "reach_1p": 1_500_000.0, "reach_2p": 900_000.0,
+            "reach_3p": 600_000.0, "reach_4p": 450_000.0,
+            "reach_5p": 350_000.0, "reach_6p": 280_000.0,
+            "avg_frequency": 2.0,
+        }
+        rows = r._hierarchy([line], None, None)
+        self.assertEqual([x["level"] for x in rows], ["Channel", "Platform", "Flight", "Line"])
+        platform = rows[1]
+        self.assertEqual(platform["name"], "VK")
+        self.assertEqual(platform["channel"], "OLV")
+        self.assertEqual(platform["reach_3p"], 600_000.0)
+
+
 
 class ReachV16FinalUxContractTests(unittest.TestCase):
     @classmethod
@@ -465,26 +504,19 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("на @1+ человека", self.js)
         self.assertIsNone(re.search(r"\d(?:[.,]\d+)?на\s*@", self.js))
 
-    def test_contribution_table_uses_human_hierarchy_and_scope_labels(self):
+    def test_standalone_contribution_is_removed_and_hierarchy_has_drilldown(self):
         surface = self.js + "\n" + self.html
-        self.assertIn("Вклад площадок и каналов в итоговый охват", self.html)
-        self.assertIn("Вклад в общий охват", self.js)
-        self.assertIn("Уникальная аудитория", self.js)
-        self.assertIn("Пересечение с другими", self.js)
-        self.assertIn("Итого по каналу:", self.js)
-        self.assertIn("общий охват флайта", self.js)
-        self.assertIn("от охвата канала", self.js)
-        self.assertIn("от охвата флайта", self.js)
-        self.assertNotIn("родительского Reach", surface)
-        self.assertNotIn("Родительский Reach", surface)
-        self.assertIn("v16-flight-divider", self.js)
-        self.assertIn("v16-channel-subtotal", self.js)
-        self.assertIn("Contribution hierarchy redesign", self.css)
-        self.assertIn("padding:7px 11px", self.css)
-        match = re.search(r"const cell=\(value,parent,scope\)=>`([^\n]+)`", self.js)
-        self.assertIsNotNone(match)
-        cell = match.group(1)
-        self.assertLess(cell.index("num(value,0)"), cell.index("pct(value/parent,2)"))
+        self.assertNotIn("v16ContributionTable", self.html)
+        self.assertNotIn("Вклад площадок и каналов в итоговый охват", self.html)
+        self.assertNotIn("renderContributions", self.js)
+        self.assertIn("Итоги охвата по каналам и площадкам", self.html)
+        self.assertIn("v16-hierarchy-toggle", self.js)
+        self.assertIn("v16-platform-child hidden", self.js)
+        self.assertIn("Показать площадки", self.js)
+        self.assertIn("const tf=targetFrequency()", self.js)
+        self.assertIn("tf===1?[1]:[1,tf]", self.js)
+        self.assertIn("выбранная частота", self.js)
+        self.assertNotIn("↳", self.js)
 
     def test_dedup_cell_shows_people_then_percent_and_checks_invariant(self):
         self.assertIn('Дедупликация<span class="v16-th-sub">чел. · % от Gross Reach</span>', self.js)
@@ -493,17 +525,21 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertLess(cell.index("num(r.dedup_people,0)"), cell.index("pct(r.dedup_rate,2)"))
         self.assertIn("gross-dedup", self.js)
 
-    def test_overview_dashboard_has_three_cards_and_chart(self):
+    def test_overview_status_and_frequency_layout_match_feedback(self):
         self.assertIn('class="v16-overview-card v16-overview-status', self.js)
+        self.assertIn("v16-overview-status-detail", self.js)
+        self.assertIn("Это не ошибка расчёта", self.js)
         self.assertIn('class="v16-overview-card v16-overview-frequency"', self.js)
-        self.assertIn('class="v16-overview-card v16-overview-summary"', self.js)
         self.assertIn("Охват по частоте", self.js)
-        self.assertIn("Ключевые результаты", self.js)
-        self.assertIn("выбранная KPI-частота", self.js)
-        self.assertIn('id="v16Metrics" class="v16-overview-grid"', self.html)
+        self.assertNotIn("выбранная KPI-частота", self.js)
+        self.assertIn("v16-overview-reach-row ${selected?'selected':''}", self.js)
+        self.assertIn("v16-frequency-analysis-grid", self.html)
+        self.assertIn("v16-frequency-chart-panel", self.html)
+        self.assertIn("v16-frequency-exact-panel", self.html)
+        self.assertIn("const W=360,H=190", self.js)
         self.assertIn("<polyline points=", self.js)
         self.assertIn('aria-label="Кривая Effective Reach @1+…@6+"', self.js)
-        self.assertNotIn("v16-profile-grid compact", self.js)
+        self.assertIn("grid-template-columns:minmax(320px,.72fr) minmax(620px,1.28fr)", self.css)
 
     def test_quick_k_stays_canonical_default(self):
         self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.40)
