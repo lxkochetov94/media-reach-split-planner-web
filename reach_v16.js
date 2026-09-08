@@ -10,7 +10,7 @@
     brandScopeConfirm:'v16BrandScopeConfirm',expertJson:'v16ExpertJson',
     targetF:'v16TargetFrequency',calc:'v16Calc',
     metrics:'v16Metrics',table:'v16Table',warning:'v16Warning',diag:'v16Diagnostics',
-    profile:'v16FrequencyProfile',exact:'v16ExactFrequency',contrib:'v16ContributionTable',
+    profile:'v16FrequencyProfile',exact:'v16ExactFrequency',
     inputAudit:'v16InputAudit',l2Decision:'v16L2Decision',modelMap:'v16ModelMap',results:'v16Results',
     businessDiag:'v16BusinessDiagnostics',trace:'v16AppliedTrace'
   };
@@ -20,8 +20,8 @@
     if(!coreReady)throw new Error('Базовый парсер не готов');
     if(v16ModuleReady)return;
     const [mathResp,adapterResp]=await Promise.all([
-      fetch('reach_v16_math.py?v=1.6.10'),
-      fetch('reach_v16.py?v=1.6.10')
+      fetch('reach_v16_math.py?v=1.6.14'),
+      fetch('reach_v16.py?v=1.6.14')
     ]);
     if(!mathResp.ok||!adapterResp.ok)throw new Error('Не удалось загрузить канонический Reach Engine v1.6');
     const [mathTxt,adapterTxt]=await Promise.all([mathResp.text(),adapterResp.text()]);
@@ -374,26 +374,38 @@
       wrap.innerHTML=`<div class="v16-overview-card v16-overview-empty warn"><strong>Итоговый результат пока не рассчитан.</strong><span>${esc(friendlyV16Error(v16Data?.brand_error||''))}</span></div>`;
       return;
     }
-    const warnings=(v16Data?.business_diagnostics||[]).filter(x=>x.severity==='WARNING').length;
-    const errors=(v16Data?.business_diagnostics||[]).filter(x=>x.severity==='ERROR').length;
-    const stateKind=errors?'err':warnings?'warn':'ok';
-    const stateTitle=errors?'Расчёт требует проверки':warnings?'Расчёт выполнен, есть предупреждения':'Расчёт выполнен';
-    const issueCount=errors||warnings;
-    const issueLabel=errors
+    const diagnostics=v16Data?.business_diagnostics||[];
+    const warnings=diagnostics.filter(x=>x.severity==='WARNING');
+    const errors=diagnostics.filter(x=>x.severity==='ERROR');
+    const stateKind=errors.length?'err':warnings.length?'warn':'ok';
+    const stateTitle=errors.length?'Расчёт требует проверки':warnings.length?'Расчёт выполнен, есть предупреждения':'Расчёт выполнен';
+    const issues=errors.length?errors:warnings;
+    const issueCount=issues.length;
+    const issueLabel=errors.length
       ? issueCount===1?'ошибка':issueCount>=2&&issueCount<=4?'ошибки':'ошибок'
-      : warnings
+      : warnings.length
         ? issueCount===1?'предупреждение':issueCount>=2&&issueCount<=4?'предупреждения':'предупреждений'
         : 'без предупреждений';
-    const stateIcon=errors||warnings?'!':'✓';
+    const stateIcon=errors.length||warnings.length?'!':'✓';
+    const firstIssue=issues[0];
+    const stateExplain=errors.length
+      ? 'Результат нельзя считать финальным, пока не исправлена указанная проблема во входных данных.'
+      : warnings.length
+        ? 'Это не ошибка расчёта. Результат получен, но в модели применено допущение, которое нужно учитывать при интерпретации.'
+        : 'Все обязательные входы прошли проверку. Результат можно использовать для планирования.';
+    const stateDetail=firstIssue?.title||(
+      warnings.length?'Применено модельное допущение':
+      errors.length?'Нужна проверка входных данных':
+      'Расчёт завершён без критических замечаний'
+    );
 
     const reachRows=[1,2,3,4,5,6].map(k=>{
       const val=Number(reachAt(top,k)),share=u&&Number.isFinite(val)?val/u:null,selected=k===tf;
-      const row=`<div class="v16-overview-reach-row ${selected?'selected':''}">
+      return `<div class="v16-overview-reach-row ${selected?'selected':''}">
         <span class="v16-overview-frequency-key">@${k}+</span>
         <strong>${share!=null?pct(share,2):'—'}</strong>
         <b>${Number.isFinite(val)?num(val,0)+' человек':'—'}</b>
       </div>`;
-      return row+(selected?`<div class="v16-overview-kpi-note"><span>★</span><strong>выбранная KPI-частота</strong></div>`:'');
     }).join('');
 
     const avg=top.avg_frequency!=null?num(top.avg_frequency,1):'—';
@@ -401,12 +413,20 @@
 
     wrap.innerHTML=`
       <section class="v16-overview-card v16-overview-status ${stateKind}">
-        <div class="v16-overview-status-icon">${stateIcon}</div>
-        <h3>${stateTitle}</h3>
-        <div class="v16-overview-status-divider"></div>
-        ${issueCount
-          ?`<strong class="v16-overview-status-count">${issueCount}</strong><span class="v16-overview-status-caption">${issueLabel}</span>`
-          :`<strong class="v16-overview-status-ok">Готово</strong><span class="v16-overview-status-caption">${issueLabel}</span>`}
+        <div class="v16-overview-status-top">
+          <div class="v16-overview-status-icon">${stateIcon}</div>
+          <div>
+            <h3>${stateTitle}</h3>
+            ${issueCount
+              ?`<div class="v16-overview-status-issue"><strong>${issueCount}</strong><span>${issueLabel}</span></div>`
+              :`<div class="v16-overview-status-issue ok"><strong>Готово</strong><span>${issueLabel}</span></div>`}
+          </div>
+        </div>
+        <div class="v16-overview-status-detail">
+          <b>${esc(stateDetail)}</b>
+          <span>${esc(stateExplain)}</span>
+          ${issueCount?'<small>Подробности — в блоке предупреждений и технической диагностике ниже.</small>':''}
+        </div>
       </section>
 
       <section class="v16-overview-card v16-overview-frequency">
@@ -442,7 +462,7 @@
       return {k,val,share,pct:share*100};
     });
     const maxPct=Math.max(1,...pts.map(x=>x.pct));
-    const W=620,H=190,L=46,R=16,T=18,B=36;
+    const W=360,H=190,L=42,R=12,T=18,B=36;
     const x=k=>L+(k-1)*(W-L-R)/5;
     const y=p=>T+(maxPct-p)*(H-T-B)/maxPct;
     const poly=pts.map(p=>`${x(p.k).toFixed(1)},${y(p.pct).toFixed(1)}`).join(' ');
@@ -480,103 +500,59 @@
   function reachCell(r,k){
     const u=Number(r.universe),val=Number(r[`reach_${k}p`]);
     if(!Number.isFinite(val))return '<span class="na">—</span>';
-    return `<strong>${u>0?pct(val/u,2):'—'}</strong><span class="v16-pct">${num(val,0)}</span>`;
+    return `<strong>${u>0?pct(val/u,2):'—'}</strong><span class="v16-pct">${num(val,0)} человек</span>`;
   }
 
-  function rowClass(level){return level==='Brand'?'v16-level-brand':level==='Line'?'v16-level-line':level==='Flight'?'v16-level-flight':'v16-level-channel'}
-  function indentLabel(r){return r.level==='Brand'?'BRAND · '+r.name:r.level==='Line'?'LINE · '+r.name:r.level==='Flight'?'↳ FLIGHT · '+r.name:'↳↳ CHANNEL · '+r.name}
+  function hierarchyType(level){
+    return level==='Brand'?'Кампания':level==='Line'?'Линейка':level==='Flight'?'Флайт':level==='Platform'?'Площадка':'Канал';
+  }
+  function hierarchyClass(level){
+    return level==='Brand'?'v16-level-brand':level==='Line'?'v16-level-line':level==='Flight'?'v16-level-flight':level==='Platform'?'v16-level-platform':'v16-level-channel';
+  }
   function renderTable(){
-    const rows=v16Data?.hierarchy||[];
-    let h='<thead><tr><th>Уровень</th><th>Line</th><th>Flight</th><th class="num">Universe</th><th class="num">Impressions</th>'+
-      [1,2,3,4,5,6].map(k=>`<th class="num">@${k}+<span class="v16-th-sub">% U · чел.</span></th>`).join('')+
-      '<th class="num">Среднее число контактов</th><th class="num">Gross Reach</th><th class="num">Дедупликация<span class="v16-th-sub">чел. · % от Gross Reach</span></th><th>Модель объединения</th></tr></thead><tbody>';
+    const rows=v16Data?.hierarchy||[],table=$(ids.table);
+    if(!table)return;
+    const tf=targetFrequency(),freqs=tf===1?[1]:[1,tf];
+    const contextKey=r=>[r.line||'',r.flight||'',r.channel||r.name||''].join('||');
+    const channelKeys=new Map();
+    let seq=0;
+    rows.filter(r=>r.level==='Channel').forEach(r=>channelKeys.set(contextKey(r),'ch'+(++seq)));
+
+    let h='<thead><tr><th>Уровень / объект</th><th>Линейка</th><th>Флайт</th><th class="num">Universe</th><th class="num">Impressions</th>'+
+      freqs.map(k=>`<th class="num v16-hierarchy-kpi">@${k}+<span class="v16-th-sub">% ЦА · люди${k===tf?' · выбранная частота':''}</span></th>`).join('')+
+      '<th class="num">Среднее число контактов</th><th class="num">Дедупликация<span class="v16-th-sub">чел. · % Gross Reach</span></th><th>Модель объединения</th></tr></thead><tbody>';
+
     for(const r of rows){
-      h+=`<tr class="${rowClass(r.level)}">
-        <td data-label="Уровень"><strong>${esc(indentLabel(r))}</strong></td>
-        <td data-label="Line">${esc(r.line||'')}</td>
-        <td data-label="Flight">${esc(r.flight||'')}</td>
-        <td data-label="Universe" class="num">${num(r.universe,0)}</td>
-        <td data-label="Impressions" class="num">${num(r.impressions,0)}</td>`;
-      for(let k=1;k<=6;k++)h+=`<td data-label="@${k}+" class="num v16-reach-cell">${reachCell(r,k)}</td>`;
+      const level=r.level||'Channel',type=hierarchyType(level),cls=hierarchyClass(level);
+      const key=level==='Platform'?channelKeys.get(contextKey(r)):level==='Channel'?channelKeys.get(contextKey(r)):null;
+      const hasPlatforms=level==='Channel' && rows.some(x=>x.level==='Platform'&&contextKey(x)===contextKey(r));
+      const isPlatform=level==='Platform';
+      const toggle=hasPlatforms
+        ?`<button type="button" class="v16-hierarchy-toggle" data-channel-key="${esc(key)}" aria-expanded="false" title="Показать площадки">+</button>`
+        :'<span class="v16-hierarchy-toggle-spacer"></span>';
+      const object=`<div class="v16-hierarchy-object">${isPlatform?'<span class="v16-hierarchy-toggle-spacer"></span>':toggle}<span class="v16-hierarchy-type ${level.toLowerCase()}">${esc(type)}</span><strong>${esc(r.name||'—')}</strong></div>`;
       const gross=Number(r.gross_reach_sum||0),dedup=Number(r.dedup_people||0),unique=Number(r.reach_1p||0);
-      const invariantOk=Math.abs((gross-dedup)-unique)<=Math.max(1,Math.abs(gross)*1e-8) && dedup>=-1e-6 && dedup<=gross+1e-6;
-      h+=`<td data-label="Среднее число контактов" class="num"><strong>${r.avg_frequency!=null?num(r.avg_frequency,1):'—'} на @1+ человека</strong></td>
-        <td data-label="Gross Reach" class="num">${r.gross_reach_sum!=null?num(r.gross_reach_sum,0):'—'}</td>
+      const invariantOk=!gross||Math.abs((gross-dedup)-unique)<=Math.max(1,Math.abs(gross)*1e-8) && dedup>=-1e-6 && dedup<=gross+1e-6;
+      const rowAttrs=isPlatform?` data-parent-channel="${esc(key||'')}"`:'';
+      h+=`<tr class="${cls}${isPlatform?' v16-platform-child hidden':''}"${rowAttrs}>
+        <td data-label="Уровень / объект">${object}</td>
+        <td data-label="Линейка">${esc(r.line||'')}</td>
+        <td data-label="Флайт">${esc(r.flight||'')}</td>
+        <td data-label="Universe" class="num">${num(r.universe,0)}</td>
+        <td data-label="Impressions" class="num">${r.impressions!=null?num(r.impressions,0):'—'}</td>`;
+      for(const k of freqs)h+=`<td data-label="@${k}+" class="num v16-reach-cell ${k===tf?'selected':''}">${reachCell(r,k)}</td>`;
+      h+=`<td data-label="Среднее число контактов" class="num"><strong>${r.avg_frequency!=null?num(r.avg_frequency,1)+' на @1+ человека':'—'}</strong></td>
         <td data-label="Дедупликация" class="num v16-dedup-cell ${invariantOk?'':'invalid'}"><strong>${r.dedup_people!=null?num(r.dedup_people,0):'—'}</strong><span class="v16-pct">${r.dedup_rate!=null?pct(r.dedup_rate,2):'—'}</span></td>
-        <td data-label="Модель объединения">${esc(friendlyModelPath(r.model_path))}</td></tr>`;
-    }
-    $(ids.table).innerHTML=h+'</tbody>';
-  }
-
-  function renderContributions(){
-    const rows=v16Data?.contribution_rows||[],table=$(ids.contrib);
-    if(!rows.length){
-      table.innerHTML='<tbody><tr><td class="hint">Нет данных для сравнения вклада площадок.</td></tr></tbody>';
-      return;
-    }
-
-    const lineCount=new Set(rows.map(r=>String(r.line||'').trim()).filter(Boolean)).size;
-    const flightKey=r=>String(r.line||'')+'||'+String(r.flight||'');
-    const flightReach={};
-    rows.forEach(r=>{
-      const key=flightKey(r),parent=Number(r.parent_reach||0);
-      if(r.kind==='channel_subtotal' && parent>0 && !flightReach[key])flightReach[key]=parent;
-    });
-    const friendlyFlight=name=>{
-      const raw=String(name||'Флайт').trim();
-      const m=raw.match(/^Flight\s*(\d+)(.*)$/i);
-      return m?'Флайт '+m[1]+(m[2]||''):raw;
-    };
-    const scopeText=r=>r.kind==='channel_subtotal'?'от охвата флайта':'от охвата канала';
-    const cell=(value,parent,scope)=>`<strong>${num(value,0)}</strong><span class="v16-pct">${parent?pct(value/parent,2):'—'} <em>${esc(scope)}</em></span>`;
-
-    let h=`<colgroup>
-      <col class="v16-contrib-col-channel"><col class="v16-contrib-col-platform"><col class="v16-contrib-col-format">
-      <col class="v16-contrib-col-metric"><col class="v16-contrib-col-metric"><col class="v16-contrib-col-metric">
-    </colgroup>
-    <thead><tr>
-      <th>Канал</th>
-      <th>Площадка</th>
-      <th>Формат</th>
-      <th class="num">Вклад в общий охват<span class="v16-th-sub">человек · доля в охвате</span></th>
-      <th class="num">Уникальная аудитория<span class="v16-th-sub">человек · только этот канал / площадка</span></th>
-      <th class="num">Пересечение с другими<span class="v16-th-sub">человек · аудитория видела и другие размещения</span></th>
-    </tr></thead><tbody>`;
-
-    let lastFlightKey=null;
-    for(const r of rows){
-      const key=flightKey(r);
-      if(key!==lastFlightKey){
-        const label=(lineCount>1 && r.line?esc(r.line)+' · ':'')+esc(friendlyFlight(r.flight));
-        const fr=flightReach[key];
-        h+=`<tr class="v16-flight-divider">
-          <td colspan="3"><div class="v16-flight-title"><span class="v16-flight-chevron">⌄</span><strong>${label}</strong></div></td>
-          <td colspan="3" class="v16-flight-total">${fr?'<strong>'+num(fr,0)+'</strong><span>общий охват флайта · 100%</span>':''}</td>
-        </tr>`;
-        lastFlightKey=key;
-      }
-
-      const parent=Number(r.parent_reach||0),sh=Number(r.shapley_people||0),ex=Number(r.exclusive_people||0),shared=Number(r.shared_people??Math.max(0,sh-ex));
-      const scope=scopeText(r);
-      if(r.kind==='channel_subtotal'){
-        h+=`<tr class="v16-channel-subtotal">
-          <td colspan="3"><div class="v16-channel-total-title"><span class="v16-channel-total-mark"></span><strong>Итого по каналу: ${esc(r.channel||'')}</strong></div></td>
-          <td class="num">${cell(sh,parent,scope)}</td>
-          <td class="num">${cell(ex,parent,scope)}</td>
-          <td class="num">${cell(shared,parent,scope)}</td>
-        </tr>`;
-      }else{
-        h+=`<tr class="v16-platform-row">
-          <td data-label="Канал">${esc(r.channel||'')}</td>
-          <td data-label="Площадка"><strong>${esc(r.platform||'—')}</strong></td>
-          <td data-label="Формат">${esc(r.format||'—')}</td>
-          <td data-label="Вклад в общий охват" class="num">${cell(sh,parent,scope)}</td>
-          <td data-label="Уникальная аудитория" class="num">${cell(ex,parent,scope)}</td>
-          <td data-label="Пересечение с другими" class="num">${cell(shared,parent,scope)}</td>
-        </tr>`;
-      }
+        <td data-label="Модель объединения">${r.model_path?esc(friendlyModelPath(r.model_path)):'—'}</td></tr>`;
     }
     table.innerHTML=h+'</tbody>';
+    table.querySelectorAll('.v16-hierarchy-toggle').forEach(btn=>btn.addEventListener('click',()=>{
+      const key=btn.dataset.channelKey,open=btn.getAttribute('aria-expanded')==='true';
+      btn.setAttribute('aria-expanded',String(!open));
+      btn.textContent=open?'+':'−';
+      btn.title=open?'Показать площадки':'Скрыть площадки';
+      table.querySelectorAll(`.v16-platform-child[data-parent-channel="${CSS.escape(key)}"]`).forEach(row=>row.classList.toggle('hidden',open));
+    }));
   }
 
   function renderBusinessDiagnostics(){
@@ -656,7 +632,7 @@
   function renderResults(){
     if(!v16Data)return;
     $(ids.results).classList.remove('hidden');
-    renderMetrics();renderFrequencyProfile();renderExactFrequency();renderContributions();renderTable();
+    renderMetrics();renderFrequencyProfile();renderExactFrequency();renderTable();
     renderBusinessDiagnostics();renderAppliedTrace();renderDiagnostics();
     renderL2Decision();renderModelMap();
   }
