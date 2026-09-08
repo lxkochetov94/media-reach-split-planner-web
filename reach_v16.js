@@ -20,8 +20,8 @@
     if(!coreReady)throw new Error('Базовый парсер не готов');
     if(v16ModuleReady)return;
     const [mathResp,adapterResp]=await Promise.all([
-      fetch('reach_v16_math.py?v=1.6.18'),
-      fetch('reach_v16.py?v=1.6.18')
+      fetch('reach_v16_math.py?v=1.6.19'),
+      fetch('reach_v16.py?v=1.6.19')
     ]);
     if(!mathResp.ok||!adapterResp.ok)throw new Error('Не удалось загрузить канонический Reach Engine v1.6');
     const [mathTxt,adapterTxt]=await Promise.all([mathResp.text(),adapterResp.text()]);
@@ -323,16 +323,16 @@
       const explanation=detailed
         ?`Для Digital/Web-размещений используется детальный путь. Если environment/browser family не размечены, Detailed Web применяет прозрачные Web/Chromium-допущения. U_D при отсутствии измерения строится от автоматического D, поэтому ручной D больше не компенсирует сам себя.`
         :kOverride
-          ?`AUTO использует только K как пользовательский параметр. B, D и L выбираются движком автоматически и не могут быть изменены в этом режиме.`
-          :`AUTO использует K = ${num(K,2)} и автоматически выбирает остальные параметры. B, D и L заблокированы, чтобы скрытые значения не влияли на расчёт.`;
+          ?`AUTO использует только K как пользовательский параметр. Изменение K пересчитывает Human Reach; B, D и L в этом режиме не участвуют.`
+          :`AUTO — самостоятельный быстрый расчёт для массового планирования. Он использует Technical Reach, исходную Frequency и K = ${num(K,2)}. B, D и L в AUTO полностью отключены.`;
       const benchmark=sourceCurve
-        ?`В медиаплане найдена валидная source Reach-кривая. Она используется как baseline benchmark; изменение коэффициентов двигает результат относительно неё по чувствительности модели.`
-        :`Source Reach-кривая в медиаплане не найдена — используется независимый модельный расчёт без калибровочного benchmark.`;
+        ?`В медиаплане найдена итоговая Reach-кривая. Она используется только как QA-сравнение после расчёта и никак не меняет результат AUTO или Detailed.`
+        :`Готовой Reach-кривой в медиаплане нет — это нормально: AUTO рассчитывает охват полностью самостоятельно.`;
       return `<details class="v16-decision ${detailed?'advanced':'fallback'}">
         <summary><strong>${esc(p.meta.label||p.id)}</strong><span>${esc(status)}</span></summary>
         <div class="v16-decision-body">
           <div class="v16-formula-path compact">
-            <span>Technical Reach</span><b>→</b><span>${detailed?'Detailed Web + benchmark calibration':'AUTO K + benchmark calibration'}</span><b>→</b><span>Human Reach</span>
+            <span>Technical Reach</span><b>→</b><span>${detailed?'Detailed Web B / D / L':'AUTO planner model + K'}</span><b>→</b><span>Human Reach</span>
           </div>
           <div class="v16-decision-why">${esc(explanation)}</div>
           <div class="v16-note">${esc(benchmark)}</div>
@@ -415,29 +415,20 @@
 
     const mode=currentMode(),K=currentK(),kOverride=currentKIsOverride();
     const l2Advanced=rawDiagnostics.filter(d=>d.code==='L2_ADVANCED');
-    const l2Quick=rawDiagnostics.filter(d=>d.code==='L2_QUICK');
+    const l2Auto=rawDiagnostics.filter(d=>d.code==='L2_AUTO');
     const modeledUD=l2Advanced.some(d=>String(d.U_D_source||'').startsWith('MODEL_DERIVED_U_X_D'));
-    let modelDetail='Расчёт выполнен автоматически';
-    let modelExplain=`Движок сам выбрал Level 2 для каждого размещения. Стандартный K = ${num(K,2)} используется там, где детальный Web-путь не нужен или для него недостаточно измеренных входов.`;
+    let modelDetail=kOverride
+      ?`AUTO рассчитан с заданным K = ${num(K,2)}`
+      :'AUTO рассчитан независимо от готового Reach в медиаплане';
+    let modelExplain=kOverride
+      ?`K изменён пользователем, поэтому Human Reach и частотная кривая пересчитаны. Source Reach, если он есть в файле, используется только для QA-сравнения.`
+      :`Быстрый AUTO использует Technical Reach, исходную Frequency и стандартный K = ${num(K,2)}. Готовый Reach из медиаплана не входит в формулу.`;
 
-    const calibrated=!!top.source_calibrated || rawDiagnostics.some(d=>d.code==='SOURCE_REACH_CALIBRATION');
-    if(calibrated){
-      modelDetail=mode==='ADVANCED_WEB'
-        ?'Detailed Web откалиброван по Reach-кривой медиаплана'
-        :kOverride
-          ?`AUTO откалиброван по source Reach · K = ${num(K,2)}`
-          :'AUTO откалиброван по Reach-кривой медиаплана';
-      modelExplain=mode==='ADVANCED_WEB'
-        ?`Baseline совпадает с валидной source Reach-кривой. B, D и L реально меняют Detailed Web-расчёт; U_D без измерения строится от auto-D, поэтому ручной D не компенсируется внутри собственного denominator.`
-        :`При K = 2,44 baseline совпадает с валидной source Reach-кривой. Если K меняется, Reach пересчитывается относительно benchmark по фактической чувствительности модели.`;
-    }else if(mode==='ADVANCED_WEB'){
-      modelDetail=l2Advanced.length?'Детальный Web-расчёт применён':'Детальный Web-путь не потребовался';
+    if(mode==='ADVANCED_WEB'){
+      modelDetail=l2Advanced.length?'Детальный Web-расчёт применён':'Detailed Web частично использовал AUTO fallback';
       modelExplain=l2Advanced.length
-        ?`Для web-размещений Technical Reach переведён в людей через B, D и L. ${modeledUD?'При отсутствии измеренного U_D использован модельный device Universe на auto-D.':'Использован доступный измеренный U_D.'}${l2Quick.length?` Для остальных размещений применён K = ${num(K,2)}.`:''}`
-        :`В выбранных размещениях не оказалось строк, к которым применим детальный Web-путь; расчёт завершён через автоматический K-путь с K = ${num(K,2)}.`;
-    }else if(kOverride){
-      modelDetail=`Расчёт выполнен с заданным K = ${num(K,2)}`;
-      modelExplain=`Автоматический режим сохранён, но для строк, рассчитываемых через K, используется коэффициент, заданный пользователем. Override явно зафиксирован в диагностике.`;
+        ?`Для web-размещений Technical Reach переведён в людей через B, D и L. ${modeledUD?'При отсутствии измеренного U_D использован модельный device Universe на auto-D.':'Использован доступный измеренный U_D.'}${l2Auto.length?` Для неприменимых строк использован независимый AUTO fallback с K = ${num(K,2)}.`:''}`
+        :`Для строк, где Detailed Web неприменим, использован независимый AUTO fallback с K = ${num(K,2)}. Source Reach не влияет на расчёт.`;
     }
 
     const stateDetail=errors.length?(firstIssue?.title||'Нужна проверка входных данных'):modelDetail;
@@ -636,10 +627,11 @@
   function formatTrace(d){
     const code=d.code||'';
     if(code==='L1_TECHNICAL_REACH')return `Technical Reach = ${num(d.R_tech,0)} · source ${d.source} · F tolerance ${d.frequency_tolerance}`;
-    if(code==='L2_QUICK')return `Quick: Rpeople=Rtech/K · K=${num(d.K,2)} · reason=${d.reason||'selected'}`;
+    if(code==='L2_AUTO')return `AUTO: независимый planner path · K=${num(d.K,2)} · people factor=${num(d.people_factor,4)}`;
+    if(code==='L2_QUICK')return `Legacy Quick: Rpeople=Rtech/K · K=${num(d.K,2)}`;
     if(code==='L2_ADVANCED')return `Advanced ${d.environment}: ${(d.path||[]).join(' → ')} · K_time=${num(d.K_time,4)} · Rstable=${num(d.R_stable,0)} · Rdevice=${num(d.R_device,0)} · Rpeople=${num(d.R_people,0)}`;
     if(code==='L3A_PLATFORM_FLIGHT')return `${d.model_path} · U_p=${num(d.U_p,0)}${d.platform_universe_assumed?' (assumed U)':''} · ρ=${d.rho_base??'N/A'}`;
-    if(code==='L3B_EFFECTIVE_REACH')return `${d.model} · Fhuman=${num(d.F_human,3)} · σ=${d.sigma??'N/A'} · μ=${d.mu==null?'N/A':num(d.mu,4)} · residual=${d.solver_residual??0}`;
+    if(code==='L3B_EFFECTIVE_REACH')return `${d.model} · Fhuman=${num(d.F_human,3)} · Ftech=${d.technical_frequency==null?'N/A':num(d.technical_frequency,3)} · σ=${d.sigma??'N/A'} · μ=${d.mu==null?'N/A':num(d.mu,4)}`;
     if(code==='L4_CHANNEL')return `${d.channel}: ${d.model_path} · D overall=${pct(d.D_overall||0,2)} · solver ${d.solver_iterations??0} iter`;
     if(code==='L5_FLIGHT')return `${d.flight}: ρ target=${d.rho_target} → effective=${d.rho_effective} · λ=${d.lambda} · ${d.model_path}`;
     if(code==='L6_LINE')return `Flights → Line · λ=${d.lambda??1} · ${d.model_path} · D=${pct(d.D_L6||0,2)}`;
@@ -650,7 +642,7 @@
   function renderAppliedTrace(){
     const wrap=$(ids.trace);if(!wrap)return;
     const ds=v16Data?.diagnostics||[];
-    const keep=new Set(['L1_TECHNICAL_REACH','L2_QUICK','L2_ADVANCED','L3A_PLATFORM_FLIGHT','L3B_EFFECTIVE_REACH','L4_CHANNEL','L5_FLIGHT','L6_LINE','L7_BRAND']);
+    const keep=new Set(['L1_TECHNICAL_REACH','L2_AUTO','L2_QUICK','L2_ADVANCED','L3A_PLATFORM_FLIGHT','L3B_EFFECTIVE_REACH','L4_CHANNEL','L5_FLIGHT','L6_LINE','L7_BRAND']);
     const rows=ds.filter(d=>keep.has(d.code));
     if(!rows.length){wrap.innerHTML='<div class="hint">Расчётный путь не сформирован.</div>';return}
     const names={
