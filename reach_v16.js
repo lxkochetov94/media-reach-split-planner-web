@@ -404,7 +404,7 @@
       return `<div class="v16-overview-reach-row ${selected?'selected':''}">
         <span class="v16-overview-frequency-key">@${k}+</span>
         <strong>${share!=null?pct(share,2):'—'}</strong>
-        <b>${Number.isFinite(val)?num(val,0)+' человек':'—'}</b>
+        <b>${Number.isFinite(val)?num(val,0):'—'}</b>
       </div>`;
     }).join('');
 
@@ -461,13 +461,12 @@
       const val=Number(reachAt(top,k)||0),share=Math.max(0,Math.min(1,val/u));
       return {k,val,share,pct:share*100};
     });
-    const maxPct=Math.max(1,...pts.map(x=>x.pct));
-    const W=360,H=300,L=42,R=12,T=20,B=38;
-    const x=k=>L+(k-1)*(W-L-R)/5;
-    const y=p=>T+(maxPct-p)*(H-T-B)/maxPct;
+    const W=360,H=300,L=42,PLOT_L=62,R=12,T=20,B=38;
+    const x=k=>PLOT_L+(k-1)*(W-PLOT_L-R)/5;
+    const y=p=>T+(100-p)*(H-T-B)/100;
     const poly=pts.map(p=>`${x(p.k).toFixed(1)},${y(p.pct).toFixed(1)}`).join(' ');
-    const grid=[0,.25,.5,.75,1].map(f=>{
-      const p=maxPct*f,yy=y(p);
+    const grid=[0,25,50,75,100].map(p=>{
+      const yy=y(p);
       return `<g><line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="v16-chart-grid"/><text x="${L-6}" y="${yy+4}" text-anchor="end" class="v16-chart-axis">${num(p,0)}%</text></g>`;
     }).join('');
     const dots=pts.map(p=>`<g class="${p.k===tf?'selected':''}"><circle cx="${x(p.k)}" cy="${y(p.pct)}" r="${p.k===tf?5:4}" class="v16-chart-dot"/><text x="${x(p.k)}" y="${H-12}" text-anchor="middle" class="v16-chart-axis">@${p.k}+</text></g>`).join('');
