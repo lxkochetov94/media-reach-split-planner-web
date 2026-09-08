@@ -729,7 +729,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("Оставьте поле пустым для AUTO по ЦА или введите собственный D.", self.html)
         self.assertIn("меньше K — выше прогнозный Reach, больше K — ниже", self.html)
         self.assertIn("reach_v16.py?v=1.6.20", self.js)
-        self.assertIn("reach_v16.js?v=1.6.20", self.html)
+        self.assertIn("reach_v16.js?v=1.6.21", self.html)
 
     def test_automatic_exclusions_stay_out_of_main_business_diagnostics(self):
         out = r._business_diagnostics([
