@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 
 import reach_v16 as r
+import reach_v16_math as m
 
 
 def ent(name, reach, impressions=None, start=None, end=None, common=False):
@@ -196,6 +197,9 @@ class ReachV16Tests(unittest.TestCase):
             rtech * m.AUTO_BASE_PEOPLE_FACTOR,
             places=6,
         )
+        self.assertEqual(m.AUTO_REACHABILITY[3], 0.77)
+        curve = m.auto_frequency_reach(base["R_people"], 9_000_000.0, 3.0)
+        self.assertLess(curve["reach_3p"] / curve["reach_1p"], 0.50)
         self.assertNotIn("_calibrate_result_to_source", dir(r))
 
     def test_advanced_web_requires_capacity_validity(self):
@@ -647,8 +651,8 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
     def test_overview_status_and_frequency_layout_match_feedback(self):
         self.assertIn('class="v16-overview-card v16-overview-status', self.js)
         self.assertIn("v16-overview-status-detail", self.js)
-        self.assertIn("Расчёт выполнен автоматически", self.js)
-        self.assertIn("Расчёт выполнен с заданным K", self.js)
+        self.assertIn("AUTO рассчитан независимо от готового Reach в медиаплане", self.js)
+        self.assertIn("AUTO рассчитан с заданным K", self.js)
         self.assertIn("Детальный Web-расчёт применён", self.js)
         self.assertIn('class="v16-overview-card v16-overview-frequency"', self.js)
         self.assertIn("Охват по частоте", self.js)
