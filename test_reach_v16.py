@@ -367,6 +367,21 @@ class ReachV16Tests(unittest.TestCase):
             delta=1e-12,
         )
 
+    def test_line_universe_mismatch_is_normalized_not_blocked(self):
+        groups = [
+            {"id":"F1","label":"Flight 1","is_common":False,"ta_name":"Ж 25-45 BC","source_universe":60_413_100.0},
+            {"id":"F2","label":"Flight 2","is_common":False,"ta_name":"Ж 25-45 BC","source_universe":48_703_500.0},
+        ]
+        diagnostics = []
+        summary = r._validate_line_source_scope(
+            groups, 32_359_400.0, {}, "P1", diagnostics
+        )
+        self.assertTrue(summary["universe_mismatch"])
+        self.assertFalse(summary["ta_mismatch"])
+        self.assertTrue(any(d.get("code") == "LINE_UNIVERSE_NORMALIZED_AUTO" for d in diagnostics))
+        self.assertTrue(any(d.get("line_master_universe") == 32_359_400.0 for d in diagnostics))
+
+
     def test_single_line_brand_total_is_identity_without_brand_master_fields(self):
         U = 10_000_000
         line = r.merge_entities([ent("Flight 1", 3_000_000)], U, model_path="L6_LINE")
