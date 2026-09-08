@@ -627,3 +627,264 @@ details.v16-decision>summary span{font-size:10px;font-weight:700;color:var(--mut
   #tab-reach16 .v16-contrib-table{min-width:940px}
   #tab-reach16 .v16-flight-total span{display:block;margin:2px 0 0}
 }
+
+
+/* Final consolidated UX feedback batch */
+#tab-reach16 .v16-overview-status{
+  justify-content:flex-start;
+  gap:18px;
+  padding:24px;
+}
+#tab-reach16 .v16-overview-status-top{
+  display:flex;
+  align-items:flex-start;
+  gap:14px;
+}
+#tab-reach16 .v16-overview-status-top .v16-overview-status-icon{
+  flex:0 0 auto;
+  margin:0;
+  width:48px;
+  height:48px;
+  font-size:24px;
+}
+#tab-reach16 .v16-overview-status-top h3{
+  max-width:none;
+  font-size:18px;
+  line-height:1.25;
+}
+#tab-reach16 .v16-overview-status-issue{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  margin-top:8px;
+  color:#b56e00;
+}
+#tab-reach16 .v16-overview-status-issue strong{
+  font-size:24px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+#tab-reach16 .v16-overview-status-issue span{
+  color:#6c7f92;
+  font-size:11px;
+}
+#tab-reach16 .v16-overview-status-issue.ok{color:#2e7d32}
+#tab-reach16 .v16-overview-status-detail{
+  display:grid;
+  gap:7px;
+  margin-top:auto;
+  padding:14px;
+  border:1px solid #e2e8ed;
+  border-radius:12px;
+  background:#f8fafc;
+}
+#tab-reach16 .v16-overview-status.warn .v16-overview-status-detail{
+  border-color:#f0d9aa;
+  background:#fffaf0;
+}
+#tab-reach16 .v16-overview-status.err .v16-overview-status-detail{
+  border-color:#efcccc;
+  background:#fff6f6;
+}
+#tab-reach16 .v16-overview-status-detail b{
+  color:#223a58;
+  font-size:11px;
+  line-height:1.35;
+}
+#tab-reach16 .v16-overview-status-detail span,
+#tab-reach16 .v16-overview-status-detail small{
+  color:#667c91;
+  font-size:10px;
+  line-height:1.45;
+}
+#tab-reach16 .v16-overview-kpi-note{display:none!important}
+
+/* Frequency chart + exact distribution on one presentation-ready row */
+#tab-reach16 .v16-frequency-analysis-card{
+  padding:18px;
+  border-radius:16px;
+}
+#tab-reach16 .v16-frequency-analysis-grid{
+  display:grid;
+  grid-template-columns:minmax(320px,.72fr) minmax(620px,1.28fr);
+  gap:18px;
+  align-items:stretch;
+}
+#tab-reach16 .v16-frequency-chart-panel,
+#tab-reach16 .v16-frequency-exact-panel{
+  min-width:0;
+}
+#tab-reach16 .v16-frequency-chart-panel{
+  padding-right:18px;
+  border-right:1px solid #e3e9ee;
+}
+#tab-reach16 .v16-frequency-chart-panel>strong,
+#tab-reach16 .v16-frequency-exact-panel>strong{
+  display:block;
+  color:#182d4b;
+  font-size:15px;
+  line-height:1.2;
+}
+#tab-reach16 .v16-frequency-chart-panel>.hint,
+#tab-reach16 .v16-frequency-exact-panel>.hint{
+  margin:4px 0 10px;
+  line-height:1.35;
+}
+#tab-reach16 .v16-frequency-chart-panel .v16-er-chart{
+  width:100%;
+  max-width:390px;
+  margin:0;
+  padding:4px 0 0;
+  border:0;
+  background:transparent;
+}
+#tab-reach16 .v16-frequency-chart-panel .v16-er-chart svg{
+  width:100%;
+  max-height:205px;
+}
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(220px,1fr));
+  gap:8px;
+}
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-card{
+  min-height:0;
+  padding:9px 11px;
+  border-radius:10px;
+}
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-card strong{font-size:13px}
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-card span,
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-card small{font-size:9px}
+
+/* One hierarchy table replaces the standalone contribution block */
+#tab-reach16 .v16-hierarchy-card{padding:18px;border-radius:16px}
+#tab-reach16 .v16-hierarchy-wrap{border-radius:12px}
+#tab-reach16 .v16-table{
+  min-width:1180px;
+  table-layout:fixed;
+}
+#tab-reach16 .v16-table th{
+  position:static;
+  padding:8px 9px;
+  font-size:10px;
+  line-height:1.2;
+  white-space:normal;
+  vertical-align:bottom;
+}
+#tab-reach16 .v16-table td{
+  padding:7px 9px;
+  font-size:10px;
+  line-height:1.2;
+  vertical-align:middle;
+}
+#tab-reach16 .v16-table th:nth-child(1){width:210px}
+#tab-reach16 .v16-table th:nth-child(2){width:135px}
+#tab-reach16 .v16-table th:nth-child(3){width:95px}
+#tab-reach16 .v16-table th:nth-child(4){width:95px}
+#tab-reach16 .v16-table th:nth-child(5){width:105px}
+#tab-reach16 .v16-table .v16-hierarchy-kpi{width:130px}
+#tab-reach16 .v16-table td.num,
+#tab-reach16 .v16-table th.num{text-align:right}
+#tab-reach16 .v16-hierarchy-object{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0;
+}
+#tab-reach16 .v16-hierarchy-object>strong{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#1d3654;
+}
+#tab-reach16 .v16-hierarchy-type{
+  flex:0 0 auto;
+  padding:2px 6px;
+  border-radius:999px;
+  background:#edf2f6;
+  color:#65788a;
+  font-size:8px;
+  font-weight:800;
+  text-transform:none;
+}
+#tab-reach16 .v16-hierarchy-type.channel{background:#eaf3fd;color:#2f6fae}
+#tab-reach16 .v16-hierarchy-type.platform{background:#f4f6f8;color:#6e7e8d}
+#tab-reach16 .v16-hierarchy-type.flight{background:#edf5fb;color:#3d6f96}
+#tab-reach16 .v16-hierarchy-type.line{background:#e8f0f5;color:#35586f}
+#tab-reach16 .v16-hierarchy-type.brand{background:rgba(255,255,255,.18);color:#fff}
+#tab-reach16 .v16-hierarchy-toggle,
+#tab-reach16 .v16-hierarchy-toggle-spacer{
+  width:22px;
+  height:22px;
+  flex:0 0 22px;
+}
+#tab-reach16 .v16-hierarchy-toggle{
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:1px solid #cddae4;
+  border-radius:6px;
+  background:#fff;
+  color:#2d669b;
+  font-size:15px;
+  line-height:1;
+  font-weight:800;
+  cursor:pointer;
+}
+#tab-reach16 .v16-hierarchy-toggle:hover{background:#f1f6fa}
+#tab-reach16 .v16-level-channel td{
+  background:#fff;
+  font-weight:700;
+}
+#tab-reach16 .v16-level-platform td{
+  background:#f9fbfc;
+  color:#536677;
+}
+#tab-reach16 .v16-level-platform td:first-child{padding-left:22px}
+#tab-reach16 .v16-level-flight td{
+  background:#edf5fb;
+  font-weight:800;
+  border-top:2px solid #ccdae5;
+}
+#tab-reach16 .v16-level-line td{
+  background:#e5eff5!important;
+  color:#1c3d58;
+  font-weight:850;
+}
+#tab-reach16 .v16-level-brand td{
+  background:#314a60!important;
+  color:#fff;
+  font-weight:900;
+}
+#tab-reach16 .v16-level-brand .v16-hierarchy-object>strong,
+#tab-reach16 .v16-level-brand .v16-pct{color:#fff}
+#tab-reach16 .v16-reach-cell.selected{
+  background:#fff8e9!important;
+  box-shadow:inset 2px 0 0 #e4a127,inset -2px 0 0 #e4a127;
+}
+#tab-reach16 .v16-reach-cell strong{display:block;font-size:11px}
+#tab-reach16 .v16-reach-cell .v16-pct{display:block;margin-top:2px;font-size:9px;color:#6f8090}
+#tab-reach16 .v16-platform-child.hidden{display:none!important}
+
+@media(max-width:1150px){
+  #tab-reach16 .v16-frequency-analysis-grid{
+    grid-template-columns:minmax(300px,.8fr) minmax(500px,1.2fr);
+  }
+}
+@media(max-width:900px){
+  #tab-reach16 .v16-frequency-analysis-grid{grid-template-columns:1fr}
+  #tab-reach16 .v16-frequency-chart-panel{
+    padding-right:0;
+    padding-bottom:14px;
+    border-right:0;
+    border-bottom:1px solid #e3e9ee;
+  }
+  #tab-reach16 .v16-frequency-chart-panel .v16-er-chart{max-width:420px}
+  #tab-reach16 .v16-frequency-exact-panel .v16-exact-grid{grid-template-columns:repeat(2,minmax(160px,1fr))}
+}
+@media(max-width:560px){
+  #tab-reach16 .v16-overview-status{gap:14px;padding:18px}
+  #tab-reach16 .v16-overview-status-detail{margin-top:0}
+  #tab-reach16 .v16-frequency-analysis-card{padding:14px}
+  #tab-reach16 .v16-frequency-exact-panel .v16-exact-grid{grid-template-columns:1fr}
+}
