@@ -1,4 +1,3 @@
-import copy
 import datetime as dt
 import json
 import math
@@ -48,11 +47,10 @@ DATES = {
 def atomic_entity(idx, month, channel, family, impressions, rtech):
     # Source Frequency is 3.00 for every normalized row.
     l1 = m.level1_technical(impressions, 3.00, rtech, frequency_precision=2)
-    # "desktop+mobile" does not prove WEB vs APP; canonical AUTO therefore remains Quick.
-    l2 = m.level2_quick(l1["R_tech"], U, m.K_DEFAULT)
-    # No weekly deduplicated Human Reach is supplied in the workbook.
+    # AUTO is independent from source Reach: fast people conversion + technical-frequency curve.
+    l2 = m.level2_auto(l1["R_tech"], U, m.K_DEFAULT)
     l3a = m.aggregate_flight_reach_mode(l2["R_people"], U)
-    l3b = m.level3_effective_reach(l3a["R_1p"], impressions)
+    l3b = m.auto_frequency_reach(l3a["R_1p"], impressions, 3.00)
     return {
         "name": f"row-{idx}",
         "family": family,
@@ -167,27 +165,62 @@ class LabPlanCanonicalFixtureTests(unittest.TestCase):
             "source_delta_r1": line["reach_1p"] - SOURCE_MP_R1,
             "source_delta_r3": line["reach_3p"] - SOURCE_MP_R3,
             "family_mapping_basis": "TEST_ONLY_CONFIRMED_MAPPING",
-            "l2_path": "QUICK_K_2_44_BECAUSE_ENVIRONMENT_NOT_CONFIRMED",
-            "l3a_path": "AGGREGATE_FLIGHT_REACH_MODE",
+            "l2_path": "AUTO_PLANNER_K_2_44",
+            "l3a_path": "AUTO_ZT_POISSON_TECH_FREQUENCY",
         }
         print("LAB_FIXTURE_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
-    def test_uploaded_plan_source_curve_calibration_matches_workbook_baseline(self):
-        _atoms, _flights, line, _brand, _detail = calculate_fixture()
-        source_curve = {
-            1: 0.49820623403302366,
-            2: 0.32831948449969445,
-            3: 0.2587308776679805,
-            4: 0.14757881045720347,
-        }
-        calibrated = copy.deepcopy(line)
-        reference = copy.deepcopy(line)
-        r._calibrate_result_to_source(calibrated, reference, source_curve, U)
-        self.assertTrue(calibrated.get("source_calibrated"))
-        self.assertAlmostEqual(calibrated["reach_1p"], SOURCE_MP_R1, delta=2.0)
-        self.assertAlmostEqual(calibrated["reach_3p"], SOURCE_MP_R3, delta=2.0)
-        self.assertAlmostEqual(calibrated["reach_1p"] / U, source_curve[1], places=8)
-        self.assertAlmostEqual(calibrated["reach_3p"] / U, source_curve[3], places=8)
+    def test_auto_is_independent_from_source_reach_and_k_is_sensitive(self):
+        _atoms, _flights, line_default, _brand, _detail = calculate_fixture()
+
+        # The source values are only a QA reference; they are not passed into AUTO math.
+        self.assertGreater(line_default["reach_1p"], 0)
+        self.assertGreater(line_default["reach_3p"], 0)
+
+        def calc_with_k(k):
+            atoms = []
+            for i, row in enumerate(ROWS):
+                month, channel, family, impressions, rtech = row
+                l1 = m.level1_technical(impressions, 3.00, rtech, frequency_precision=2)
+                l2 = m.level2_auto(l1["R_tech"], U, k)
+                l3a = m.aggregate_flight_reach_mode(l2["R_people"], U)
+                l3b = m.auto_frequency_reach(l3a["R_1p"], impressions, 3.00)
+                atoms.append((month, {
+                    "name": f"row-{i+1}", "family": family, "channel": channel,
+                    "reach_1p": l3b["reach_1p"], "reach_2p": l3b["reach_2p"],
+                    "reach_3p": l3b["reach_3p"], "reach_4p": l3b["reach_4p"],
+                    "reach_5p": l3b["reach_5p"], "reach_6p": l3b["reach_6p"],
+                    "impressions": l3b["impressions"], "freq_dist": l3b["freq_dist"],
+                    "exact_counts": l3b["exact_counts"], "avg_frequency": l3b["avg_frequency"],
+                }))
+            flights = []
+            for month in ("August","September","October"):
+                month_atoms = [ent for mth, ent in atoms if mth == month]
+                channels = []
+                for channel_name in ("OLV","Banners, CPM","Social nets, CPM"):
+                    ch_atoms = [x for x in month_atoms if x["channel"] == channel_name]
+                    by_family = {}
+                    for ent in ch_atoms:
+                        by_family.setdefault(ent["family"], []).append(ent)
+                    families = []
+                    for family_name, family_atoms in by_family.items():
+                        fam = m.audience_merge(family_atoms, U, neutral_unstructured=True, model_path="L4A_FAMILY")
+                        fam["name"] = family_name
+                        fam["addressable_universe"] = U
+                        families.append(fam)
+                    channel = m.audience_merge(families, U, neutral_unstructured=True, model_path="L4B_CHANNEL")
+                    channel["name"] = channel_name
+                    channel["addressable_universe"] = U
+                    channels.append(channel)
+                flight = m.level5_flight(channels, U)
+                flight.update({"name": month, "start": DATES[month][0], "end": DATES[month][1], "is_common": False, "addressable_universe": U})
+                flights.append(flight)
+            return m.level6_line(flights, U)
+
+        low_k = calc_with_k(2.10)
+        high_k = calc_with_k(2.80)
+        self.assertGreater(low_k["reach_1p"], high_k["reach_1p"])
+        self.assertGreater(low_k["reach_3p"], high_k["reach_3p"])
 
 
 if __name__ == "__main__":
