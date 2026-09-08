@@ -20,8 +20,8 @@
     if(!coreReady)throw new Error('Базовый парсер не готов');
     if(v16ModuleReady)return;
     const [mathResp,adapterResp]=await Promise.all([
-      fetch('reach_v16_math.py?v=1.6.17'),
-      fetch('reach_v16.py?v=1.6.17')
+      fetch('reach_v16_math.py?v=1.6.18'),
+      fetch('reach_v16.py?v=1.6.18')
     ]);
     if(!mathResp.ok||!adapterResp.ok)throw new Error('Не удалось загрузить канонический Reach Engine v1.6');
     const [mathTxt,adapterTxt]=await Promise.all([mathResp.text(),adapterResp.text()]);
@@ -293,40 +293,57 @@
   function currentMode(){return $(ids.mode)?.value||'AUTO'}
   function currentK(){return Number($(ids.k)?.value||2.44)}
   function currentKIsOverride(){return Math.abs(currentK()-2.44)>1e-12}
+  function syncL2ModeControls(){
+    const detailed=currentMode()==='ADVANCED_WEB';
+    document.querySelectorAll('#v16ExpertSettings .v16-advanced-setting').forEach(el=>{
+      el.classList.toggle('hidden',!detailed);
+    });
+    [ids.L,ids.B,ids.D].forEach(id=>{
+      const el=$(id); if(el)el.disabled=!detailed;
+    });
+  }
 
   function renderL2Decision(){
     const wrap=$(ids.l2Decision);if(!wrap)return;
     const state=allUserState(),mode=currentMode(),K=currentK(),kOverride=currentKIsOverride();
     if(!state.plans.length){wrap.innerHTML='';return}
+    const detailed=mode==='ADVANCED_WEB';
+    const B=detailed?(nval(ids.B)??null):null;
+    const D=detailed?(nval(ids.D)??null):null;
+    const L=detailed?(nval(ids.L)??68):null;
     wrap.innerHTML='<div class="v16-decision-list">'+state.plans.map(p=>{
       const rec=p.meta.advanced_recommended||{};
       const measuredUD=lineUD(p);
-      const detailed=mode==='ADVANCED_WEB';
+      const sourceCurve=p.meta.source_reach_pct_curve||null;
       const status=detailed
-        ?`Детальный Web · U_D ${measuredUD?'измеренный':'автоматически U × D'}`
+        ?`Детальный Web · B/D/L активны`
         :kOverride
           ?`Автоматически · задан K = ${num(K,2)}`
           :`Автоматически · K = ${num(K,2)}`;
       const explanation=detailed
-        ?`Для web-размещений используется детальный путь B → D → Human Reach. ${measuredUD
-            ?'Используется измеренный U_D.'
-            :'Если измеренного U_D нет, движок рассчитывает его как Human Universe × D и явно фиксирует это как модельное допущение.'} Для строк, к которым Web-модель неприменима, расчёт автоматически продолжается через K = ${num(K,2)}.`
+        ?`Для Digital/Web-размещений используется детальный путь. Если environment/browser family не размечены, Detailed Web применяет прозрачные Web/Chromium-допущения. U_D при отсутствии измерения строится от автоматического D, поэтому ручной D больше не компенсирует сам себя.`
         :kOverride
-          ?`Расчёт выполняется автоматически, но для K-пути используется заданный пользователем коэффициент K = ${num(K,2)}. Это USER_OVERRIDE и он фиксируется в диагностике.`
-          :`Расчёт выполняется автоматически. Для строк без достаточных входов детального Web-пути используется стандартный коэффициент K = ${num(K,2)}; при наличии достаточных измеренных web-входов движок может выбрать детальный путь сам.`;
+          ?`AUTO использует только K как пользовательский параметр. B, D и L выбираются движком автоматически и не могут быть изменены в этом режиме.`
+          :`AUTO использует K = ${num(K,2)} и автоматически выбирает остальные параметры. B, D и L заблокированы, чтобы скрытые значения не влияли на расчёт.`;
+      const benchmark=sourceCurve
+        ?`В медиаплане найдена валидная source Reach-кривая. Она используется как baseline benchmark; изменение коэффициентов двигает результат относительно неё по чувствительности модели.`
+        :`Source Reach-кривая в медиаплане не найдена — используется независимый модельный расчёт без калибровочного benchmark.`;
       return `<details class="v16-decision ${detailed?'advanced':'fallback'}">
         <summary><strong>${esc(p.meta.label||p.id)}</strong><span>${esc(status)}</span></summary>
         <div class="v16-decision-body">
           <div class="v16-formula-path compact">
-            <span>Technical Reach</span><b>→</b><span>${detailed?'Web: B / D / L · остальное: ÷ K':'автоматический выбор пути'}</span><b>→</b><span>Human Reach</span>
+            <span>Technical Reach</span><b>→</b><span>${detailed?'Detailed Web + benchmark calibration':'AUTO K + benchmark calibration'}</span><b>→</b><span>Human Reach</span>
           </div>
           <div class="v16-decision-why">${esc(explanation)}</div>
+          <div class="v16-note">${esc(benchmark)}</div>
           <div class="v16-param-row">
             <span><b>K = ${num(K,2)}</b><small>${kOverride?'USER_OVERRIDE':'model default'}</small></span>
-            <span><b>B = ${num(rec.B,2)}</b><small>browser ID на одно web-устройство</small></span>
-            <span><b>D = ${num(rec.D,2)}</b><small>устройств на одного человека</small></span>
-            <span><b>L = 68 дней</b><small>стабильность browser ID Chromium</small></span>
-            <span><b>U_D ${measuredUD?num(measuredUD,0):detailed?'AUTO = U × D':'нет'}</b><small>${measuredUD?'измеренный Universe web-устройств':detailed?'модельный web-device Universe':'при наличии используется автоматически'}</small></span>
+            ${detailed?`
+              <span><b>B = ${num(B??rec.B,2)}</b><small>${B!=null?'USER_OVERRIDE':'auto по ЦА'}</small></span>
+              <span><b>D = ${num(D??rec.D,2)}</b><small>${D!=null?'USER_OVERRIDE':'auto по ЦА'}</small></span>
+              <span><b>L = ${num(L,0)} дней</b><small>Detailed Web</small></span>
+              <span><b>U_D ${measuredUD?num(measuredUD,0):'AUTO = U × auto-D'}</b><small>${measuredUD?'измеренный':'модельный baseline Universe устройств'}</small></span>`
+              :'<span><b>B / D / L</b><small>автоматически, редактирование отключено</small></span>'}
           </div>
         </div>
       </details>`;
@@ -399,14 +416,24 @@
     const mode=currentMode(),K=currentK(),kOverride=currentKIsOverride();
     const l2Advanced=rawDiagnostics.filter(d=>d.code==='L2_ADVANCED');
     const l2Quick=rawDiagnostics.filter(d=>d.code==='L2_QUICK');
-    const modeledUD=l2Advanced.some(d=>d.U_D_source==='MODEL_DERIVED_U_X_D');
+    const modeledUD=l2Advanced.some(d=>String(d.U_D_source||'').startsWith('MODEL_DERIVED_U_X_D'));
     let modelDetail='Расчёт выполнен автоматически';
     let modelExplain=`Движок сам выбрал Level 2 для каждого размещения. Стандартный K = ${num(K,2)} используется там, где детальный Web-путь не нужен или для него недостаточно измеренных входов.`;
 
-    if(mode==='ADVANCED_WEB'){
+    const calibrated=!!top.source_calibrated || rawDiagnostics.some(d=>d.code==='SOURCE_REACH_CALIBRATION');
+    if(calibrated){
+      modelDetail=mode==='ADVANCED_WEB'
+        ?'Detailed Web откалиброван по Reach-кривой медиаплана'
+        :kOverride
+          ?`AUTO откалиброван по source Reach · K = ${num(K,2)}`
+          :'AUTO откалиброван по Reach-кривой медиаплана';
+      modelExplain=mode==='ADVANCED_WEB'
+        ?`Baseline совпадает с валидной source Reach-кривой. B, D и L реально меняют Detailed Web-расчёт; U_D без измерения строится от auto-D, поэтому ручной D не компенсируется внутри собственного denominator.`
+        :`При K = 2,44 baseline совпадает с валидной source Reach-кривой. Если K меняется, Reach пересчитывается относительно benchmark по фактической чувствительности модели.`;
+    }else if(mode==='ADVANCED_WEB'){
       modelDetail=l2Advanced.length?'Детальный Web-расчёт применён':'Детальный Web-путь не потребовался';
       modelExplain=l2Advanced.length
-        ?`Для web-размещений Technical Reach переведён в людей через B, D и L. ${modeledUD?'При отсутствии измеренного U_D он рассчитан автоматически как Human Universe × D.':'Использован доступный измеренный U_D.'}${l2Quick.length?` Для остальных размещений применён K = ${num(K,2)}.`:''}`
+        ?`Для web-размещений Technical Reach переведён в людей через B, D и L. ${modeledUD?'При отсутствии измеренного U_D использован модельный device Universe на auto-D.':'Использован доступный измеренный U_D.'}${l2Quick.length?` Для остальных размещений применён K = ${num(K,2)}.`:''}`
         :`В выбранных размещениях не оказалось строк, к которым применим детальный Web-путь; расчёт завершён через автоматический K-путь с K = ${num(K,2)}.`;
     }else if(kOverride){
       modelDetail=`Расчёт выполнен с заданным K = ${num(K,2)}`;
@@ -680,8 +707,9 @@
       l2_mode:currentMode(),
       K:currentK(),
       advanced:{
-        L:Number($(ids.L)?.value||68),
-        B:nval(ids.B),D:nval(ids.D),
+        L:currentMode()==='ADVANCED_WEB'?Number($(ids.L)?.value||68):null,
+        B:currentMode()==='ADVANCED_WEB'?nval(ids.B):null,
+        D:currentMode()==='ADVANCED_WEB'?nval(ids.D):null,
         web_device_universes:state.web_device_universes
       },
       line_scope_confirmed:state.line_scope_confirmed,
@@ -725,6 +753,7 @@
       if(!v16Meta.plans?.length)throw new Error('В файле не найден рабочий медиаплан');
       renderPlanControls();
       prefillBrandScope();
+      syncL2ModeControls();
       $(ids.controls).classList.remove('hidden');
       setStatus(ids.status,`Файл распознан: ${v16Meta.plans.length} Line. Охватные строки и технические параметры определены автоматически.`,'ok');
     }catch(e){
@@ -743,8 +772,9 @@
     dz.addEventListener('drop',e=>{if(e.dataTransfer.files[0])openV16File(e.dataTransfer.files[0])});
     fi.addEventListener('change',()=>{if(fi.files[0])openV16File(fi.files[0])});
     $(ids.calc)?.addEventListener('click',calculateV16);
-    $(ids.mode)?.addEventListener('change',markDirty);
+    $(ids.mode)?.addEventListener('change',()=>{syncL2ModeControls();markDirty();renderPrecalc()});
     [ids.k,ids.L,ids.B,ids.D].forEach(id=>$(id)?.addEventListener('change',markDirty));
+    syncL2ModeControls();
     $(ids.targetF)?.addEventListener('change',()=>{if(v16Data){renderMetrics();renderFrequencyProfile()}});
     $(ids.brandU)?.addEventListener('change',()=>{if($(ids.brandUConfirm))$(ids.brandUConfirm).checked=false;markDirty()});
     $(ids.brandUConfirm)?.addEventListener('change',markDirty);

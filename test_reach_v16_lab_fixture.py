@@ -1,8 +1,10 @@
+import copy
 import datetime as dt
 import json
 import math
 import unittest
 
+import reach_v16 as r
 import reach_v16_math as m
 
 
@@ -47,7 +49,7 @@ def atomic_entity(idx, month, channel, family, impressions, rtech):
     # Source Frequency is 3.00 for every normalized row.
     l1 = m.level1_technical(impressions, 3.00, rtech, frequency_precision=2)
     # "desktop+mobile" does not prove WEB vs APP; canonical AUTO therefore remains Quick.
-    l2 = m.level2_quick(l1["R_tech"], U, 2.4)
+    l2 = m.level2_quick(l1["R_tech"], U, m.K_DEFAULT)
     # No weekly deduplicated Human Reach is supplied in the workbook.
     l3a = m.aggregate_flight_reach_mode(l2["R_people"], U)
     l3b = m.level3_effective_reach(l3a["R_1p"], impressions)
@@ -165,10 +167,27 @@ class LabPlanCanonicalFixtureTests(unittest.TestCase):
             "source_delta_r1": line["reach_1p"] - SOURCE_MP_R1,
             "source_delta_r3": line["reach_3p"] - SOURCE_MP_R3,
             "family_mapping_basis": "TEST_ONLY_CONFIRMED_MAPPING",
-            "l2_path": "QUICK_K_2_4_BECAUSE_ENVIRONMENT_NOT_CONFIRMED",
+            "l2_path": "QUICK_K_2_44_BECAUSE_ENVIRONMENT_NOT_CONFIRMED",
             "l3a_path": "AGGREGATE_FLIGHT_REACH_MODE",
         }
         print("LAB_FIXTURE_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
+
+    def test_uploaded_plan_source_curve_calibration_matches_workbook_baseline(self):
+        _atoms, _flights, line, _brand, _detail = calculate_fixture()
+        source_curve = {
+            1: 0.49820623403302366,
+            2: 0.32831948449969445,
+            3: 0.2587308776679805,
+            4: 0.14757881045720347,
+        }
+        calibrated = copy.deepcopy(line)
+        reference = copy.deepcopy(line)
+        r._calibrate_result_to_source(calibrated, reference, source_curve, U)
+        self.assertTrue(calibrated.get("source_calibrated"))
+        self.assertAlmostEqual(calibrated["reach_1p"], SOURCE_MP_R1, delta=2.0)
+        self.assertAlmostEqual(calibrated["reach_3p"], SOURCE_MP_R3, delta=2.0)
+        self.assertAlmostEqual(calibrated["reach_1p"] / U, source_curve[1], places=8)
+        self.assertAlmostEqual(calibrated["reach_3p"] / U, source_curve[3], places=8)
 
 
 if __name__ == "__main__":

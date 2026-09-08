@@ -88,6 +88,7 @@ class ReachV16Tests(unittest.TestCase):
             "requested_mode": "ADVANCED_WEB",
             "K": 2.44, "K_source": "MODEL_DEFAULT",
             "B": 1.90, "D": 2.25, "L": 68.0,
+            "B_auto": 1.90, "D_auto": 2.25, "L_auto": 68.0,
             "B_source": "MODEL_DEFAULT", "D_source": "MODEL_DEFAULT", "L_source": "MODEL_DEFAULT",
             "web_device_universes": {}, "unit_web_device_universes": {},
             "environments": {}, "browser_families": {}, "device_reaches": {},
@@ -110,13 +111,14 @@ class ReachV16Tests(unittest.TestCase):
         self.assertEqual(len(modeled), 1)
         self.assertAlmostEqual(modeled[0]["U_D"], U * cfg["D"])
         adv = [d for d in diagnostics if d.get("code") == "L2_ADVANCED"]
-        self.assertEqual(adv[0]["U_D_source"], "MODEL_DERIVED_U_X_D")
+        self.assertEqual(adv[0]["U_D_source"], "MODEL_DERIVED_U_X_D_AUTO")
 
-    def test_detailed_web_keeps_non_web_rows_calculable(self):
+    def test_detailed_web_keeps_explicit_non_web_rows_calculable(self):
         cfg = {
             "requested_mode": "ADVANCED_WEB",
             "K": 2.44, "K_source": "MODEL_DEFAULT",
             "B": 1.90, "D": 2.25, "L": 68.0,
+            "B_auto": 1.90, "D_auto": 2.25, "L_auto": 68.0,
             "B_source": "MODEL_DEFAULT", "D_source": "MODEL_DEFAULT", "L_source": "MODEL_DEFAULT",
             "web_device_universes": {}, "unit_web_device_universes": {},
             "environments": {}, "browser_families": {}, "device_reaches": {},
@@ -132,12 +134,84 @@ class ReachV16Tests(unittest.TestCase):
             end=dt.date(2026, 1, 14),
             U=10_000_000.0, cfg=cfg, diagnostics=diagnostics,
             scope_id="NON_WEB_TEST", source_refs=[],
-            environment_hint="UNKNOWN", browser_family_hint="UNKNOWN",
+            environment_hint="CTV", browser_family_hint="UNKNOWN",
         )
         self.assertEqual(out["mode"], "QUICK")
         self.assertAlmostEqual(out["R_people"], 1_000_000.0)
         quick = [d for d in diagnostics if d.get("code") == "L2_QUICK"]
         self.assertEqual(quick[0]["reason"], "ADVANCED_WEB_NOT_APPLICABLE_TO_ENVIRONMENT")
+
+    def test_detailed_web_unknown_row_uses_web_chromium_assumptions_and_d_is_sensitive(self):
+        base_cfg = {
+            "requested_mode": "ADVANCED_WEB",
+            "K": 2.44, "K_source": "MODEL_DEFAULT",
+            "B": 1.90, "D": 2.25, "L": 68.0,
+            "B_auto": 1.90, "D_auto": 2.25, "L_auto": 68.0,
+            "B_source": "MODEL_DEFAULT", "D_source": "MODEL_DEFAULT", "L_source": "MODEL_DEFAULT",
+            "web_device_universes": {}, "unit_web_device_universes": {},
+            "environments": {}, "browser_families": {}, "device_reaches": {},
+            "browser_segments": {}, "device_segments": {}, "safari_l": None,
+            "plan_id": "P1",
+        }
+        d1 = []
+        out1 = r._l2_for_scope(
+            rtech=3_000_000.0, impressions=9_000_000.0, frequency=3.0,
+            start=dt.date(2026, 1, 1), end=dt.date(2026, 1, 28),
+            U=15_000_000.0, cfg=base_cfg, diagnostics=d1,
+            scope_id="UNKNOWN_WEB", source_refs=[],
+            environment_hint="UNKNOWN", browser_family_hint="UNKNOWN",
+        )
+        changed = dict(base_cfg)
+        changed["D"] = 3.0
+        changed["D_source"] = "USER_OVERRIDE"
+        d2 = []
+        out2 = r._l2_for_scope(
+            rtech=3_000_000.0, impressions=9_000_000.0, frequency=3.0,
+            start=dt.date(2026, 1, 1), end=dt.date(2026, 1, 28),
+            U=15_000_000.0, cfg=changed, diagnostics=d2,
+            scope_id="UNKNOWN_WEB", source_refs=[],
+            environment_hint="UNKNOWN", browser_family_hint="UNKNOWN",
+        )
+        self.assertEqual(out1["mode"], "ADVANCED")
+        self.assertEqual(out2["mode"], "ADVANCED")
+        self.assertNotAlmostEqual(out1["R_people"], out2["R_people"], delta=1.0)
+        ud1 = next(d for d in d1 if d.get("code") == "L2_WEB_DEVICE_UNIVERSE_MODELED")
+        ud2 = next(d for d in d2 if d.get("code") == "L2_WEB_DEVICE_UNIVERSE_MODELED")
+        self.assertAlmostEqual(ud1["U_D"], 15_000_000.0 * 2.25)
+        self.assertAlmostEqual(ud2["U_D"], 15_000_000.0 * 2.25)
+        self.assertTrue(any(d.get("code") == "L2_ADVANCED_WEB_ENVIRONMENT_ASSUMED" for d in d1))
+        self.assertTrue(any(d.get("code") == "L2_ADVANCED_WEB_BROWSER_ASSUMED" for d in d1))
+
+    def test_source_curve_calibration_hits_test_plan_baseline_and_keeps_sensitivity(self):
+        U = 15_182_450.0
+        source = {
+            1: 0.49820623403302366,
+            2: 0.32831948449969445,
+            3: 0.2587308776679805,
+            4: 0.14757881045720347,
+        }
+        ref = {
+            "reach_1p": 5_484_475.0,
+            "reach_2p": 3_484_001.0,
+            "reach_3p": 2_586_154.0,
+            "reach_4p": 2_067_405.0,
+            "reach_5p": 1_726_096.0,
+            "reach_6p": 1_483_037.0,
+            "impressions": 61_854_110.0,
+            "gross_reach_sum": 6_500_000.0,
+            "flights": [],
+        }
+        baseline = dict(ref)
+        r._calibrate_result_to_source(baseline, ref, source, U)
+        self.assertAlmostEqual(baseline["reach_1p"] / U, source[1], places=9)
+        self.assertAlmostEqual(baseline["reach_3p"] / U, source[3], places=9)
+
+        current = dict(ref)
+        for k in range(1, 7):
+            current[f"reach_{k}p"] *= 1.10
+        r._calibrate_result_to_source(current, ref, source, U)
+        self.assertGreater(current["reach_1p"], baseline["reach_1p"])
+        self.assertGreater(current["reach_3p"], baseline["reach_3p"])
 
     def test_advanced_web_requires_capacity_validity(self):
         with self.assertRaises(r.V16Error):
@@ -537,6 +611,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         cls.js = (root / "reach_v16.js").read_text(encoding="utf-8")
         cls.html = (root / "index.html").read_text(encoding="utf-8")
         cls.css = (root / "reach_v16.css").read_text(encoding="utf-8")
+        cls.py = (root / "reach_v16.py").read_text(encoding="utf-8")
 
     def test_frequency_notation_is_at_not_reach_n_plus(self):
         surface = self.js + "\n" + self.html
@@ -635,9 +710,14 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn('value="ADVANCED_WEB">Детальный Web-расчёт</option>', self.html)
         self.assertNotIn('value="QUICK">Только Quick-модель</option>', self.html)
         self.assertIn("function currentK(){return Number($(ids.k)?.value||2.44)}", self.js)
-        self.assertIn("Расчёт выполняется автоматически", self.js)
+        self.assertIn("AUTO использует только K как пользовательский параметр", self.js)
         self.assertIn("USER_OVERRIDE", self.js)
-        self.assertIn("MODEL_DERIVED_U_X_D", self.js)
+        self.assertIn("MODEL_DERIVED_U_X_D_AUTO", self.py)
+        self.assertIn("function syncL2ModeControls()", self.js)
+        self.assertIn("el.disabled=!detailed", self.js)
+        self.assertIn("currentMode()==='ADVANCED_WEB'?nval(ids.B):null", self.js)
+        self.assertIn("source_reach_pct_curve", self.js)
+        self.assertIn("SOURCE_REACH_CALIBRATION", self.py)
         self.assertIn("Level 2 mode UX: readable dynamic explanation", self.css)
         self.assertIn("min-height:78px", self.css)
 
