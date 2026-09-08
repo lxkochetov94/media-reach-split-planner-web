@@ -20,8 +20,8 @@
     if(!coreReady)throw new Error('Базовый парсер не готов');
     if(v16ModuleReady)return;
     const [mathResp,adapterResp]=await Promise.all([
-      fetch('reach_v16_math.py?v=1.6.6'),
-      fetch('reach_v16.py?v=1.6.6')
+      fetch('reach_v16_math.py?v=1.6.10'),
+      fetch('reach_v16.py?v=1.6.10')
     ]);
     if(!mathResp.ok||!adapterResp.ok)throw new Error('Не удалось загрузить канонический Reach Engine v1.6');
     const [mathTxt,adapterTxt]=await Promise.all([mathResp.text(),adapterResp.text()]);
