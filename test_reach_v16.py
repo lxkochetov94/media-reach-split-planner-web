@@ -611,6 +611,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         cls.js = (root / "reach_v16.js").read_text(encoding="utf-8")
         cls.html = (root / "index.html").read_text(encoding="utf-8")
         cls.css = (root / "reach_v16.css").read_text(encoding="utf-8")
+        cls.py = (root / "reach_v16.py").read_text(encoding="utf-8")
 
     def test_frequency_notation_is_at_not_reach_n_plus(self):
         surface = self.js + "\n" + self.html
@@ -711,12 +712,12 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("function currentK(){return Number($(ids.k)?.value||2.44)}", self.js)
         self.assertIn("Расчёт выполняется автоматически", self.js)
         self.assertIn("USER_OVERRIDE", self.js)
-        self.assertIn("MODEL_DERIVED_U_X_D_AUTO", self.js)
+        self.assertIn("MODEL_DERIVED_U_X_D_AUTO", self.py)
         self.assertIn("function syncL2ModeControls()", self.js)
         self.assertIn("el.disabled=!detailed", self.js)
         self.assertIn("currentMode()==='ADVANCED_WEB'?nval(ids.B):null", self.js)
         self.assertIn("source_reach_pct_curve", self.js)
-        self.assertIn("SOURCE_REACH_CALIBRATION", self.py if hasattr(self, "py") else pathlib.Path("reach_v16.py").read_text(encoding="utf-8"))
+        self.assertIn("SOURCE_REACH_CALIBRATION", self.py)
         self.assertIn("Level 2 mode UX: readable dynamic explanation", self.css)
         self.assertIn("min-height:78px", self.css)
 
