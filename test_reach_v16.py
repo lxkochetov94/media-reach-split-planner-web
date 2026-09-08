@@ -35,7 +35,7 @@ class FakeRow:
 class ReachV16Tests(unittest.TestCase):
     def test_model_catalog_exposes_agreed_ranges(self):
         c = r.model_catalog()
-        self.assertEqual(c["level2"]["quick_k"], 2.40)
+        self.assertEqual(c["level2"]["quick_k"], 2.44)
         self.assertEqual(c["level2"]["chromium_l_days"], 68.0)
         self.assertEqual(c["level3"]["temporal_rho_profiles"]["BASE"], 0.65)
         self.assertEqual(c["level3"]["sigma_default"], 2.50)
@@ -81,6 +81,63 @@ class ReachV16Tests(unittest.TestCase):
         self.assertGreater(out["R_people"], 0)
         self.assertLessEqual(out["R_people"], 15_000_000)
         self.assertGreaterEqual(out["K_time"], 1.0)
+
+    def test_detailed_web_can_model_ud_when_measurement_is_missing(self):
+        U = 15_000_000.0
+        cfg = {
+            "requested_mode": "ADVANCED_WEB",
+            "K": 2.44, "K_source": "MODEL_DEFAULT",
+            "B": 1.90, "D": 2.25, "L": 68.0,
+            "B_source": "MODEL_DEFAULT", "D_source": "MODEL_DEFAULT", "L_source": "MODEL_DEFAULT",
+            "web_device_universes": {}, "unit_web_device_universes": {},
+            "environments": {}, "browser_families": {}, "device_reaches": {},
+            "browser_segments": {}, "device_segments": {}, "safari_l": None,
+            "plan_id": "P1",
+        }
+        diagnostics = []
+        out = r._l2_for_scope(
+            rtech=3_000_000.0,
+            impressions=9_000_000.0,
+            frequency=3.0,
+            start=dt.date(2026, 1, 1),
+            end=dt.date(2026, 1, 28),
+            U=U, cfg=cfg, diagnostics=diagnostics,
+            scope_id="WEB_TEST", source_refs=[],
+            environment_hint="WEB", browser_family_hint="CHROMIUM",
+        )
+        self.assertEqual(out["mode"], "ADVANCED")
+        modeled = [d for d in diagnostics if d.get("code") == "L2_WEB_DEVICE_UNIVERSE_MODELED"]
+        self.assertEqual(len(modeled), 1)
+        self.assertAlmostEqual(modeled[0]["U_D"], U * cfg["D"])
+        adv = [d for d in diagnostics if d.get("code") == "L2_ADVANCED"]
+        self.assertEqual(adv[0]["U_D_source"], "MODEL_DERIVED_U_X_D")
+
+    def test_detailed_web_keeps_non_web_rows_calculable(self):
+        cfg = {
+            "requested_mode": "ADVANCED_WEB",
+            "K": 2.44, "K_source": "MODEL_DEFAULT",
+            "B": 1.90, "D": 2.25, "L": 68.0,
+            "B_source": "MODEL_DEFAULT", "D_source": "MODEL_DEFAULT", "L_source": "MODEL_DEFAULT",
+            "web_device_universes": {}, "unit_web_device_universes": {},
+            "environments": {}, "browser_families": {}, "device_reaches": {},
+            "browser_segments": {}, "device_segments": {}, "safari_l": None,
+            "plan_id": "P1",
+        }
+        diagnostics = []
+        out = r._l2_for_scope(
+            rtech=2_440_000.0,
+            impressions=4_880_000.0,
+            frequency=2.0,
+            start=dt.date(2026, 1, 1),
+            end=dt.date(2026, 1, 14),
+            U=10_000_000.0, cfg=cfg, diagnostics=diagnostics,
+            scope_id="NON_WEB_TEST", source_refs=[],
+            environment_hint="UNKNOWN", browser_family_hint="UNKNOWN",
+        )
+        self.assertEqual(out["mode"], "QUICK")
+        self.assertAlmostEqual(out["R_people"], 1_000_000.0)
+        quick = [d for d in diagnostics if d.get("code") == "L2_QUICK"]
+        self.assertEqual(quick[0]["reason"], "ADVANCED_WEB_NOT_APPLICABLE_TO_ENVIRONMENT")
 
     def test_advanced_web_requires_capacity_validity(self):
         with self.assertRaises(r.V16Error):
@@ -569,10 +626,18 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn(".v16-level-line .v16-reach-cell.selected", self.css)
         self.assertIn("background:#fff7e6!important", self.css)
 
-    def test_quick_k_stays_canonical_default(self):
-        self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.40)
-        self.assertIn("фиксированный рабочий model default методологии v1.6", self.js)
-        self.assertIn("не измеренный универсальный коэффициент рынка", self.js)
+    def test_level2_modes_and_k_default_match_latest_contract(self):
+        self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.44)
+        self.assertIn('value="2.44" data-default-k="2.44"', self.html)
+        self.assertIn('value="AUTO" selected>Автоматически по данным</option>', self.html)
+        self.assertIn('value="ADVANCED_WEB">Детальный Web-расчёт</option>', self.html)
+        self.assertNotIn('value="QUICK">Только Quick-модель</option>', self.html)
+        self.assertIn("function currentK(){return Number($(ids.k)?.value||2.44)}", self.js)
+        self.assertIn("Расчёт выполняется автоматически", self.js)
+        self.assertIn("USER_OVERRIDE", self.js)
+        self.assertIn("MODEL_DERIVED_U_X_D", self.js)
+        self.assertIn("Level 2 mode UX: readable dynamic explanation", self.css)
+        self.assertIn("min-height:78px", self.css)
 
     def test_automatic_exclusions_stay_out_of_main_business_diagnostics(self):
         out = r._business_diagnostics([
