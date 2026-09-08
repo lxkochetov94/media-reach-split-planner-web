@@ -442,7 +442,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         cls.html = (root / "index.html").read_text(encoding="utf-8")
 
     def test_frequency_notation_is_at_not_reach_n_plus(self):
-        surface = self.js + "\\n" + self.html
+        surface = self.js + "\n" + self.html
         for k in range(1, 7):
             self.assertNotIn(f"Reach {k}+", surface)
             self.assertIn(f"@{k}+", surface)
@@ -462,14 +462,14 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("num(top.avg_frequency,1)", self.js)
         self.assertIn("num(r.avg_frequency,1)", self.js)
         self.assertIn("на @1+ человека", self.js)
-        self.assertIsNone(re.search(r"\\d(?:[.,]\\d+)?на\\s*@", self.js))
+        self.assertIsNone(re.search(r"\d(?:[.,]\d+)?на\s*@", self.js))
 
     def test_contribution_cells_show_people_then_percent(self):
         self.assertIn("Вклад в Reach, чел.", self.js)
         self.assertIn("Эксклюзивная аудитория, чел.", self.js)
         self.assertIn("Учтённые пересечения, чел.", self.js)
         self.assertIn("Итого ${esc(r.channel||'')}", self.js)
-        match = re.search(r"const cell=\\(value\\)=>\\`([^\\n]+)\\`", self.js)
+        match = re.search(r"const cell=\(value\)=>\`([^\n]+)\`", self.js)
         self.assertIsNotNone(match)
         cell = match.group(1)
         self.assertLess(cell.index("num(value,0)"), cell.index("pct(value/parent,2)"))
