@@ -34,7 +34,7 @@ class CanonicalReachMathTests(unittest.TestCase):
         self.assertTrue(any(d["code"] == "F_PRECISION_ASSUMED" for d in out["diagnostics"]))
 
     def test_l2_quick_no_clip(self):
-        self.assertAlmostEqual(m.level2_quick(2400, 1000)["R_people"], 1000)
+        self.assertAlmostEqual(m.level2_quick(2440, 1000)["R_people"], 1000)
         with self.assertRaises(m.ReachValidationError):
             m.level2_quick(2500, 1000)
         with self.assertRaises(m.ReachValidationError):
