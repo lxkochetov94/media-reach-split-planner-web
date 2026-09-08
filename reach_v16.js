@@ -510,27 +510,69 @@
 
   function renderContributions(){
     const rows=v16Data?.contribution_rows||[],table=$(ids.contrib);
-    if(!rows.length){table.innerHTML='<tbody><tr><td class="hint">Нет данных для сравнения вклада площадок.</td></tr></tbody>';return}
-    let h='<thead><tr><th>Канал</th><th>Площадка</th><th>Формат</th><th class="num">Вклад в Reach, чел.<span class="v16-th-sub">% от родительского Reach</span></th><th class="num">Эксклюзивная аудитория, чел.<span class="v16-th-sub">% от родительского Reach</span></th><th class="num">Учтённые пересечения, чел.<span class="v16-th-sub">% от родительского Reach</span></th></tr></thead><tbody>';
-    let lastFlight=null;
+    if(!rows.length){
+      table.innerHTML='<tbody><tr><td class="hint">Нет данных для сравнения вклада площадок.</td></tr></tbody>';
+      return;
+    }
+
+    const lineCount=new Set(rows.map(r=>String(r.line||'').trim()).filter(Boolean)).size;
+    const flightKey=r=>String(r.line||'')+'||'+String(r.flight||'');
+    const flightReach={};
+    rows.forEach(r=>{
+      const key=flightKey(r),parent=Number(r.parent_reach||0);
+      if(r.kind==='channel_subtotal' && parent>0 && !flightReach[key])flightReach[key]=parent;
+    });
+    const friendlyFlight=name=>{
+      const raw=String(name||'Флайт').trim();
+      const m=raw.match(/^Flight\s*(\d+)(.*)$/i);
+      return m?'Флайт '+m[1]+(m[2]||''):raw;
+    };
+    const scopeText=r=>r.kind==='channel_subtotal'?'от охвата флайта':'от охвата канала';
+    const cell=(value,parent,scope)=>`<strong>${num(value,0)}</strong><span class="v16-pct">${parent?pct(value/parent,2):'—'} <em>${esc(scope)}</em></span>`;
+
+    let h=`<colgroup>
+      <col class="v16-contrib-col-channel"><col class="v16-contrib-col-platform"><col class="v16-contrib-col-format">
+      <col class="v16-contrib-col-metric"><col class="v16-contrib-col-metric"><col class="v16-contrib-col-metric">
+    </colgroup>
+    <thead><tr>
+      <th>Канал</th>
+      <th>Площадка</th>
+      <th>Формат</th>
+      <th class="num">Вклад в общий охват<span class="v16-th-sub">человек · доля в охвате</span></th>
+      <th class="num">Уникальная аудитория<span class="v16-th-sub">человек · только этот канал / площадка</span></th>
+      <th class="num">Пересечение с другими<span class="v16-th-sub">человек · аудитория видела и другие размещения</span></th>
+    </tr></thead><tbody>`;
+
+    let lastFlightKey=null;
     for(const r of rows){
-      if(r.flight!==lastFlight){
-        h+=`<tr class="v16-flight-divider"><td colspan="6">${esc(r.flight||'Флайт')}</td></tr>`;
-        lastFlight=r.flight;
+      const key=flightKey(r);
+      if(key!==lastFlightKey){
+        const label=(lineCount>1 && r.line?esc(r.line)+' · ':'')+esc(friendlyFlight(r.flight));
+        const fr=flightReach[key];
+        h+=`<tr class="v16-flight-divider">
+          <td colspan="3"><div class="v16-flight-title"><span class="v16-flight-chevron">⌄</span><strong>${label}</strong></div></td>
+          <td colspan="3" class="v16-flight-total">${fr?'<strong>'+num(fr,0)+'</strong><span>общий охват флайта · 100%</span>':''}</td>
+        </tr>`;
+        lastFlightKey=key;
       }
+
       const parent=Number(r.parent_reach||0),sh=Number(r.shapley_people||0),ex=Number(r.exclusive_people||0),shared=Number(r.shared_people??Math.max(0,sh-ex));
-      const cell=(value)=>`<strong>${num(value,0)}</strong><span class="v16-pct">${parent?pct(value/parent,2):'—'}</span>`;
+      const scope=scopeText(r);
       if(r.kind==='channel_subtotal'){
         h+=`<tr class="v16-channel-subtotal">
-          <td><strong>Итого ${esc(r.channel||'')}</strong></td><td></td><td></td>
-          <td class="num">${cell(sh)}</td><td class="num">${cell(ex)}</td><td class="num">${cell(shared)}</td>
+          <td colspan="3"><div class="v16-channel-total-title"><span class="v16-channel-total-mark"></span><strong>Итого по каналу: ${esc(r.channel||'')}</strong></div></td>
+          <td class="num">${cell(sh,parent,scope)}</td>
+          <td class="num">${cell(ex,parent,scope)}</td>
+          <td class="num">${cell(shared,parent,scope)}</td>
         </tr>`;
       }else{
-        h+=`<tr>
-          <td>${esc(r.channel||'')}</td>
-          <td><strong>${esc(r.platform||'—')}</strong></td>
-          <td>${esc(r.format||'—')}</td>
-          <td class="num">${cell(sh)}</td><td class="num">${cell(ex)}</td><td class="num">${cell(shared)}</td>
+        h+=`<tr class="v16-platform-row">
+          <td data-label="Канал">${esc(r.channel||'')}</td>
+          <td data-label="Площадка"><strong>${esc(r.platform||'—')}</strong></td>
+          <td data-label="Формат">${esc(r.format||'—')}</td>
+          <td data-label="Вклад в общий охват" class="num">${cell(sh,parent,scope)}</td>
+          <td data-label="Уникальная аудитория" class="num">${cell(ex,parent,scope)}</td>
+          <td data-label="Пересечение с другими" class="num">${cell(shared,parent,scope)}</td>
         </tr>`;
       }
     }
