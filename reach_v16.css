@@ -169,3 +169,246 @@ details.v16-decision>summary span{font-size:10px;font-weight:700;color:var(--mut
   #tab-reach16 .v16-chart-axis{font-size:10px}
   #tab-reach16 .v16-model-summary{padding:11px}
 }
+
+
+/* Overview dashboard redesign: status + frequency table + summary */
+#tab-reach16 #v16Results{margin-top:2px}
+#tab-reach16 .v16-overview-grid{
+  display:grid;
+  grid-template-columns:minmax(210px,.58fr) minmax(500px,1.45fr) minmax(340px,.95fr);
+  gap:14px;
+  align-items:stretch;
+  margin-bottom:14px;
+}
+#tab-reach16 .v16-overview-card{
+  min-width:0;
+  margin:0;
+  padding:24px;
+  background:#fff;
+  border:1px solid #dde6ed;
+  border-radius:18px;
+  box-shadow:0 10px 30px rgba(38,55,70,.07);
+}
+#tab-reach16 .v16-overview-card h3{
+  margin:0;
+  color:#182d4b;
+  font-size:22px;
+  line-height:1.15;
+  letter-spacing:-.02em;
+}
+#tab-reach16 .v16-overview-card-head p{
+  margin:8px 0 0;
+  color:#607a9d;
+  font-size:13px;
+  line-height:1.45;
+}
+#tab-reach16 .v16-overview-status{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  padding:28px 24px;
+}
+#tab-reach16 .v16-overview-status-icon{
+  width:56px;
+  height:56px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  margin-bottom:20px;
+  font-size:29px;
+  line-height:1;
+  font-weight:850;
+  color:#b56e00;
+  background:#fff4dc;
+  border:1px solid #f3deb4;
+}
+#tab-reach16 .v16-overview-status.ok .v16-overview-status-icon{
+  color:#2e7d32;
+  background:#edf7ef;
+  border-color:#d0e8d4;
+}
+#tab-reach16 .v16-overview-status.err .v16-overview-status-icon{
+  color:#b23b3b;
+  background:#fdeeee;
+  border-color:#f2cdcd;
+}
+#tab-reach16 .v16-overview-status h3{
+  max-width:220px;
+  font-size:20px;
+  line-height:1.25;
+}
+#tab-reach16 .v16-overview-status-divider{
+  width:100%;
+  height:1px;
+  margin:22px 0 18px;
+  background:#e4eaf0;
+}
+#tab-reach16 .v16-overview-status-count{
+  color:#cf8200;
+  font-size:38px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+#tab-reach16 .v16-overview-status.err .v16-overview-status-count{color:#b23b3b}
+#tab-reach16 .v16-overview-status-ok{
+  color:#2e7d32;
+  font-size:26px;
+  line-height:1.1;
+}
+#tab-reach16 .v16-overview-status-caption{
+  margin-top:7px;
+  color:#647b99;
+  font-size:13px;
+}
+
+#tab-reach16 .v16-overview-frequency{padding:24px 26px}
+#tab-reach16 .v16-overview-reach-head,
+#tab-reach16 .v16-overview-reach-row{
+  display:grid;
+  grid-template-columns:100px 120px minmax(190px,1fr);
+  gap:12px;
+  align-items:center;
+}
+#tab-reach16 .v16-overview-reach-head{
+  margin-top:24px;
+  padding:0 14px 9px;
+  color:#6a7f9b;
+  font-size:11px;
+  font-weight:750;
+}
+#tab-reach16 .v16-overview-reach-head span:last-child{text-align:right}
+#tab-reach16 .v16-overview-reach-body{display:grid;gap:4px}
+#tab-reach16 .v16-overview-reach-row{
+  min-height:54px;
+  padding:12px 14px;
+  border:1px solid transparent;
+  border-radius:12px;
+  background:#f8fafc;
+  font-variant-numeric:tabular-nums;
+}
+#tab-reach16 .v16-overview-reach-row:nth-of-type(even){background:#fbfcfd}
+#tab-reach16 .v16-overview-reach-row.selected{
+  background:#fffaf0;
+  border-color:#f2ddb6;
+}
+#tab-reach16 .v16-overview-frequency-key{
+  color:#1c3556;
+  font-size:16px;
+  font-weight:850;
+}
+#tab-reach16 .v16-overview-reach-row strong{
+  color:#142d50;
+  font-size:17px;
+}
+#tab-reach16 .v16-overview-reach-row b{
+  color:#142d50;
+  font-size:16px;
+  text-align:right;
+  white-space:nowrap;
+}
+#tab-reach16 .v16-overview-kpi-note{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  min-height:38px;
+  padding:8px 14px;
+  border-radius:10px;
+  color:#a35f00;
+  background:#fff2d8;
+  border:1px solid #f4ddb0;
+  font-size:12px;
+}
+#tab-reach16 .v16-overview-kpi-note span{font-size:16px;color:#cf8200}
+#tab-reach16 .v16-overview-kpi-note strong{font-size:12px}
+
+#tab-reach16 .v16-overview-summary{padding:24px 26px}
+#tab-reach16 .v16-overview-summary-list{margin-top:10px}
+#tab-reach16 .v16-overview-summary-list>div{
+  display:grid;
+  gap:3px;
+  padding:13px 0;
+  border-bottom:1px solid #e4eaf0;
+}
+#tab-reach16 .v16-overview-summary-list>div:last-child{border-bottom:0;padding-bottom:0}
+#tab-reach16 .v16-overview-summary-list span{
+  color:#607a9d;
+  font-size:12px;
+}
+#tab-reach16 .v16-overview-summary-list strong{
+  color:#142d50;
+  font-size:20px;
+  line-height:1.15;
+  font-variant-numeric:tabular-nums;
+}
+#tab-reach16 .v16-overview-summary-list small{
+  color:#607a9d;
+  font-size:11px;
+  line-height:1.35;
+}
+#tab-reach16 .v16-overview-summary-list .v16-model-path{
+  font-size:15px;
+  line-height:1.35;
+}
+
+#tab-reach16 .v16-overview-notice{
+  display:flex;
+  align-items:center;
+  min-height:48px;
+  margin:0 0 14px;
+  padding:12px 16px;
+  border-radius:14px;
+  box-shadow:none;
+}
+#tab-reach16 .v16-chart-card{border-radius:16px}
+#tab-reach16 .v16-chart-card .v16-er-chart{
+  margin-bottom:0;
+  border:0;
+  background:#fbfcfd;
+}
+#tab-reach16 .v16-overview-empty{grid-column:1/-1;display:grid;gap:6px}
+
+@media(max-width:1250px){
+  #tab-reach16 .v16-overview-grid{
+    grid-template-columns:minmax(210px,.55fr) minmax(480px,1.45fr);
+  }
+  #tab-reach16 .v16-overview-summary{grid-column:1/-1}
+  #tab-reach16 .v16-overview-summary-list{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(180px,1fr));
+    column-gap:22px;
+  }
+  #tab-reach16 .v16-overview-summary-list>div:nth-last-child(-n+3){border-bottom:0}
+}
+@media(max-width:850px){
+  #tab-reach16 .v16-overview-grid{grid-template-columns:1fr}
+  #tab-reach16 .v16-overview-summary{grid-column:auto}
+  #tab-reach16 .v16-overview-status{min-height:auto}
+  #tab-reach16 .v16-overview-status h3{max-width:none}
+  #tab-reach16 .v16-overview-summary-list{grid-template-columns:repeat(2,minmax(150px,1fr))}
+  #tab-reach16 .v16-overview-summary-list>div:nth-last-child(-n+3){border-bottom:1px solid #e4eaf0}
+  #tab-reach16 .v16-overview-summary-list>div:nth-last-child(-n+2){border-bottom:0}
+}
+@media(max-width:620px){
+  #tab-reach16 .v16-overview-card{padding:18px}
+  #tab-reach16 .v16-overview-card h3{font-size:19px}
+  #tab-reach16 .v16-overview-status{padding:20px 18px}
+  #tab-reach16 .v16-overview-status-icon{width:48px;height:48px;font-size:24px;margin-bottom:14px}
+  #tab-reach16 .v16-overview-status-divider{margin:16px 0 14px}
+  #tab-reach16 .v16-overview-frequency{padding:18px}
+  #tab-reach16 .v16-overview-reach-head,
+  #tab-reach16 .v16-overview-reach-row{
+    grid-template-columns:66px 78px minmax(128px,1fr);
+    gap:7px;
+  }
+  #tab-reach16 .v16-overview-reach-head{padding:0 8px 7px;font-size:10px}
+  #tab-reach16 .v16-overview-reach-row{padding:10px 8px;min-height:48px}
+  #tab-reach16 .v16-overview-frequency-key{font-size:14px}
+  #tab-reach16 .v16-overview-reach-row strong{font-size:14px}
+  #tab-reach16 .v16-overview-reach-row b{font-size:13px;white-space:normal}
+  #tab-reach16 .v16-overview-kpi-note{padding:7px 9px}
+  #tab-reach16 .v16-overview-summary{padding:18px}
+  #tab-reach16 .v16-overview-summary-list{grid-template-columns:1fr}
+  #tab-reach16 .v16-overview-summary-list>div,
+  #tab-reach16 .v16-overview-summary-list>div:nth-last-child(-n+2){border-bottom:1px solid #e4eaf0}
+  #tab-reach16 .v16-overview-summary-list>div:last-child{border-bottom:0}
+}

@@ -371,38 +371,66 @@
   function renderMetrics(){
     const top=topResult(),u=topUniverse(),tf=targetFrequency(),wrap=$(ids.metrics);
     if(!top){
-      wrap.innerHTML=`<div class="v16-result-state warn"><strong>Итоговый результат пока не рассчитан.</strong><span>${esc(friendlyV16Error(v16Data?.brand_error||''))}</span></div>`;
+      wrap.innerHTML=`<div class="v16-overview-card v16-overview-empty warn"><strong>Итоговый результат пока не рассчитан.</strong><span>${esc(friendlyV16Error(v16Data?.brand_error||''))}</span></div>`;
       return;
     }
     const warnings=(v16Data?.business_diagnostics||[]).filter(x=>x.severity==='WARNING').length;
     const errors=(v16Data?.business_diagnostics||[]).filter(x=>x.severity==='ERROR').length;
     const stateKind=errors?'err':warnings?'warn':'ok';
-    const stateTitle=errors?'Есть ошибка, требующая проверки':warnings?'Расчёт выполнен, есть предупреждения':'Расчёт выполнен';
-    const reachCards=[1,2,3,4,5,6].map(k=>{
-      const val=Number(reachAt(top,k)),share=u&&Number.isFinite(val)?val/u:null;
-      return `<div class="v16-reach-kpi ${k===tf?'selected':''}">
-        <span>@${k}+</span>
+    const stateTitle=errors?'Расчёт требует проверки':warnings?'Расчёт выполнен, есть предупреждения':'Расчёт выполнен';
+    const issueCount=errors||warnings;
+    const issueLabel=errors
+      ? issueCount===1?'ошибка':issueCount>=2&&issueCount<=4?'ошибки':'ошибок'
+      : warnings
+        ? issueCount===1?'предупреждение':issueCount>=2&&issueCount<=4?'предупреждения':'предупреждений'
+        : 'без предупреждений';
+    const stateIcon=errors||warnings?'!':'✓';
+
+    const reachRows=[1,2,3,4,5,6].map(k=>{
+      const val=Number(reachAt(top,k)),share=u&&Number.isFinite(val)?val/u:null,selected=k===tf;
+      const row=`<div class="v16-overview-reach-row ${selected?'selected':''}">
+        <span class="v16-overview-frequency-key">@${k}+</span>
         <strong>${share!=null?pct(share,2):'—'}</strong>
         <b>${Number.isFinite(val)?num(val,0)+' человек':'—'}</b>
-        ${k===tf?'<small>выбранная KPI-частота</small>':''}
       </div>`;
+      return row+(selected?`<div class="v16-overview-kpi-note"><span>★</span><strong>выбранная KPI-частота</strong></div>`:'');
     }).join('');
+
     const avg=top.avg_frequency!=null?num(top.avg_frequency,1):'—';
     const dedupRate=top.dedup_rate!=null?pct(top.dedup_rate,2):'—';
+
     wrap.innerHTML=`
-      <div class="v16-result-state ${stateKind}">
-        <div><strong>${stateTitle}</strong><span>${errors?errors+' ошибок':warnings?warnings+' предупреждений':'без критических ошибок'}</span></div>
-        <small>Охват @1+…@6+ одновременно показан в % целевой аудитории и в людях.</small>
-      </div>
-      <div class="v16-reach-kpi-grid">${reachCards}</div>
-      <div class="v16-summary-grid">
-        <div><span>Universe результата</span><strong>${u?num(u,0):'—'}</strong></div>
-        <div><span>Impressions</span><strong>${top.impressions!=null?num(top.impressions,0):'—'}</strong></div>
-        <div><span>Среднее число контактов</span><strong>${avg}</strong><small>на @1+ человека · I / @1+</small></div>
-        <div><span>Gross Reach Sum</span><strong>${top.gross_reach_sum!=null?num(top.gross_reach_sum,0):'—'}</strong><small>сумма охватов до дедупликации</small></div>
-        <div><span>Повторная аудитория</span><strong>${top.dedup_people!=null?num(top.dedup_people,0):'—'}</strong><small>${dedupRate} от Gross Reach</small></div>
-        <div><span>Модель объединения</span><strong class="v16-model-path">${esc(friendlyModelPath(top.model_path))}</strong></div>
-      </div>`;
+      <section class="v16-overview-card v16-overview-status ${stateKind}">
+        <div class="v16-overview-status-icon">${stateIcon}</div>
+        <h3>${stateTitle}</h3>
+        <div class="v16-overview-status-divider"></div>
+        ${issueCount
+          ?`<strong class="v16-overview-status-count">${issueCount}</strong><span class="v16-overview-status-caption">${issueLabel}</span>`
+          :`<strong class="v16-overview-status-ok">Готово</strong><span class="v16-overview-status-caption">${issueLabel}</span>`}
+      </section>
+
+      <section class="v16-overview-card v16-overview-frequency">
+        <div class="v16-overview-card-head">
+          <h3>Охват по частоте</h3>
+          <p>Охват @1+…@6+ одновременно показан в % целевой аудитории и в людях.</p>
+        </div>
+        <div class="v16-overview-reach-head">
+          <span>Частота</span><span>% ЦА</span><span>Люди</span>
+        </div>
+        <div class="v16-overview-reach-body">${reachRows}</div>
+      </section>
+
+      <section class="v16-overview-card v16-overview-summary">
+        <div class="v16-overview-card-head"><h3>Ключевые результаты</h3></div>
+        <div class="v16-overview-summary-list">
+          <div><span>Universe результата</span><strong>${u?num(u,0):'—'}</strong></div>
+          <div><span>Impressions</span><strong>${top.impressions!=null?num(top.impressions,0):'—'}</strong></div>
+          <div><span>Среднее число контактов</span><strong>${avg}</strong><small>на @1+ человека · I / @1+</small></div>
+          <div><span>Gross Reach Sum</span><strong>${top.gross_reach_sum!=null?num(top.gross_reach_sum,0):'—'}</strong><small>сумма охватов до дедупликации</small></div>
+          <div><span>Повторная аудитория</span><strong>${top.dedup_people!=null?num(top.dedup_people,0):'—'}</strong><small>${dedupRate} от Gross Reach</small></div>
+          <div><span>Модель объединения</span><strong class="v16-model-path">${esc(friendlyModelPath(top.model_path))}</strong></div>
+        </div>
+      </section>`;
   }
 
   function renderFrequencyProfile(){
@@ -424,12 +452,6 @@
     }).join('');
     const dots=pts.map(p=>`<g class="${p.k===tf?'selected':''}"><circle cx="${x(p.k)}" cy="${y(p.pct)}" r="${p.k===tf?5:4}" class="v16-chart-dot"/><text x="${x(p.k)}" y="${H-12}" text-anchor="middle" class="v16-chart-axis">@${p.k}+</text></g>`).join('');
 
-    const rows=pts.map(p=>`<div class="v16-profile-row ${p.k===tf?'selected':''}">
-      <div class="v16-profile-label">@${p.k}+</div>
-      <div class="v16-profile-track" aria-label="@${p.k}+ ${pct(p.share,2)}"><span style="width:${(p.share*100).toFixed(3)}%"></span></div>
-      <div class="v16-profile-value"><strong>${pct(p.share,2)}</strong><span>${num(p.val,0)} человек</span></div>
-    </div>`).join('');
-
     wrap.innerHTML=`
       <div class="v16-er-chart">
         <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Кривая Effective Reach @1+…@6+">
@@ -437,8 +459,7 @@
           <polyline points="${poly}" class="v16-chart-line"/>
           ${dots}
         </svg>
-      </div>
-      <div class="v16-profile-grid compact">${rows}</div>`;
+      </div>`;
   }
 
   function renderExactFrequency(){

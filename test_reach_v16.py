@@ -482,10 +482,17 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertLess(cell.index("num(r.dedup_people,0)"), cell.index("pct(r.dedup_rate,2)"))
         self.assertIn("gross-dedup", self.js)
 
-    def test_effective_reach_has_native_svg_and_compact_rows(self):
+    def test_overview_dashboard_has_three_cards_and_chart(self):
+        self.assertIn('class="v16-overview-card v16-overview-status', self.js)
+        self.assertIn('class="v16-overview-card v16-overview-frequency"', self.js)
+        self.assertIn('class="v16-overview-card v16-overview-summary"', self.js)
+        self.assertIn("Охват по частоте", self.js)
+        self.assertIn("Ключевые результаты", self.js)
+        self.assertIn("выбранная KPI-частота", self.js)
+        self.assertIn('id="v16Metrics" class="v16-overview-grid"', self.html)
         self.assertIn("<polyline points=", self.js)
-        self.assertIn("v16-profile-grid compact", self.js)
         self.assertIn('aria-label="Кривая Effective Reach @1+…@6+"', self.js)
+        self.assertNotIn("v16-profile-grid compact", self.js)
 
     def test_quick_k_stays_canonical_default(self):
         self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.40)
