@@ -701,12 +701,8 @@ def _plan_universe(plan, override: Any) -> float:
 
 def _resolve_line_l2(plan, U: float, q: dict, plan_id: str) -> dict:
     requested = str(q.get("l2_mode") or "AUTO").upper()
-    if requested not in {"AUTO", "QUICK", "ADVANCED"}:
-        # Keep legacy value accepted by existing UI.
-        if requested == "ADVANCED_WEB":
-            requested = "ADVANCED"
-        else:
-            raise V16Error("Level 2 mode должен быть AUTO, QUICK или ADVANCED.")
+    if requested not in {"AUTO", "QUICK", "ADVANCED", "ADVANCED_WEB"}:
+        raise V16Error("Level 2 mode должен быть AUTO, ADVANCED_WEB, QUICK или ADVANCED.")
 
     adv_q = q.get("advanced") or {}
     K = m.finite(q.get("K", m.K_DEFAULT), "K")
@@ -727,7 +723,7 @@ def _resolve_line_l2(plan, U: float, q: dict, plan_id: str) -> dict:
     return {
         "requested_mode": requested,
         "K": K,
-        "K_source": "MODEL_DEFAULT" if q.get("K") in (None, "", m.K_DEFAULT, "2.4", "2.40") else "USER_OVERRIDE",
+        "K_source": "MODEL_DEFAULT" if abs(K - m.K_DEFAULT) <= 1e-12 else "USER_OVERRIDE",
         "B": B, "D": D, "L": L,
         "B_source": "USER_OVERRIDE" if B_raw not in (None, "") else rec["B_source"],
         "D_source": "USER_OVERRIDE" if D_raw not in (None, "") else rec["D_source"],
@@ -967,6 +963,11 @@ def _l2_for_scope(
     )
     line_ud = cfg["web_device_universes"].get(cfg["plan_id"])
     U_D = unit_ud if unit_ud not in (None, "", 0, "0") else line_ud
+    U_D_source = (
+        "MEASURED_UNIT" if unit_ud not in (None, "", 0, "0")
+        else "MEASURED_LINE" if line_ud not in (None, "", 0, "0")
+        else None
+    )
     device_reach = _scope_map_value(
         cfg["device_reaches"], cfg["plan_id"], scope_id, row_ids, default=None
     )
@@ -979,7 +980,33 @@ def _l2_for_scope(
 
     reason = None
     use_advanced = requested == "ADVANCED"
-    if requested == "AUTO":
+
+    if requested == "ADVANCED_WEB":
+        # User-facing detailed mode is intentionally Web-specific. It must not make
+        # a mixed campaign fail because app/CTV/unknown rows need a different L2 path.
+        if environment == "WEB":
+            if U_D in (None, "", 0, "0"):
+                U_D = U * cfg["D"]
+                U_D_source = "MODEL_DERIVED_U_X_D"
+                diagnostics.append({
+                    "code": "L2_WEB_DEVICE_UNIVERSE_MODELED",
+                    "level": 2,
+                    "scope_id": scope_id,
+                    "source_refs": list(source_refs),
+                    "U": U,
+                    "D": cfg["D"],
+                    "U_D": U_D,
+                    "source": "MODEL_DEFAULT" if cfg["D_source"] != "USER_OVERRIDE" else "USER_OVERRIDE",
+                    "message": "Для детального Web-расчёта U_D рассчитан как Human Universe × D.",
+                })
+            use_advanced = bool(start and end and frequency is not None)
+            if not use_advanced:
+                reason = "ADVANCED_WEB_INPUTS_INCOMPLETE"
+        else:
+            use_advanced = False
+            reason = "ADVANCED_WEB_NOT_APPLICABLE_TO_ENVIRONMENT"
+
+    elif requested == "AUTO":
         if environment == "WEB":
             use_advanced = bool(
                 U_D not in (None, "", 0, "0")
@@ -1006,7 +1033,11 @@ def _l2_for_scope(
             "effective_mode": "QUICK",
             "reason": reason or ("USER_SELECTED_QUICK" if requested == "QUICK" else None),
             "K": quick["K"], "K_source": cfg["K_source"],
-            "source": "FALLBACK" if requested == "AUTO" else "USER_OVERRIDE",
+            "source": (
+                "USER_OVERRIDE" if cfg["K_source"] == "USER_OVERRIDE"
+                else "FALLBACK" if requested in {"AUTO", "ADVANCED_WEB"}
+                else "USER_OVERRIDE"
+            ),
         })
         return {
             "R_people": quick["R_people"],
@@ -1056,6 +1087,7 @@ def _l2_for_scope(
         "D": cfg["D"], "D_source": cfg["D_source"],
         "L": cfg["L"], "L_source": cfg["L_source"],
         "U_D": U_D,
+        "U_D_source": U_D_source,
         "K_time": adv.get("K_time"),
         "R_stable": adv.get("R_stable"),
         "R_device": adv.get("R_device"),
@@ -2329,8 +2361,20 @@ def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> Lis
             add("MODEL DEFAULT", 1, "Точность Frequency не указана",
                 "Для arithmetic validation принята точность 2 знака после запятой.", "INFO")
         elif code == "L2_QUICK" and d.get("reason"):
-            add("FALLBACK", 2, "Level 2 рассчитан в Quick",
-                f"Причина: {d.get('reason')}. K={d.get('K')}.", "WARNING")
+            requested = str(d.get("requested_mode") or "")
+            k_source = str(d.get("K_source") or "")
+            if k_source == "USER_OVERRIDE":
+                add("USER INPUT", 2, "Использован заданный коэффициент K",
+                    f"Quick-перевод Technical Reach в людей выполнен с K={d.get('K')}.", "INFO")
+            elif requested in {"AUTO", "ADVANCED_WEB"}:
+                add("AUTO MODEL", 2, "Level 2 выбран автоматически",
+                    f"Для этого размещения применён K={d.get('K')}; причина выбора пути: {d.get('reason')}.", "INFO")
+            else:
+                add("FALLBACK", 2, "Level 2 рассчитан в Quick",
+                    f"Причина: {d.get('reason')}. K={d.get('K')}.", "WARNING")
+        elif code == "L2_WEB_DEVICE_UNIVERSE_MODELED":
+            add("MODEL DEFAULT", 2, "Web-device Universe рассчитан модельно",
+                f"Для детального Web-пути использовано U_D = U × D = {d.get('U_D'):.0f}.", "INFO")
         elif code in {"B_AVERAGED_APPROXIMATION", "D_AVERAGED_APPROXIMATION"}:
             add("APPROXIMATION", 2, code,
                 "Сегментного Reach для нелинейного расчёта нет; применён разрешённый averaged fallback.", "WARNING")
