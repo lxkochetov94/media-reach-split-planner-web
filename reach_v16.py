@@ -2378,46 +2378,75 @@ def _business_diagnostics(ds: Sequence[dict], brand_error: Optional[str]) -> Lis
 
 
 def _hierarchy(lines: Sequence[dict], brand: Optional[dict], brand_u: Optional[float]) -> List[dict]:
+    """Business-facing hierarchy with expandable platform rows under each channel."""
     rows: List[dict] = []
-    keys = ("impressions", "reach_1p", "reach_2p", "reach_3p", "reach_4p", "reach_5p", "reach_6p", "avg_frequency",
-            "gross_reach_sum", "dedup_people", "dedup_rate", "model_path")
+    keys = (
+        "impressions", "reach_1p", "reach_2p", "reach_3p", "reach_4p", "reach_5p", "reach_6p",
+        "avg_frequency", "gross_reach_sum", "dedup_people", "dedup_rate", "model_path",
+    )
     for line in lines:
+        line_label = line.get("label") or line.get("name")
         for flight in line.get("flights", []):
+            flight_name = flight.get("name")
             for channel in flight.get("channels", []):
+                channel_name = channel.get("name")
                 rows.append({
                     "level": "Channel",
-                    "line": line.get("label") or line.get("name"),
-                    "flight": flight.get("name"),
-                    "name": channel.get("name"),
+                    "line": line_label,
+                    "flight": flight_name,
+                    "channel": channel_name,
+                    "name": channel_name,
                     "universe": line["universe"],
                     **{k: channel.get(k) for k in keys},
                 })
+
+                # Level 3 platform entities already contain their own frequency curve.
+                # Expose them directly beneath the parent channel so the planner can
+                # inspect platform KPIs without a separate contribution table.
+                seen_units = set()
+                for family in channel.get("families", []):
+                    for unit in family.get("inventory_units", []):
+                        unit_id = str(unit.get("unit_id") or unit.get("platform_scope_id") or unit.get("name") or "")
+                        if unit_id in seen_units:
+                            continue
+                        seen_units.add(unit_id)
+                        rows.append({
+                            "level": "Platform",
+                            "line": line_label,
+                            "flight": flight_name,
+                            "channel": channel_name,
+                            "name": unit.get("platform") or unit.get("name") or "Площадка",
+                            "universe": line["universe"],
+                            **{k: unit.get(k) for k in keys},
+                        })
+
             rows.append({
                 "level": "Flight",
-                "line": line.get("label") or line.get("name"),
-                "flight": flight.get("name"),
-                "name": flight.get("name"),
+                "line": line_label,
+                "flight": flight_name,
+                "channel": "",
+                "name": flight_name,
                 "universe": line["universe"],
                 **{k: flight.get(k) for k in keys},
             })
         rows.append({
             "level": "Line",
-            "line": line.get("label") or line.get("name"),
+            "line": line_label,
             "flight": "",
-            "name": line.get("label") or line.get("name"),
+            "channel": "",
+            "name": line_label,
             "universe": line["universe"],
             **{k: line.get(k) for k in keys},
         })
     if brand is not None and brand_u:
         rows.append({
             "level": "Brand",
-            "line": "", "flight": "",
+            "line": "", "flight": "", "channel": "",
             "name": brand.get("name") or "Brand",
             "universe": brand_u,
             **{k: brand.get(k) for k in keys},
         })
     return rows
-
 
 def _contribution_rows(lines: Sequence[dict], brand: Optional[dict]) -> List[dict]:
     """User-facing contribution table.
