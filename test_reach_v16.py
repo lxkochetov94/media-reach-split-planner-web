@@ -519,7 +519,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertNotIn("↳", self.js)
 
     def test_dedup_cell_shows_people_then_percent_and_checks_invariant(self):
-        self.assertIn('Дедупликация<span class="v16-th-sub">чел. · % от Gross Reach</span>', self.js)
+        self.assertIn('Дедупликация<span class="v16-th-sub">чел. · % Gross Reach</span>', self.js)
         start = self.js.index('data-label="Дедупликация"')
         cell = self.js[start:start + 500]
         self.assertLess(cell.index("num(r.dedup_people,0)"), cell.index("pct(r.dedup_rate,2)"))
