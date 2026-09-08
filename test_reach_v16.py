@@ -440,6 +440,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parent
         cls.js = (root / "reach_v16.js").read_text(encoding="utf-8")
         cls.html = (root / "index.html").read_text(encoding="utf-8")
+        cls.css = (root / "reach_v16.css").read_text(encoding="utf-8")
 
     def test_frequency_notation_is_at_not_reach_n_plus(self):
         surface = self.js + "\n" + self.html
@@ -464,16 +465,26 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("на @1+ человека", self.js)
         self.assertIsNone(re.search(r"\d(?:[.,]\d+)?на\s*@", self.js))
 
-    def test_contribution_cells_show_people_then_percent(self):
-        self.assertIn("Вклад в Reach, чел.", self.js)
-        self.assertIn("Эксклюзивная аудитория, чел.", self.js)
-        self.assertIn("Учтённые пересечения, чел.", self.js)
-        self.assertIn("Итого ${esc(r.channel||'')}", self.js)
-        match = re.search(r"const cell=\(value\)=>\`([^\n]+)\`", self.js)
+    def test_contribution_table_uses_human_hierarchy_and_scope_labels(self):
+        surface = self.js + "\n" + self.html
+        self.assertIn("Вклад площадок и каналов в итоговый охват", self.html)
+        self.assertIn("Вклад в общий охват", self.js)
+        self.assertIn("Уникальная аудитория", self.js)
+        self.assertIn("Пересечение с другими", self.js)
+        self.assertIn("Итого по каналу:", self.js)
+        self.assertIn("общий охват флайта", self.js)
+        self.assertIn("от охвата канала", self.js)
+        self.assertIn("от охвата флайта", self.js)
+        self.assertNotIn("родительского Reach", surface)
+        self.assertNotIn("Родительский Reach", surface)
+        self.assertIn("v16-flight-divider", self.js)
+        self.assertIn("v16-channel-subtotal", self.js)
+        self.assertIn("Contribution hierarchy redesign", self.css)
+        self.assertIn("padding:7px 11px", self.css)
+        match = re.search(r"const cell=\(value,parent,scope\)=>`([^\n]+)`", self.js)
         self.assertIsNotNone(match)
         cell = match.group(1)
         self.assertLess(cell.index("num(value,0)"), cell.index("pct(value/parent,2)"))
-        self.assertNotIn("человек", cell)
 
     def test_dedup_cell_shows_people_then_percent_and_checks_invariant(self):
         self.assertIn('Дедупликация<span class="v16-th-sub">чел. · % от Gross Reach</span>', self.js)
