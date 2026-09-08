@@ -623,7 +623,7 @@ def _platform_scope_requirements(units: Sequence[dict]) -> List[dict]:
                 for x in items
             ],
             "required_input": None,
-            "auto_path": "AUTO_PERIODIC_PLATFORM_TEMPORAL",
+            "auto_path": "AUTO_AGGREGATE_PLATFORM_FRAGMENTS",
         })
     return out
 
@@ -1474,15 +1474,69 @@ def _platform_entity(
             q, "aggregate_flight_technical_reaches", plan_id, flight_id,
             scope_id, platform, row_ids, default=None,
         )
-        if len(rows) > 1 and explicit_Rtech in (None, ""):
+        if cfg["requested_mode"] == "AUTO" and explicit_Rtech in (None, ""):
+            # AUTO is the mass-planning path. Source rows of one platform inside a
+            # Flight are fragments of the same planner inventory, so aggregate their
+            # Technical Reach/Impressions first and apply the simple AUTO conversion
+            # once. Do NOT run temporal browser/device deduplication here: that is a
+            # Detailed Web nuance and was the reason browser AUTO materially
+            # under-estimated the same plan compared with the planner fixture.
+            Rtech_scope = source_rtech_sum
+            if Rtech_scope < 0:
+                raise V16Error(f"{scope_id}: aggregate technical Reach < 0.")
+            if Rtech_scope == 0 and I_scope > 0:
+                raise V16Error(f"{scope_id}: aggregate technical Reach=0 при Impressions>0.")
+            F_scope = (I_scope / Rtech_scope) if Rtech_scope > 0 else 1.0
+            if F_scope < 1 - m.NUMERICAL_TOL:
+                raise V16Error(
+                    f"{scope_id}: aggregate Impressions/Technical Reach даёт Frequency<1."
+                )
+            try:
+                l1 = m.level1_technical(
+                    I_scope, F_scope, Rtech_scope, frequency_precision=12
+                )
+            except m.ReachValidationError as exc:
+                raise V16Error(f"{scope_id}: {exc}") from exc
+            l2out = _l2_for_scope(
+                rtech=Rtech_scope,
+                impressions=I_scope,
+                frequency=F_scope,
+                start=min((r.start for r in rows if r.start), default=None),
+                end=max((r.end for r in rows if r.end), default=None),
+                U=U,
+                cfg=cfg,
+                diagnostics=diagnostics,
+                scope_id=scope_id,
+                source_refs=source_refs,
+                l1=l1,
+                row_ids=row_ids,
+                environment_hint=_auto_environment(rows),
+                browser_family_hint=_auto_browser_family(rows),
+            )
+            aggregate_source = "AUTO_AGGREGATE_PLATFORM_FRAGMENTS"
+            diagnostics.append({
+                "code": "L3A_AUTO_AGGREGATE_PLATFORM",
+                "level": 3,
+                "scope_id": scope_id,
+                "platform": platform,
+                "flight_id": flight_id,
+                "fragment_count": len(rows),
+                "aggregate_technical_reach": Rtech_scope,
+                "aggregate_impressions": I_scope,
+                "technical_frequency": F_scope,
+                "source": "AUTO_PLANNER_PATH",
+            })
+        elif len(rows) > 1 and explicit_Rtech in (None, ""):
+            # Detailed Web keeps the temporal/platform path because B/D/L, ID churn
+            # and delivery timing are precisely the nuances this mode is for.
             l3a, _periods = _auto_period_platform_reach(
                 rows, U, cfg, diagnostics, scope_id, U_p, prof, custom_rho,
             )
             l2_summary = {
-                "mode": "AUTO_PERIODIC",
+                "mode": "DETAILED_PERIODIC",
                 "environment": _auto_environment(rows),
                 "fallback_reason": None,
-                "aggregate_scope_source": "AUTO_FROM_MEDIA_PLAN_PERIODS",
+                "aggregate_scope_source": "DETAILED_FROM_MEDIA_PLAN_PERIODS",
             }
         elif explicit_Rtech in (None, ""):
             only = rows[0]
