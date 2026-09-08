@@ -20,8 +20,8 @@
     if(!coreReady)throw new Error('Базовый парсер не готов');
     if(v16ModuleReady)return;
     const [mathResp,adapterResp]=await Promise.all([
-      fetch('reach_v16_math.py?v=1.6.14'),
-      fetch('reach_v16.py?v=1.6.14')
+      fetch('reach_v16_math.py?v=1.6.17'),
+      fetch('reach_v16.py?v=1.6.17')
     ]);
     if(!mathResp.ok||!adapterResp.ok)throw new Error('Не удалось загрузить канонический Reach Engine v1.6');
     const [mathTxt,adapterTxt]=await Promise.all([mathResp.text(),adapterResp.text()]);
@@ -291,36 +291,42 @@
   }
 
   function currentMode(){return $(ids.mode)?.value||'AUTO'}
+  function currentK(){return Number($(ids.k)?.value||2.44)}
+  function currentKIsOverride(){return Math.abs(currentK()-2.44)>1e-12}
 
   function renderL2Decision(){
     const wrap=$(ids.l2Decision);if(!wrap)return;
-    const state=allUserState(),mode=currentMode(),K=Number($(ids.k)?.value||2.4);
+    const state=allUserState(),mode=currentMode(),K=currentK(),kOverride=currentKIsOverride();
     if(!state.plans.length){wrap.innerHTML='';return}
     wrap.innerHTML='<div class="v16-decision-list">'+state.plans.map(p=>{
       const rec=p.meta.advanced_recommended||{};
-      const hasUD=!!lineUD(p);
-      const forcedAdvanced=(mode==='ADVANCED'||mode==='ADVANCED_WEB');
-      const advanced=hasUD && mode!=='QUICK';
-      const blocked=forcedAdvanced&&!hasUD;
-      const status=blocked?'Advanced · нужен U_D':advanced?'Advanced Web':'Quick · модельная оценка';
-      const kind=blocked?'error':advanced?'advanced':'fallback';
-      return `<details class="v16-decision ${kind}">
+      const measuredUD=lineUD(p);
+      const detailed=mode==='ADVANCED_WEB';
+      const status=detailed
+        ?`Детальный Web · U_D ${measuredUD?'измеренный':'автоматически U × D'}`
+        :kOverride
+          ?`Автоматически · задан K = ${num(K,2)}`
+          :`Автоматически · K = ${num(K,2)}`;
+      const explanation=detailed
+        ?`Для web-размещений используется детальный путь B → D → Human Reach. ${measuredUD
+            ?'Используется измеренный U_D.'
+            :'Если измеренного U_D нет, движок рассчитывает его как Human Universe × D и явно фиксирует это как модельное допущение.'} Для строк, к которым Web-модель неприменима, расчёт автоматически продолжается через K = ${num(K,2)}.`
+        :kOverride
+          ?`Расчёт выполняется автоматически, но для K-пути используется заданный пользователем коэффициент K = ${num(K,2)}. Это USER_OVERRIDE и он фиксируется в диагностике.`
+          :`Расчёт выполняется автоматически. Для строк без достаточных входов детального Web-пути используется стандартный коэффициент K = ${num(K,2)}; при наличии достаточных измеренных web-входов движок может выбрать детальный путь сам.`;
+      return `<details class="v16-decision ${detailed?'advanced':'fallback'}">
         <summary><strong>${esc(p.meta.label||p.id)}</strong><span>${esc(status)}</span></summary>
         <div class="v16-decision-body">
           <div class="v16-formula-path compact">
-            <span>Technical Reach</span><b>→</b><span>${advanced?'device-level перевод':'÷ K'}</span><b>→</b><span>Human Reach</span>
+            <span>Technical Reach</span><b>→</b><span>${detailed?'Web: B / D / L · остальное: ÷ K':'автоматический выбор пути'}</span><b>→</b><span>Human Reach</span>
           </div>
-          <div class="v16-decision-why">${advanced
-            ?'Есть измеренный U_D, поэтому используется детальный Web-расчёт.'
-            :blocked
-              ?'Выбран принудительный Advanced Web, но измеренного U_D нет.'
-              :'Quick используется, когда нет измеренного device universe. K=2,40 — фиксированный рабочий model default методологии v1.6, а не измеренный универсальный коэффициент рынка. Реальный эквивалент K зависит от duration, frequency, B, D и U_D и определяется только при достаточных данных для Advanced.'}</div>
+          <div class="v16-decision-why">${esc(explanation)}</div>
           <div class="v16-param-row">
-            <span><b>K = ${num(K,2)}</b><small>модельный fallback, не измеренный «реальный K»</small></span>
+            <span><b>K = ${num(K,2)}</b><small>${kOverride?'USER_OVERRIDE':'model default'}</small></span>
             <span><b>B = ${num(rec.B,2)}</b><small>browser ID на одно web-устройство</small></span>
             <span><b>D = ${num(rec.D,2)}</b><small>устройств на одного человека</small></span>
             <span><b>L = 68 дней</b><small>стабильность browser ID Chromium</small></span>
-            <span><b>U_D ${hasUD?num(lineUD(p),0):'нет'}</b><small>измеренный Universe web-устройств</small></span>
+            <span><b>U_D ${measuredUD?num(measuredUD,0):detailed?'AUTO = U × D':'нет'}</b><small>${measuredUD?'измеренный Universe web-устройств':detailed?'модельный web-device Universe':'при наличии используется автоматически'}</small></span>
           </div>
         </div>
       </details>`;
@@ -375,6 +381,7 @@
       return;
     }
     const diagnostics=v16Data?.business_diagnostics||[];
+    const rawDiagnostics=v16Data?.diagnostics||[];
     const warnings=diagnostics.filter(x=>x.severity==='WARNING');
     const errors=diagnostics.filter(x=>x.severity==='ERROR');
     const stateKind=errors.length?'err':warnings.length?'warn':'ok';
@@ -388,16 +395,28 @@
         : 'без предупреждений';
     const stateIcon=errors.length||warnings.length?'!':'✓';
     const firstIssue=issues[0];
+
+    const mode=currentMode(),K=currentK(),kOverride=currentKIsOverride();
+    const l2Advanced=rawDiagnostics.filter(d=>d.code==='L2_ADVANCED');
+    const l2Quick=rawDiagnostics.filter(d=>d.code==='L2_QUICK');
+    const modeledUD=l2Advanced.some(d=>d.U_D_source==='MODEL_DERIVED_U_X_D');
+    let modelDetail='Расчёт выполнен автоматически';
+    let modelExplain=`Движок сам выбрал Level 2 для каждого размещения. Стандартный K = ${num(K,2)} используется там, где детальный Web-путь не нужен или для него недостаточно измеренных входов.`;
+
+    if(mode==='ADVANCED_WEB'){
+      modelDetail=l2Advanced.length?'Детальный Web-расчёт применён':'Детальный Web-путь не потребовался';
+      modelExplain=l2Advanced.length
+        ?`Для web-размещений Technical Reach переведён в людей через B, D и L. ${modeledUD?'При отсутствии измеренного U_D он рассчитан автоматически как Human Universe × D.':'Использован доступный измеренный U_D.'}${l2Quick.length?` Для остальных размещений применён K = ${num(K,2)}.`:''}`
+        :`В выбранных размещениях не оказалось строк, к которым применим детальный Web-путь; расчёт завершён через автоматический K-путь с K = ${num(K,2)}.`;
+    }else if(kOverride){
+      modelDetail=`Расчёт выполнен с заданным K = ${num(K,2)}`;
+      modelExplain=`Автоматический режим сохранён, но для строк, рассчитываемых через K, используется коэффициент, заданный пользователем. Override явно зафиксирован в диагностике.`;
+    }
+
+    const stateDetail=errors.length?(firstIssue?.title||'Нужна проверка входных данных'):modelDetail;
     const stateExplain=errors.length
-      ? 'Результат нельзя считать финальным, пока не исправлена указанная проблема во входных данных.'
-      : warnings.length
-        ? 'Это не ошибка расчёта. Результат получен, но в модели применено допущение, которое нужно учитывать при интерпретации.'
-        : 'Все обязательные входы прошли проверку. Результат можно использовать для планирования.';
-    const stateDetail=firstIssue?.title||(
-      warnings.length?'Применено модельное допущение':
-      errors.length?'Нужна проверка входных данных':
-      'Расчёт завершён без критических замечаний'
-    );
+      ?'Результат нельзя считать финальным, пока не исправлена указанная проблема во входных данных.'
+      :modelExplain;
 
     const reachRows=[1,2,3,4,5,6].map(k=>{
       const val=Number(reachAt(top,k)),share=u&&Number.isFinite(val)?val/u:null,selected=k===tf;
@@ -659,7 +678,7 @@
       selected_plan_ids:plans.map(x=>x.id),
       universes:Object.fromEntries(plans.map(x=>[x.id,x.universe])),
       l2_mode:currentMode(),
-      K:Number($(ids.k)?.value||2.4),
+      K:currentK(),
       advanced:{
         L:Number($(ids.L)?.value||68),
         B:nval(ids.B),D:nval(ids.D),
