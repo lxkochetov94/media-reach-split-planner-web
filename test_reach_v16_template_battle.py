@@ -89,7 +89,7 @@ class MixedTemplateBattleTests(unittest.TestCase):
         self.assertEqual(reqs[0]["fragment_count"], 2)
         self.assertEqual(reqs[0]["platform"], "VK Video")
         self.assertIsNone(reqs[0]["required_input"])
-        self.assertEqual(reqs[0]["auto_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
+        self.assertEqual(reqs[0]["auto_path"], "AUTO_AGGREGATE_PLATFORM_FRAGMENTS")
 
     def test_vernel_battle_ta_mismatch_is_hard_error(self):
         groups = [
