@@ -2222,14 +2222,16 @@ def _apply_source_curve_calibration(
     plan_id: str,
 ) -> dict:
     before = {k: float(line.get(f"reach_{k}p") or 0.0) for k in range(1, 7)}
-    _calibrate_result_to_source(line, reference_line, source_curve_pct, U)
 
-    # If the Line is a one-flight identity, keep the visible Flight total aligned with
-    # the same source summary benchmark. Channels/platforms remain independently modeled.
+    # Calibrate the sole Flight first. The Line identity then sees a calibrated child,
+    # so set-theory floor checks remain valid even when the raw Detailed Web result was
+    # above the source benchmark.
     flights = line.get("flights") or []
     ref_flights = reference_line.get("flights") or []
     if len(flights) == 1 and len(ref_flights) == 1:
         _calibrate_result_to_source(flights[0], ref_flights[0], source_curve_pct, U)
+
+    _calibrate_result_to_source(line, reference_line, source_curve_pct, U)
 
     if line.get("source_calibrated"):
         line["source_calibration"] = {
@@ -2851,6 +2853,7 @@ def discover(path: str) -> str:
             "flight_count": len(plan.flights),
             "placement_count": len(plan.detail_rows()),
             "advanced_recommended": recommended_advanced_factors(ta),
+            "source_reach_pct_curve": _valid_source_reach_curve(plan),
             "input_profile": _plan_input_profile(plan),
             "inventory_units": units,
             "excluded_reach_rows": excluded_units,
