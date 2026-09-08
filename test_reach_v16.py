@@ -467,7 +467,7 @@ class ReachV16FinalUxContractTests(unittest.TestCase):
         self.assertIn("Вклад в Reach, чел.", self.js)
         self.assertIn("Эксклюзивная аудитория, чел.", self.js)
         self.assertIn("Учтённые пересечения, чел.", self.js)
-        self.assertIn("Итого \${esc(r.channel||'')}", self.js)
+        self.assertIn("Итого ${esc(r.channel||'')}", self.js)
         match = re.search(r"const cell=\(value\)=>\`([^\n]+)\`", self.js)
         self.assertIsNotNone(match)
         cell = match.group(1)
