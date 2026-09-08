@@ -1237,3 +1237,19 @@ details.v16-decision>summary span{font-size:10px;font-weight:700;color:var(--mut
   min-height:42px;
   line-height:1.45;
 }
+
+
+/* Align exact-frequency cards with the bottom of the Effective Reach chart */
+#tab-reach16 .v16-frequency-exact-panel{
+  display:flex;
+  flex-direction:column;
+}
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-grid{
+  flex:1 1 auto;
+  grid-template-rows:repeat(3,minmax(0,1fr));
+  align-content:stretch;
+}
+#tab-reach16 .v16-frequency-exact-panel .v16-exact-card{
+  height:100%;
+  align-content:center;
+}
