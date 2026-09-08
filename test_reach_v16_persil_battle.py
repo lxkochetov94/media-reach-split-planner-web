@@ -237,8 +237,31 @@ class PersilBattlePlanTests(unittest.TestCase):
         self.assertEqual(len(channels), 1)
         unit = channels[0]["families"][0]["inventory_units"][0]
         self.assertEqual(unit["fragment_count"], 2)
+        self.assertEqual(unit["l3a"]["model_path"], "AGGREGATE_FLIGHT_REACH_MODE")
+        self.assertTrue(any(d.get("code") == "L3A_AUTO_AGGREGATE_PLATFORM" for d in diagnostics))
+        self.assertFalse(any(d.get("code") == "L3A_AUTO_PERIODIC_PLATFORM" for d in diagnostics))
+
+    def test_detailed_web_month_fragments_keep_temporal_path(self):
+        rows = make_rows("caps_f2_detailed", [
+            {"row":18,"channel":"OLV","platform":"VK Video","format":"Pre-roll","impressions":1_735_058,"frequency":2.5,"tech_reach":694_023.2,"start":"2026-06-01","end":"2026-06-30"},
+            {"row":19,"channel":"OLV","platform":"VK Video","format":"Pre-roll","impressions":5_976_313,"frequency":2.5,"tech_reach":2_390_525.2,"start":"2026-07-01","end":"2026-07-31"},
+        ])
+        detailed = cfg("P1")
+        detailed.update({
+            "requested_mode": "ADVANCED_WEB",
+            "B_auto": detailed["B"],
+            "D_auto": detailed["D"],
+            "L_auto": detailed["L"],
+        })
+        diagnostics = []
+        channels = r._build_level4_channels(
+            rows, 15_182_450, detailed, q_for(rows),
+            "P1", "F1", diagnostics,
+        )
+        unit = channels[0]["families"][0]["inventory_units"][0]
         self.assertEqual(unit["l3a"]["model_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
         self.assertTrue(any(d.get("code") == "L3A_AUTO_PERIODIC_PLATFORM" for d in diagnostics))
+        self.assertTrue(any(d.get("code") == "L2_ADVANCED" for d in diagnostics))
 
     def test_core_flight2_month_fragments_are_automatic(self):
         rows = make_rows("core_f2", [
@@ -250,7 +273,7 @@ class PersilBattlePlanTests(unittest.TestCase):
             "P1", "F1", [],
         )
         unit = channels[0]["families"][0]["inventory_units"][0]
-        self.assertEqual(unit["l3a"]["model_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
+        self.assertEqual(unit["l3a"]["model_path"], "AGGREGATE_FLIGHT_REACH_MODE")
 
     def test_core_flight4_month_fragments_are_automatic(self):
         rows = make_rows("core_f4", [
@@ -262,7 +285,7 @@ class PersilBattlePlanTests(unittest.TestCase):
             "P1", "F1", [],
         )
         unit = channels[0]["families"][0]["inventory_units"][0]
-        self.assertEqual(unit["l3a"]["model_path"], "AUTO_PERIODIC_PLATFORM_TEMPORAL")
+        self.assertEqual(unit["l3a"]["model_path"], "AGGREGATE_FLIGHT_REACH_MODE")
 
     def test_explicit_aggregate_flight_reach_unlocks_fragmented_platform(self):
         rows = make_rows("caps_f2", [
