@@ -1,5 +1,7 @@
 import datetime as dt
 import math
+import pathlib
+import re
 import unittest
 from types import SimpleNamespace
 
@@ -429,6 +431,77 @@ class ReachV16Tests(unittest.TestCase):
                 ("channel_subtotal", "Banners", "", ""),
             ],
         )
+
+
+
+class ReachV16FinalUxContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        root = pathlib.Path(__file__).resolve().parent
+        cls.js = (root / "reach_v16.js").read_text(encoding="utf-8")
+        cls.html = (root / "index.html").read_text(encoding="utf-8")
+
+    def test_frequency_notation_is_at_not_reach_n_plus(self):
+        surface = self.js + "\\n" + self.html
+        for k in range(1, 7):
+            self.assertNotIn(f"Reach {k}+", surface)
+            self.assertIn(f"@{k}+", surface)
+
+    def test_model_map_is_collapsed_by_default(self):
+        self.assertIn('<details class="card v16-model-details">', self.html)
+        self.assertNotIn('<details class="card v16-model-details" open>', self.html)
+
+    def test_b_d_l_cards_match_final_mobile_copy(self):
+        self.assertIn("B — browser ID на одно web-устройство", self.js)
+        self.assertIn("D — устройств на одного человека", self.js)
+        self.assertIn("L — период стабильности browser ID Chromium", self.js)
+        self.assertIn("рассчитывается автоматически по ЦА", self.js)
+        self.assertNotIn("Остальное определяется автоматически", self.js)
+
+    def test_average_frequency_is_one_decimal_and_spaced(self):
+        self.assertIn("num(top.avg_frequency,1)", self.js)
+        self.assertIn("num(r.avg_frequency,1)", self.js)
+        self.assertIn("на @1+ человека", self.js)
+        self.assertIsNone(re.search(r"\\d(?:[.,]\\d+)?на\\s*@", self.js))
+
+    def test_contribution_cells_show_people_then_percent(self):
+        self.assertIn("Вклад в Reach, чел.", self.js)
+        self.assertIn("Эксклюзивная аудитория, чел.", self.js)
+        self.assertIn("Учтённые пересечения, чел.", self.js)
+        self.assertIn("Итого ${esc(r.channel||'')}", self.js)
+        match = re.search(r"const cell=\\(value\\)=>\\`([^\\n]+)\\`", self.js)
+        self.assertIsNotNone(match)
+        cell = match.group(1)
+        self.assertLess(cell.index("num(value,0)"), cell.index("pct(value/parent,2)"))
+        self.assertNotIn("человек", cell)
+
+    def test_dedup_cell_shows_people_then_percent_and_checks_invariant(self):
+        self.assertIn('Дедупликация<span class="v16-th-sub">чел. · % от Gross Reach</span>', self.js)
+        start = self.js.index('data-label="Дедупликация"')
+        cell = self.js[start:start + 500]
+        self.assertLess(cell.index("num(r.dedup_people,0)"), cell.index("pct(r.dedup_rate,2)"))
+        self.assertIn("gross-dedup", self.js)
+
+    def test_effective_reach_has_native_svg_and_compact_rows(self):
+        self.assertIn("<polyline points=", self.js)
+        self.assertIn("v16-profile-grid compact", self.js)
+        self.assertIn('aria-label="Кривая Effective Reach @1+…@6+"', self.js)
+
+    def test_quick_k_stays_canonical_default(self):
+        self.assertEqual(r.model_catalog()["level2"]["quick_k"], 2.40)
+        self.assertIn("фиксированный рабочий model default методологии v1.6", self.js)
+        self.assertIn("не измеренный универсальный коэффициент рынка", self.js)
+
+    def test_automatic_exclusions_stay_out_of_main_business_diagnostics(self):
+        out = r._business_diagnostics([
+            {"code": "SOURCE_IMPORT_WARNING", "level": "IMPORT", "message": "parser detail"},
+            {"code": "REACH_SCOPE_ROWS_EXCLUDED", "level": "SCOPE", "count": 3},
+        ], None)
+        self.assertEqual(out, [])
+
+    def test_business_error_message_is_humanized_before_render(self):
+        self.assertIn("d.severity==='ERROR'?friendlyV16Error(d.message):d.message", self.js)
+
 
 
 if __name__ == "__main__":
