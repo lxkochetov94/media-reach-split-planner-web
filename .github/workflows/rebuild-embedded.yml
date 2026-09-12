@@ -12,6 +12,9 @@ on:
       - ".debug_sources/test_web_api.py"
       - ".debug_sources/test_splits_core.py"
       - ".debug_sources/test_xlsx_reader.py"
+      - "scripts/rebuild_embedded.py"
+      - "scripts/verify_embedded.py"
+      - "Makefile"
       - ".github/workflows/rebuild-embedded.yml"
 
 permissions:
@@ -28,9 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate Python sources
+      - name: Validate canonical legacy sources
         run: |
-          python -m py_compile \
+          PYTHONPATH=.debug_sources:. python -m py_compile \
             .debug_sources/engine.py \
             .debug_sources/web_api.py \
             .debug_sources/xlsx_reader.py \
@@ -39,53 +42,13 @@ jobs:
             .debug_sources/test_web_api.py \
             .debug_sources/test_splits_core.py \
             .debug_sources/test_xlsx_reader.py
-          PYTHONPATH=.debug_sources python -m unittest -v \
-            test_reach_engine \
-            test_web_api \
-            test_splits_core \
-            test_xlsx_reader
+          make test-legacy
 
       - name: Re-embed planner core into index.html
-        run: |
-          python - <<'PY'
-          import base64, gzip, json, re
-          from pathlib import Path
-
-          p = Path("index.html")
-          html = p.read_text(encoding="utf-8")
-          m = re.search(r'window\.MRP_ASSETS=(\{.*?\});</script>', html, flags=re.S)
-          if not m:
-              raise SystemExit("MRP_ASSETS not found")
-          assets = json.loads(m.group(1))
-
-          src = Path(".debug_sources")
-          for name in ("engine.py", "web_api.py", "xlsx_reader.py", "splits.py"):
-              raw = (src / name).read_bytes()
-              assets[name] = base64.b64encode(gzip.compress(raw, compresslevel=9, mtime=0)).decode("ascii")
-
-          block = "window.MRP_ASSETS=" + json.dumps(assets, ensure_ascii=False, separators=(",", ":")) + ";</script>"
-          html = html[:m.start()] + block + html[m.end():]
-          p.write_text(html, encoding="utf-8")
-          PY
+        run: make rebuild-embedded
 
       - name: Verify embedded core matches sources
-        run: |
-          python - <<'PY'
-          import base64, gzip, json, re
-          from pathlib import Path
-
-          html = Path("index.html").read_text(encoding="utf-8")
-          m = re.search(r'window\.MRP_ASSETS=(\{.*?\});</script>', html, flags=re.S)
-          if not m:
-              raise SystemExit("MRP_ASSETS not found after rebuild")
-          assets = json.loads(m.group(1))
-          for name in ("engine.py", "web_api.py", "xlsx_reader.py", "splits.py"):
-              embedded = gzip.decompress(base64.b64decode(assets[name]))
-              source = (Path(".debug_sources") / name).read_bytes()
-              if embedded != source:
-                  raise SystemExit(f"Embedded {name} does not match source")
-          print("Embedded planner core matches canonical sources.")
-          PY
+        run: make verify-embedded
 
       - name: Commit rebuilt embedded core
         run: |
@@ -96,7 +59,7 @@ jobs:
           git commit -m "Rebuild embedded planner core"
 
           # A UI-only commit can land while this short rebuild is running. Retry a
-          # fast-forward/rebase instead of failing the deployment on a harmless race.
+          # fast-forward/rebase instead of overwriting a concurrent index.html change.
           for attempt in 1 2 3; do
             if git push; then
               exit 0
