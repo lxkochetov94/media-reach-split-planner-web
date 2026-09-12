@@ -30,6 +30,7 @@ def main() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     state = (ROOT / "docs/CURRENT_STATE.md").read_text(encoding="utf-8")
+    state_lower = state.lower()
 
     require("Web 0.42" not in readme, "README still advertises obsolete Web 0.42")
     require("0.52" in readme, "README must state current legacy core 0.52")
@@ -38,7 +39,10 @@ def main() -> None:
     require("docs/DEVELOPMENT.md" in agents, "AGENTS.md must point to development guide")
     require("docs/REACH_ENGINE_V16.md" in agents, "AGENTS.md must point to Reach methodology")
     require(len(agents.splitlines()) <= 140, "AGENTS.md should stay a compact map, not a manual")
-    require("Source Reach" in state and "QA" in state, "Current-state source Reach contract missing")
+    require(
+        "source reach" in state_lower and "qa" in state_lower,
+        "Current-state source Reach QA contract missing",
+    )
 
     print("Repository documentation/Codex handoff contract is current.")
 
