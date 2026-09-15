@@ -37,3 +37,25 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Проверить опубликованный медиаплан-чекер
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://lxkochetov94.github.io/media-reach-split-planner-web/mediaplan-checker/"
+          ok=0
+          for attempt in {1..12}; do
+            body="$(curl -fsSL --max-time 20 "$URL" || true)"
+            if grep -Fq '<title>Проверка медиаплана LAB</title>' <<<"$body" && grep -Fq 'Проверить медиаплан' <<<"$body"; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$ok" != "1" ]]; then
+            echo "Опубликованная страница не прошла smoke-test: $URL" >&2
+            exit 1
+          fi
+          curl -fsSI --max-time 20 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js' >/dev/null
+          curl -fsSI --max-time 20 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js' >/dev/null
+          echo "Smoke-test GitHub Pages пройден: $URL"
