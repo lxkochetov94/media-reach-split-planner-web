@@ -41,6 +41,7 @@ assert(r.issues.some(x=>x.type==='Формула / период' && x.sheet==='�
 assert(r.issues.some(x=>x.type==='Свод / устойчивость ссылки' && x.sheet==='Свод' && x.cell==='D3'),'summary campaign end date linked to one placement row must be flagged as a structural risk');
 const bs = r.issues.find(x=>x.type==='Brand Safety / домены' && x.sheet==='Inventory');
 assert(bs && /lordfilm-example\.com/.test(bs.value) && /office-serial\.com/.test(bs.value),'suspicious entertainment domains must be surfaced for manual brand-safety review');
+assert.strictEqual(bs.severity, core.SEVERITY.CHECK, 'brand safety must be a review warning, not a proven critical error');
 assert(!/example\.ru/.test(bs.value),'ordinary domains must not be included in brand-safety warning');
 assert(!r.issues.some(x=>/universe/i.test(x.problem)),'technical Reach must never be compared with people universe');
 
