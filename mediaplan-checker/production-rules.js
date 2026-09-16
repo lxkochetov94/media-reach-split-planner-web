@@ -279,9 +279,13 @@
         const active=activeCategories(fws); if(!active.size) continue;
         const max=entries(ws).reduce((m,x)=>Math.max(m,x.pos.r),e.pos.r+20);
         for(let r=e.pos.r+1;r<=max;r++) {
-          let label='';
-          for(let c=e.pos.c-1;c>=0;c--) { const t=rawText(ws[core.encodeCell(r,c)]).trim(); if(t){label=t;break;} }
-          const cat=categoryKey(label); if(!cat||!active.has(cat)) continue;
+          let label='', cat=null;
+          for(let c=e.pos.c-1;c>=0;c--) {
+            const t=rawText(ws[core.encodeCell(r,c)]).trim();
+            const k=categoryKey(t);
+            if(k){ label=t; cat=k; break; }
+          }
+          if(!cat||!active.has(cat)) continue;
           const addr=core.encodeCell(r,e.pos.c), cell=ws[addr];
           if(!missingSummaryValue(cell)) continue;
           add(issues,issue(S.CRITICAL,'Сверка бюджета по каналам',sheet,addr,rawText(cell)||String(cell&&cell.v!=null?cell.v:''),
