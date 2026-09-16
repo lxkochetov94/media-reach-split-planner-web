@@ -1,4 +1,5 @@
 const assert = require('assert');
+require('../hardening-text-rules.js');
 const core = require('../reliability-rules.js');
 
 function c(v, extra={}) { return {v, ...extra}; }
