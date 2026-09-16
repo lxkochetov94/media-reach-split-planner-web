@@ -1,19 +1,21 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = { file: null, workbook: null, result: null, rawInfo: null, filter: 'all', brands: [] };
+  const state = { file: null, workbook: null, result: null, rawInfo: null, filter: 'all' };
+  const COMMON_EXCLUSIONS = [
+    'OLV','CPM','CPC','CTR','VTR','VK','Rutube','RuTube','RUTUBE','Hybrid','Ozon','Yandex','Яндекс',
+    'RTB','Programmatic','Promopost','In-stream','Out-stream','InStream','OutStream','CTV','Smart TV',
+    'AdRiver','Weborama','First Data','Digital Alliance','Telegram','TG','РСЯ','ecom','ecommerce','AdFox','Adspector'
+  ];
 
   const els = {
-    brandSelect: $('brandSelect'), fileInput: $('fileInput'), fileName: $('fileName'), intro: $('introText'), checkBtn: $('checkBtn'), exportBtn: $('exportBtn'),
+    fileInput: $('fileInput'), fileName: $('fileName'), intro: $('introText'), checkBtn: $('checkBtn'), exportBtn: $('exportBtn'),
     statusCard: $('statusCard'), statusText: $('statusText'), counts: $('counts'), meta: $('meta'), tbody: $('resultsBody'), empty: $('emptyState'),
     introResults: $('introResults'), introPanel: $('introPanel'), resultsPanel: $('resultsPanel'), filterBar: $('filterBar'), libraryError: $('libraryError'),
-    brandEditor: $('brandEditor'), brandForm: $('brandForm'), brandTitle: $('brandTitle'), closeBrand: $('closeBrand'), editBrand: $('editBrand'), newBrand: $('newBrand'), deleteBrand: $('deleteBrand'), saveBrand: $('saveBrand'),
     progress: $('progress'), progressText: $('progressText')
   };
 
   function init() {
-    state.brands = LABBrands.load();
-    renderBrands();
     bind();
     checkLibraries();
   }
@@ -33,12 +35,6 @@
       [...els.filterBar.querySelectorAll('button')].forEach(x=>x.classList.toggle('active', x===b));
       renderTable();
     });
-    els.editBrand.addEventListener('click', () => openBrandEditor(currentBrand()));
-    els.newBrand.addEventListener('click', () => openBrandEditor(LABBrands.blankCard('')));
-    els.closeBrand.addEventListener('click', closeBrandEditor);
-    els.brandForm.addEventListener('submit', saveBrand);
-    els.deleteBrand.addEventListener('click', deleteBrand);
-    els.brandEditor.addEventListener('click', (e) => { if (e.target === els.brandEditor) closeBrandEditor(); });
   }
 
   function checkLibraries() {
@@ -50,38 +46,6 @@
       els.libraryError.textContent = `Не удалось загрузить библиотеку: ${missing.join(', ')}. Проверьте доступ к интернету и перезагрузите страницу.`;
       els.checkBtn.disabled = true;
     }
-  }
-
-  function renderBrands(selectedId) {
-    const current = selectedId || els.brandSelect.value;
-    state.brands = LABBrands.load();
-    els.brandSelect.innerHTML = '<option value="">Без карточки бренда</option>' + state.brands.map(b=>`<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
-    if (current && state.brands.some(x=>x.id===current)) els.brandSelect.value = current;
-  }
-
-  function currentBrand() { return state.brands.find(x=>x.id===els.brandSelect.value) || null; }
-
-  function openBrandEditor(card) {
-    const c = card || LABBrands.blankCard('');
-    els.brandTitle.textContent = c.name ? `Карточка: ${c.name}` : 'Новая карточка бренда';
-    const fields = ['id','name','lines','products','targetAudiences','channels','properPlatforms','correctProductNames','features','allowedAbbreviations','additionalRules','exclusions'];
-    fields.forEach(k => { const el = els.brandForm.elements[k]; if (el) el.value = c[k] || ''; });
-    els.deleteBrand.hidden = !c.id || !state.brands.some(x=>x.id===c.id);
-    els.brandEditor.hidden = false;
-    setTimeout(()=>els.brandForm.elements.name.focus(),0);
-  }
-  function closeBrandEditor() { els.brandEditor.hidden = true; }
-  function saveBrand(e) {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(els.brandForm).entries());
-    if (!data.name.trim()) return alert('Укажите название бренда.');
-    const saved = LABBrands.upsert(data);
-    renderBrands(saved.id); closeBrandEditor();
-  }
-  function deleteBrand() {
-    const id = els.brandForm.elements.id.value; if (!id) return;
-    if (!confirm('Удалить локальную карточку бренда?')) return;
-    LABBrands.remove(id); renderBrands(''); closeBrandEditor();
   }
 
   async function runAudit() {
@@ -101,8 +65,8 @@
       state.result = MPChecks.runAllChecks(state.workbook, {
         rawInfo: state.rawInfo,
         intro: els.intro.value,
-        brandCard: currentBrand(),
-        globalExclusions: LABBrands.COMMON_EXCLUSIONS
+        brandCard: null,
+        globalExclusions: COMMON_EXCLUSIONS
       });
       renderResult();
     } catch (err) {
@@ -179,7 +143,7 @@
   function renderTable() {
     const issues = filteredIssues();
     els.empty.hidden = issues.length > 0;
-    els.tbody.innerHTML = issues.map((x,i)=>`<tr>
+    els.tbody.innerHTML = issues.map((x)=>`<tr>
       <td><span class="severity ${severityClass(x.severity)}">${escapeHtml(x.severity)}</span></td>
       <td>${escapeHtml(x.sheet)}</td><td class="mono">${escapeHtml(x.cell)}</td>
       <td><strong>${escapeHtml(x.problem)}</strong><div class="muted small">${escapeHtml(x.type)}</div>${x.value ? `<details><summary>Исходное значение</summary><div class="raw-value">${escapeHtml(truncate(x.value,800))}</div></details>`:''}</td>
@@ -189,11 +153,9 @@
 
   function exportAudit() {
     if (!state.result || !window.XLSX) return;
-    const brand = currentBrand();
     const now = new Date();
     const summary = [
-      ['Проверка медиаплана LAB',''],
-      ['Бренд', brand ? brand.name : 'Не выбран'],
+      ['Проверка медиаплана',''],
       ['Проверяемый медиаплан', state.file ? state.file.name : ''],
       ['Дата проверки', now.toLocaleString('ru-RU')],
       ['Общий статус', state.result.status],
@@ -224,9 +186,8 @@
       const ws3 = XLSX.utils.aoa_to_sheet(introRows); ws3['!cols']=[{wch:70},{wch:20},{wch:90}];
       XLSX.utils.book_append_sheet(wb, ws3, 'Сверка вводных');
     }
-    const brandName = safeFileName(brand ? brand.name : 'без_бренда');
     const date = now.toISOString().slice(0,10);
-    XLSX.writeFile(wb, `Аудит_медиаплана_${brandName}_${date}.xlsx`, { compression: true });
+    XLSX.writeFile(wb, `Аудит_медиаплана_${date}.xlsx`, { compression: true });
   }
 
   function setBusy(on, text) {
@@ -237,7 +198,6 @@
   function nextFrame() { return new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0))); }
   function truncate(s,n){ s=String(s==null?'':s); return s.length>n?s.slice(0,n)+'…':s; }
   function formatNumber(n){ return new Intl.NumberFormat('ru-RU').format(n||0); }
-  function safeFileName(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,'_'); }
   function severityClass(s){ return s===MPChecks.SEVERITY.CRITICAL?'critical':s===MPChecks.SEVERITY.CHECK?'check':'text'; }
   function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch])); }
 

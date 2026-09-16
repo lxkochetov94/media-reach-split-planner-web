@@ -16,12 +16,7 @@
 
     <section class="panel">
       <div class="setup-grid">
-        <div class="field">
-          <div class="label-row"><label for="brandSelect">Карточка бренда <span class="optional">(необязательно)</span></label><div class="brand-actions"><button class="link-button" id="editBrand" type="button">Редактировать</button><button class="link-button" id="newBrand" type="button">Новая карточка</button></div></div>
-          <select id="brandSelect"><option value="">Без карточки бренда</option></select>
-          <span class="hint">Дополнительные локальные правила бренда: продукты, ЦА, площадки, названия и исключения. Без карточки работает общий аудит. Карточки хранятся только в этом браузере.</span>
-        </div>
-        <div class="field">
+        <div class="field full">
           <label>Медиаплан .xlsx</label>
           <div class="file-row"><label class="file-button">Загрузить медиаплан<input id="fileInput" type="file" accept=".xlsx,.xlsm"></label><span class="file-name" id="fileName">Файл не выбран</span></div>
           <span class="hint">Исходный Excel не изменяется.</span>
@@ -66,34 +61,9 @@
     </section>
   </main>
 
-  <div class="modal" id="brandEditor" hidden>
-    <div class="modal-card">
-      <div class="modal-head"><h3 id="brandTitle">Карточка бренда</h3><button id="closeBrand" class="close" type="button" aria-label="Закрыть">×</button></div>
-      <form id="brandForm" class="brand-form">
-        <input type="hidden" name="id">
-        <div class="note">Заполняйте только то, что точно утверждено. Любое расхождение с карточкой помечается «Нужно проверить», а не автоматической ошибкой. В «Дополнительных правилах» поддерживаются строки вида <b>обязательно: 100в1</b> и <b>запрещено: старое название</b>.</div>
-        <div class="form-grid" style="margin-top:14px">
-          <div class="field wide"><label>Название бренда</label><input name="name" type="text" required></div>
-          <div class="field"><label>Линейки</label><textarea name="lines" placeholder="По одной строке"></textarea></div>
-          <div class="field"><label>Продукты</label><textarea name="products" placeholder="По одной строке"></textarea></div>
-          <div class="field"><label>Целевые аудитории</label><textarea name="targetAudiences" placeholder="Например: Ж 25–45"></textarea></div>
-          <div class="field"><label>Используемые каналы</label><textarea name="channels"></textarea></div>
-          <div class="field"><label>Правильные названия площадок</label><textarea name="properPlatforms"></textarea></div>
-          <div class="field"><label>Правильные названия продуктов</label><textarea name="correctProductNames"></textarea></div>
-          <div class="field wide"><label>Особенности бренда</label><textarea name="features"></textarea></div>
-          <div class="field"><label>Разрешённые сокращения</label><textarea name="allowedAbbreviations"></textarea></div>
-          <div class="field"><label>Слова, которые не считать опечатками</label><textarea name="exclusions"></textarea></div>
-          <div class="field wide"><label>Дополнительные правила</label><textarea name="additionalRules" placeholder="обязательно: ...&#10;запрещено: ..."></textarea></div>
-        </div>
-        <div class="modal-actions"><button id="deleteBrand" type="button" class="button danger">Удалить карточку</button><div class="right-actions"><button type="button" class="button secondary" onclick="document.getElementById('closeBrand').click()">Отмена</button><button id="saveBrand" class="button primary" type="submit">Сохранить</button></div></div>
-      </form>
-    </div>
-  </div>
-
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="xlsx-options.js"></script>
-  <script src="brands.js"></script>
   <script src="core.js"></script>
   <script src="precision.js"></script>
   <script src="lab-rules.js"></script>
