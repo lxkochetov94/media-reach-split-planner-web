@@ -34,6 +34,7 @@ jobs:
           node --check mediaplan-checker/baseline-rules.js
           node --check mediaplan-checker/stability-rules.js
           node --check mediaplan-checker/hardening-rules.js
+          node --check mediaplan-checker/hardening-text-rules.js
           node --check mediaplan-checker/xlsx-options.js
           node --check mediaplan-checker/brands.js
           node --check mediaplan-checker/app.js
