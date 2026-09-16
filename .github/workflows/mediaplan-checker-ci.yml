@@ -2,7 +2,7 @@ name: Mediaplan Checker CI
 
 on:
   push:
-    branches: ["main", "fix/mediaplan-audit-precision", "fix/mediaplan-final-hardening", "fix/vernell-audit-precision", "fix/laska-final-polish", "fix/fa-audit-precision"]
+    branches: ["main", "fix/mediaplan-audit-precision", "fix/mediaplan-final-hardening", "fix/vernell-audit-precision", "fix/laska-final-polish", "fix/fa-audit-precision", "fix/no-budget-precision"]
     paths:
       - "mediaplan-checker/**"
       - ".github/workflows/mediaplan-checker-ci.yml"
@@ -39,6 +39,7 @@ jobs:
           node --check mediaplan-checker/audit-polish-rules.js
           node --check mediaplan-checker/fa-rules.js
           node --check mediaplan-checker/fa-final-rules.js
+          node --check mediaplan-checker/audit-policy-rules.js
           node --check mediaplan-checker/xlsx-options.js
           node --check mediaplan-checker/app.js
       - name: Базовый smoke-тест
