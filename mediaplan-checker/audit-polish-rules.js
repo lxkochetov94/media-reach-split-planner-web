@@ -27,9 +27,6 @@
     if (!(list || []).some(predicate || (x => x.type===item.type && x.sheet===item.sheet && x.cell===item.cell && x.problem===item.problem))) list.push(item);
   }
 
-  // Hardening раньше смотрел соседние строки Summary и мог принять D3 "Дата окончания"
-  // за D4 "Период кампании (дней)". Для проверки покрытия месяцев разрешаем только
-  // явный контекст длительности в ЭТОЙ ЖЕ строке.
   function ownRowLeftContext(ws, pos) {
     const parts = [];
     for (let c=Math.max(0,pos.c-8); c<pos.c; c++) {
@@ -49,9 +46,6 @@
     });
   }
 
-  // Reliability дедуплицировал по исходному VALUE; из-за этого обычное замечание
-  // "Пробелы" могло случайно поглотить отдельную орфографию/тавтологию из той же ячейки.
-  // Здесь восстанавливаем только безопасные, однозначные текстовые первопричины.
   function addSpecificTextRoots(workbook, issues) {
     for (const sheet of workbook.SheetNames || []) {
       const ws = workbook.Sheets[sheet];
@@ -60,7 +54,8 @@
         const raw = rawText(e.cell);
         if (!raw) continue;
 
-        if (/\bвидео\s+ролик(?:а|ов|и|ом|у)?\b/iu.test(raw)) {
+        // JS \b не является Unicode-aware для кириллицы, поэтому используем явные границы.
+        if (/(^|[^А-Яа-яЁёA-Za-z])видео\s+ролик(?:а|ов|и|ом|у)?(?=$|[^А-Яа-яЁёA-Za-z])/iu.test(raw)) {
           const item = issue(
             'Орфография / оформление', sheet, e.addr, raw,
             'Сочетание «видео ролик» написано раздельно.',
