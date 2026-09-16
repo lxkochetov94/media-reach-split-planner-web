@@ -52,22 +52,19 @@ jobs:
             hardening_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-rules.js" || true)"
             hardening_text_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-text-rules.js" || true)"
             reliability_rules="$(curl -fsSL --max-time 20 "$BASE/reliability-rules.js" || true)"
+            audit_polish_rules="$(curl -fsSL --max-time 20 "$BASE/audit-polish-rules.js" || true)"
             xlsx_options="$(curl -fsSL --max-time 20 "$BASE/xlsx-options.js" || true)"
             if grep -Fq '<title>Проверка медиаплана</title>' <<<"$body" \
               && grep -Fq 'Проверить медиаплан' <<<"$body" \
-              && grep -Fq 'final-rules.js' <<<"$body" \
-              && grep -Fq 'baseline-rules.js' <<<"$body" \
-              && grep -Fq 'stability-rules.js' <<<"$body" \
-              && grep -Fq 'hardening-rules.js' <<<"$body" \
-              && grep -Fq 'hardening-text-rules.js' <<<"$body" \
-              && grep -Fq 'reliability-rules.js' <<<"$body" \
-              && grep -Fq 'xlsx-options.js' <<<"$body" \
+              && grep -Fq 'audit-polish-rules.js' <<<"$body" \
+              && ! grep -Fq 'brands.js' <<<"$body" \
               && grep -Fq '__finalRulesPatched' <<<"$final_rules" \
               && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules" \
               && grep -Fq '__stabilityRulesPatched' <<<"$stability_rules" \
               && grep -Fq '__hardeningRulesPatched' <<<"$hardening_rules" \
               && grep -Fq '__hardeningTextRulesPatched' <<<"$hardening_text_rules" \
               && grep -Fq '__reliabilityRulesPatched' <<<"$reliability_rules" \
+              && grep -Fq '__auditPolishRulesPatched' <<<"$audit_polish_rules" \
               && grep -Fq '__mediaplanCommentsPatched' <<<"$xlsx_options"; then
               ok=1
               break
