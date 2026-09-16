@@ -58,6 +58,8 @@ jobs:
               && grep -Fq 'Проверить медиаплан' <<<"$body" \
               && grep -Fq 'audit-polish-rules.js' <<<"$body" \
               && ! grep -Fq 'brands.js' <<<"$body" \
+              && ! grep -Fq 'introText' <<<"$body" \
+              && ! grep -Fq 'Сопроводительные вводные' <<<"$body" \
               && grep -Fq '__finalRulesPatched' <<<"$final_rules" \
               && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules" \
               && grep -Fq '__stabilityRulesPatched' <<<"$stability_rules" \

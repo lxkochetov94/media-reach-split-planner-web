@@ -9,9 +9,9 @@
   ];
 
   const els = {
-    fileInput: $('fileInput'), fileName: $('fileName'), intro: $('introText'), checkBtn: $('checkBtn'), exportBtn: $('exportBtn'),
+    fileInput: $('fileInput'), fileName: $('fileName'), checkBtn: $('checkBtn'), exportBtn: $('exportBtn'),
     statusCard: $('statusCard'), statusText: $('statusText'), counts: $('counts'), meta: $('meta'), tbody: $('resultsBody'), empty: $('emptyState'),
-    introResults: $('introResults'), introPanel: $('introPanel'), resultsPanel: $('resultsPanel'), filterBar: $('filterBar'), libraryError: $('libraryError'),
+    resultsPanel: $('resultsPanel'), filterBar: $('filterBar'), libraryError: $('libraryError'),
     progress: $('progress'), progressText: $('progressText')
   };
 
@@ -60,11 +60,10 @@
         sheetStubs: false, bookVBA: true, WTF: false
       });
       state.rawInfo = window.JSZip ? await inspectPackage(buffer) : { definedNames: [], externalLinks: [] };
-      setBusy(true, 'Проверяю формулы, суммы, текст, даты, дубли и вводные…');
+      setBusy(true, 'Проверяю формулы, суммы, текст, даты и дубли…');
       await nextFrame();
       state.result = MPChecks.runAllChecks(state.workbook, {
         rawInfo: state.rawInfo,
-        intro: els.intro.value,
         brandCard: null,
         globalExclusions: COMMON_EXCLUSIONS
       });
@@ -121,16 +120,8 @@
       <div><strong>${r.counts.check}</strong><span>Нужно проверить</span></div>
       <div><strong>${r.counts.text}</strong><span>Текстовые замечания</span></div>`;
     els.meta.textContent = `${r.stats.sheets} листов · ${formatNumber(r.stats.cells)} заполненных ячеек · ${formatNumber(r.stats.formulas)} формул`;
-    renderIntro(); renderTable();
+    renderTable();
   }
-
-  function renderIntro() {
-    const items = state.result && state.result.introResults || [];
-    els.introPanel.hidden = !items.length;
-    if (!items.length) { els.introResults.innerHTML=''; return; }
-    els.introResults.innerHTML = items.map(x=>`<div class="intro-result"><span class="intro-badge ${introClass(x.status)}">${escapeHtml(x.status)}</span><div><strong>${escapeHtml(x.sentence)}</strong><p>${escapeHtml(x.detail)}</p></div></div>`).join('');
-  }
-  function introClass(s) { return s==='Найдено'?'found':s==='Не найдено'?'missing':'review'; }
 
   function filteredIssues() {
     const all = state.result ? state.result.issues : [];
@@ -181,11 +172,6 @@
     ws2['!autofilter'] = { ref: `A1:K${rows.length+1}` };
     XLSX.utils.book_append_sheet(wb, ws2, 'Ошибки и замечания');
 
-    if (state.result.introResults.length) {
-      const introRows = [['Вводная','Статус','Комментарий'], ...state.result.introResults.map(x=>[x.sentence,x.status,x.detail])];
-      const ws3 = XLSX.utils.aoa_to_sheet(introRows); ws3['!cols']=[{wch:70},{wch:20},{wch:90}];
-      XLSX.utils.book_append_sheet(wb, ws3, 'Сверка вводных');
-    }
     const date = now.toISOString().slice(0,10);
     XLSX.writeFile(wb, `Аудит_медиаплана_${date}.xlsx`, { compression: true });
   }
@@ -194,7 +180,7 @@
     els.progress.hidden = !on; els.progressText.textContent = text || 'Проверяю…';
     els.checkBtn.disabled = on || !state.file; els.exportBtn.disabled = on || !state.result;
   }
-  function resetResults() { state.result=null; state.workbook=null; state.rawInfo=null; els.statusCard.hidden=true; els.resultsPanel.hidden=true; els.introPanel.hidden=true; els.exportBtn.disabled=true; }
+  function resetResults() { state.result=null; state.workbook=null; state.rawInfo=null; els.statusCard.hidden=true; els.resultsPanel.hidden=true; els.exportBtn.disabled=true; }
   function nextFrame() { return new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0))); }
   function truncate(s,n){ s=String(s==null?'':s); return s.length>n?s.slice(0,n)+'…':s; }
   function formatNumber(n){ return new Intl.NumberFormat('ru-RU').format(n||0); }

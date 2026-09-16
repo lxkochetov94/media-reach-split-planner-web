@@ -21,11 +21,6 @@
           <div class="file-row"><label class="file-button">Загрузить медиаплан<input id="fileInput" type="file" accept=".xlsx,.xlsm"></label><span class="file-name" id="fileName">Файл не выбран</span></div>
           <span class="hint">Исходный Excel не изменяется.</span>
         </div>
-        <div class="field full">
-          <label for="introText">Сопроводительные вводные</label>
-          <textarea id="introText" placeholder="Например: Увеличить VK на 2 млн, Hybrid убрать, старт 12 октября, период продлить до 30.11."></textarea>
-          <span class="hint">Проверяются простые команды, суммы, даты, длительность и названия. Стратегические решения приложение не придумывает.</span>
-        </div>
       </div>
       <div id="libraryError" class="library-error" hidden></div>
       <div class="actions"><button class="button primary" id="checkBtn" type="button" disabled>Проверить медиаплан</button><button class="button secondary" id="exportBtn" type="button" disabled>Скачать файл аудита</button></div>
@@ -35,11 +30,6 @@
     <section id="statusCard" class="status-card needs-work" hidden>
       <div class="status-top"><div><div class="status-label">Общий статус</div><div id="statusText" class="status-text">Нужно исправить</div><div id="meta" class="meta"></div></div></div>
       <div id="counts" class="counts"></div>
-    </section>
-
-    <section id="introPanel" class="panel" hidden>
-      <h2>Сверка сопроводительных вводных</h2>
-      <div id="introResults" class="intro-list"></div>
     </section>
 
     <section id="resultsPanel" class="panel" hidden>
