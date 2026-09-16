@@ -1,5 +1,5 @@
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./fa-rules.js'));
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./fa-final-rules.js'));
   else if (root && root.MPChecks) root.MPChecks = factory(root.MPChecks);
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (core) {
   'use strict';
@@ -9,6 +9,9 @@
   const S = core.SEVERITY;
 
   function finish(result) {
+    // Формат отображения и скрытая дробная точность сами по себе не являются ошибкой.
+    // Удаляем только этот тип предупреждения. Доказанные арифметические ошибки,
+    // ошибки формул, несовпадающие диапазоны, неверные суммы и календарная математика сохраняются.
     result.issues = (result.issues || []).filter(x => x.type !== 'Точность бюджета');
     result.counts = {
       critical: result.issues.filter(x => x.severity === S.CRITICAL).length,
@@ -20,8 +23,7 @@
   }
 
   core.runAllChecks = function (workbook, options) {
-    const result = originalRun(workbook, options || {});
-    return finish(result);
+    return finish(originalRun(workbook, options || {}));
   };
 
   core.__auditPolicyRulesPatched = true;
