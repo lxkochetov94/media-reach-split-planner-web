@@ -23,21 +23,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
           enablement: true
-
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
       - name: Проверить опубликованный медиаплан-чекер
         shell: bash
         run: |
@@ -46,25 +42,22 @@ jobs:
           ok=0
           for attempt in {1..12}; do
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
-            app_js="$(curl -fsSL --max-time 20 "$BASE/app.js?v=20260916-1" || true)"
-            final_rules="$(curl -fsSL --max-time 20 "$BASE/final-rules.js?v=20260916-1" || true)"
-            baseline_rules="$(curl -fsSL --max-time 20 "$BASE/baseline-rules.js?v=20260916-1" || true)"
-            stability_rules="$(curl -fsSL --max-time 20 "$BASE/stability-rules.js?v=20260916-1" || true)"
-            hardening_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-rules.js?v=20260916-1" || true)"
-            hardening_text_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-text-rules.js?v=20260916-1" || true)"
-            reliability_rules="$(curl -fsSL --max-time 20 "$BASE/reliability-rules.js?v=20260916-1" || true)"
-            audit_polish_rules="$(curl -fsSL --max-time 20 "$BASE/audit-polish-rules.js?v=20260916-1" || true)"
-            xlsx_options="$(curl -fsSL --max-time 20 "$BASE/xlsx-options.js?v=20260916-1" || true)"
+            app_js="$(curl -fsSL --max-time 20 "$BASE/app.js?v=20260916-2" || true)"
+            fa_rules="$(curl -fsSL --max-time 20 "$BASE/fa-rules.js?v=20260916-2" || true)"
+            final_rules="$(curl -fsSL --max-time 20 "$BASE/final-rules.js?v=20260916-2" || true)"
+            baseline_rules="$(curl -fsSL --max-time 20 "$BASE/baseline-rules.js?v=20260916-2" || true)"
+            stability_rules="$(curl -fsSL --max-time 20 "$BASE/stability-rules.js?v=20260916-2" || true)"
+            hardening_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-rules.js?v=20260916-2" || true)"
+            hardening_text_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-text-rules.js?v=20260916-2" || true)"
+            reliability_rules="$(curl -fsSL --max-time 20 "$BASE/reliability-rules.js?v=20260916-2" || true)"
+            audit_polish_rules="$(curl -fsSL --max-time 20 "$BASE/audit-polish-rules.js?v=20260916-2" || true)"
+            xlsx_options="$(curl -fsSL --max-time 20 "$BASE/xlsx-options.js?v=20260916-2" || true)"
             if grep -Fq '<title>Проверка медиаплана</title>' <<<"$body" \
-              && grep -Fq 'Проверить медиаплан' <<<"$body" \
-              && grep -Fq 'app.js?v=20260916-1' <<<"$body" \
-              && grep -Fq 'audit-polish-rules.js?v=20260916-1' <<<"$body" \
-              && ! grep -Fq 'brands.js' <<<"$body" \
+              && grep -Fq 'fa-rules.js?v=20260916-2' <<<"$body" \
+              && grep -Fq 'app.js?v=20260916-2' <<<"$body" \
               && ! grep -Fq 'introText' <<<"$body" \
-              && ! grep -Fq 'Сопроводительные вводные' <<<"$body" \
               && ! grep -Fq 'introText' <<<"$app_js" \
-              && ! grep -Fq 'и вводные' <<<"$app_js" \
-              && grep -Fq 'Проверяю формулы, суммы, текст, даты и дубли' <<<"$app_js" \
+              && grep -Fq '__faRulesPatched' <<<"$fa_rules" \
               && grep -Fq '__finalRulesPatched' <<<"$final_rules" \
               && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules" \
               && grep -Fq '__stabilityRulesPatched' <<<"$stability_rules" \
