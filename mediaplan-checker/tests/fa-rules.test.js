@@ -1,5 +1,5 @@
 const assert = require('assert');
-const core = require('../fa-final-rules.js');
+const core = require('../audit-policy-rules.js');
 function c(v, extra={}) { return {v, ...extra}; }
 function f(v, formula, extra={}) { return {v, f:formula, ...extra}; }
 
@@ -22,12 +22,12 @@ const vk = {'!ref':'A1:K10', J2:c('Пор трет аудитории')};
 const wb={SheetNames:['MP_02.09_approved','VK'],Sheets:{'MP_02.09_approved':ws,'VK':vk}};
 const r=core.runAllChecks(wb,{rawInfo:{definedNames:[],definedNamesTotal:0,externalLinks:[]},brandCard:null,globalExclusions:[]});
 
-assert(r.issues.some(x=>x.severity===core.SEVERITY.CRITICAL && x.cell==='AK36' && x.type==='Формула / размерность диапазонов'),'AK36 с SUMIF разной размерности должен быть критической ошибкой');
+assert(r.issues.some(x=>x.severity===core.SEVERITY.CRITICAL && x.cell==='AK36' && x.type==='Формула / размерность диапазонов'),'AK36 с SUMIF разной размерности должен оставаться критической арифметической ошибкой');
 for (const addr of ['DI20','DI22','DI24','DI25']) assert(r.issues.some(x=>x.cell===addr&&x.type==='Календарь размещения'),`${addr} должен проверяться календарём`);
 assert(!r.issues.some(x=>x.type==='Возможный дубль' && /38|39/.test(String(x.value||''))),'Строки с разными формулами не должны считаться дублем только по одинаковым значениям');
 for (const [cell,bad] of [['I3','Campain'],['AN14','Convertion'],['AO14','Convertions'],['K25','Out-sream']]) assert(r.issues.some(x=>x.cell===cell&&x.type==='Очевидная опечатка'&&String(x.problem).includes(bad)),`${bad} должен находиться как опечатка`);
 assert(r.issues.some(x=>x.sheet==='VK'&&x.cell==='J2'&&x.type==='Очевидная опечатка'),'«Пор трет аудитории» должен находиться');
-assert(r.issues.some(x=>x.type==='Точность бюджета'&&x.sheet==='MP_02.09_approved'),'Скрытая точность бюджета должна находиться');
+assert(!r.issues.some(x=>x.type==='Точность бюджета'),'Скрытая дробная точность и формат округления не должны попадать в аудит');
 const ref=r.issues.find(x=>x.sheet==='MP_02.09_approved'&&x.cell==='DS17'&&x.type==='Формула Excel');
 assert(ref && /маскируется IFERROR/.test(ref.problem),'#REF внутри выполняемого VLOOKUP должен описываться как маскируемая IFERROR ошибка');
-console.log('FA audit precision tests passed',r.counts);
+console.log('FA audit policy tests passed',r.counts);
