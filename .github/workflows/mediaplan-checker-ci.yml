@@ -2,7 +2,7 @@ name: Mediaplan Checker CI
 
 on:
   push:
-    branches: ["main", "fix/mediaplan-audit-precision", "fix/mediaplan-final-hardening", "fix/vernell-audit-precision", "fix/laska-final-polish"]
+    branches: ["main", "fix/mediaplan-audit-precision", "fix/mediaplan-final-hardening", "fix/vernell-audit-precision", "fix/laska-final-polish", "fix/fa-audit-precision"]
     paths:
       - "mediaplan-checker/**"
       - ".github/workflows/mediaplan-checker-ci.yml"
@@ -37,6 +37,7 @@ jobs:
           node --check mediaplan-checker/hardening-text-rules.js
           node --check mediaplan-checker/reliability-rules.js
           node --check mediaplan-checker/audit-polish-rules.js
+          node --check mediaplan-checker/fa-rules.js
           node --check mediaplan-checker/xlsx-options.js
           node --check mediaplan-checker/app.js
       - name: Базовый smoke-тест
@@ -55,3 +56,5 @@ jobs:
         run: node mediaplan-checker/tests/reliability-rules.test.js
       - name: Финальная регрессия по реальной Ласке
         run: node mediaplan-checker/tests/audit-polish-rules.test.js
+      - name: Регрессия по реальному ФА
+        run: node mediaplan-checker/tests/fa-rules.test.js
