@@ -10,18 +10,18 @@ const flight = {
   D13:c('Site'), E13:c('Ad Placement & targetings'), F13:c('Format'), J13:c('Month'),
   CI14:c('01.11'), CJ14:c('08.11'), CK14:c('15.11'), CL14:c('22.11'), CM14:c('29.11'),
   CI15:c('01.12'), CJ15:c('08.12'), CK15:c('15.12'), CL15:c('22.12'), CM15:c('29.12'),
-  D18:c('Digital Alliance'), J18:c('November'), CS18:f(30,'=SUM(CI18:CO18)'), CV18:c(new Date(Date.UTC(2026,10,30)),{t:'d',w:'30.11.2026',z:'dd.mm.yyyy'}),
-  D19:c('Digital Alliance'), J19:c('December'), CS19:f(31,'=SUM(CI19:CO19)'), CV19:c(new Date(Date.UTC(2026,11,31)),{t:'d',w:'31.12.2026',z:'dd.mm.yyyy'}),
-  D20:c('Hybrid'), J20:c('November'), CS20:f(30,'=SUM(CI20:CO20)'), CV20:c(new Date(Date.UTC(2026,10,30)),{t:'d',w:'30.11.2026',z:'dd.mm.yyyy'}),
-  D21:c('Hybrid'), J21:c('December'), CS21:f(31,'=SUM(CI21:CO21)'), CV21:c(new Date(Date.UTC(2026,11,31)),{t:'d',w:'31.12.2026',z:'dd.mm.yyyy'}),
-  V28:c('Reach (people) 1+'), W28:c(5000000), V29:c('Reach (%) 1+'), W29:f(.4,'=W28/$E$7')
+  D18:c('Digital Alliance'), J18:c('November'), CS18:f(30,'SUM(CI18:CO18)'), CV18:c(new Date(Date.UTC(2026,10,30)),{t:'d',w:'30.11.2026',z:'dd.mm.yyyy'}),
+  D19:c('Digital Alliance'), J19:c('December'), CS19:f(31,'SUM(CI19:CO19)'), CV19:c(new Date(Date.UTC(2026,11,31)),{t:'d',w:'31.12.2026',z:'dd.mm.yyyy'}),
+  D20:c('Hybrid'), J20:c('November'), CS20:f(30,'SUM(CI20:CO20)'), CV20:c(new Date(Date.UTC(2026,10,30)),{t:'d',w:'30.11.2026',z:'dd.mm.yyyy'}),
+  D21:c('Hybrid'), J21:c('December'), CS21:f(31,'SUM(CI21:CO21)'), CV21:c(new Date(Date.UTC(2026,11,31)),{t:'d',w:'31.12.2026',z:'dd.mm.yyyy'}),
+  V28:c('Reach (people) 1+'), W28:c(5000000), V29:c('Reach (%) 1+'), W29:f(.4,'W28/$E$7')
 };
 
 const summary = {
   '!ref':'A1:D6',
   B2:c('Период кампании'),
-  B3:c('Окончание кампании'), D3:f(new Date(Date.UTC(2026,11,31)),"='2 флайт'!CV19",{t:'d',w:'31.12.2026',z:'dd.mm.yyyy'}),
-  B4:c('Период кампании (дней)'), D4:f(105,"=44+'2 флайт'!CS18+'2 флайт'!CS19")
+  B3:c('Окончание кампании'), D3:f(new Date(Date.UTC(2026,11,31)),"'2 флайт'!CV19",{t:'d',w:'31.12.2026',z:'dd.mm.yyyy'}),
+  B4:c('Период кампании (дней)'), D4:f(105,"44+'2 флайт'!CS18+'2 флайт'!CS19")
 };
 
 const inventory = {
