@@ -32,6 +32,7 @@ jobs:
           node --check mediaplan-checker/lab-rules.js
           node --check mediaplan-checker/final-rules.js
           node --check mediaplan-checker/baseline-rules.js
+          node --check mediaplan-checker/stability-rules.js
           node --check mediaplan-checker/brands.js
           node --check mediaplan-checker/app.js
       - name: Базовый smoke-тест
@@ -42,3 +43,5 @@ jobs:
         run: node mediaplan-checker/tests/final-rules.test.js
       - name: Базовый LAB-регрессионный тест
         run: node mediaplan-checker/tests/baseline-rules.test.js
+      - name: Регрессионный тест стабильности по Ласке
+        run: node mediaplan-checker/tests/stability-rules.test.js
