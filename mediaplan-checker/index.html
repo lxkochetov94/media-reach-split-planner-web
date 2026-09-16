@@ -4,23 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Проверка медиаплана LAB</title>
+  <title>Проверка медиаплана</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="container">
     <header>
       <h1>Проверка медиаплана</h1>
-      <p class="subtitle">Локальный предварительный аудит Excel-медиапланов LAB перед отправкой клиенту.</p>
       <div class="privacy">Файл обрабатывается только в вашем браузере и не загружается на сервер.</div>
     </header>
 
     <section class="panel">
       <div class="setup-grid">
         <div class="field">
-          <div class="label-row"><label for="brandSelect">Бренд</label><div class="brand-actions"><button class="link-button" id="editBrand" type="button">Редактировать карточку</button><button class="link-button" id="newBrand" type="button">Новый бренд</button></div></div>
+          <div class="label-row"><label for="brandSelect">Карточка бренда <span class="optional">(необязательно)</span></label><div class="brand-actions"><button class="link-button" id="editBrand" type="button">Редактировать</button><button class="link-button" id="newBrand" type="button">Новая карточка</button></div></div>
           <select id="brandSelect"><option value="">Без карточки бренда</option></select>
-          <span class="hint">Карточки хранятся только в localStorage этого браузера.</span>
+          <span class="hint">Дополнительные локальные правила бренда: продукты, ЦА, площадки, названия и исключения. Без карточки работает общий аудит. Карточки хранятся только в этом браузере.</span>
         </div>
         <div class="field">
           <label>Медиаплан .xlsx</label>
