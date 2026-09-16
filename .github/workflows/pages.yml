@@ -42,18 +42,16 @@ jobs:
           ok=0
           for attempt in {1..12}; do
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
-            app_js="$(curl -fsSL --max-time 20 "$BASE/app.js?v=20260916-3" || true)"
-            fa_rules="$(curl -fsSL --max-time 20 "$BASE/fa-rules.js?v=20260916-3" || true)"
-            fa_final="$(curl -fsSL --max-time 20 "$BASE/fa-final-rules.js?v=20260916-3" || true)"
-            reliability="$(curl -fsSL --max-time 20 "$BASE/reliability-rules.js?v=20260916-3" || true)"
+            app_js="$(curl -fsSL --max-time 20 "$BASE/app.js?v=20260916-4" || true)"
+            fa_final="$(curl -fsSL --max-time 20 "$BASE/fa-final-rules.js?v=20260916-4" || true)"
+            audit_policy="$(curl -fsSL --max-time 20 "$BASE/audit-policy-rules.js?v=20260916-4" || true)"
             if grep -Fq '<title>Проверка медиаплана</title>' <<<"$body" \
-              && grep -Fq 'fa-final-rules.js?v=20260916-3' <<<"$body" \
-              && grep -Fq 'app.js?v=20260916-3' <<<"$body" \
+              && grep -Fq 'audit-policy-rules.js?v=20260916-4' <<<"$body" \
+              && grep -Fq 'app.js?v=20260916-4' <<<"$body" \
               && ! grep -Fq 'introText' <<<"$body" \
               && ! grep -Fq 'introText' <<<"$app_js" \
-              && grep -Fq '__faRulesPatched' <<<"$fa_rules" \
               && grep -Fq '__faFinalRulesPatched' <<<"$fa_final" \
-              && grep -Fq '__reliabilityRulesPatched' <<<"$reliability"; then
+              && grep -Fq '__auditPolicyRulesPatched' <<<"$audit_policy"; then
               ok=1
               break
             fi
