@@ -47,6 +47,10 @@
     for (const ch of String(col || '').toUpperCase()) n = n * 26 + ch.charCodeAt(0) - 64;
     return n - 1;
   }
+  function formulaDisplay(formula) {
+    const f = String(formula || '').trim();
+    return f.startsWith('=') ? f : `=${f}`;
+  }
   function monthFromText(value) {
     const n = norm(value).replace(/[.'’]/g, '');
     for (const [k,v] of Object.entries(MONTHS)) if (n === k) return v;
@@ -117,7 +121,8 @@
   }
 
   function parseDirectReference(formula) {
-    const m = String(formula || '').trim().match(/^=\s*(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)\s*$/u);
+    // SheetJS хранит cell.f без ведущего "=", но синтетические/другие источники иногда его добавляют.
+    const m = String(formula || '').trim().match(/^=?\s*(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)\s*$/u);
     if (!m) return null;
     return { sheet:(m[1] || m[2] || '').replace(/''/g,"'").trim(), col:m[3].toUpperCase(), row:Number(m[4]), addr:`${m[3].toUpperCase()}${Number(m[4])}` };
   }
@@ -160,7 +165,7 @@
           'Свод / устойчивость ссылки',
           sheet,
           e.addr,
-          `=${e.cell.f}`,
+          formulaDisplay(e.cell.f),
           `Сводная дата кампании ссылается на одну строку размещения (${ref.sheet}!${ref.addr}).`,
           'Текущее значение может быть правильным, но ссылка зависит от конкретной строки. После перестановки строк, добавления площадки или изменения периода свод может перестать отражать фактическую границу кампании.',
           'Если это дата начала/окончания всей кампании, используйте устойчивую итоговую ячейку или MIN/MAX по релевантным датам; если прямая ссылка осознанна — зафиксируйте это в шаблоне.',
