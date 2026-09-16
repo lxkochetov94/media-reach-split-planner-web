@@ -2,7 +2,7 @@ name: Mediaplan Checker CI
 
 on:
   push:
-    branches: ["main", "fix/mediaplan-audit-precision"]
+    branches: ["main", "fix/mediaplan-audit-precision", "fix/mediaplan-final-hardening"]
     paths:
       - "mediaplan-checker/**"
       - ".github/workflows/mediaplan-checker-ci.yml"
@@ -33,6 +33,9 @@ jobs:
           node --check mediaplan-checker/final-rules.js
           node --check mediaplan-checker/baseline-rules.js
           node --check mediaplan-checker/stability-rules.js
+          node --check mediaplan-checker/hardening-rules.js
+          node --check mediaplan-checker/hardening-text-rules.js
+          node --check mediaplan-checker/xlsx-options.js
           node --check mediaplan-checker/brands.js
           node --check mediaplan-checker/app.js
       - name: Базовый smoke-тест
@@ -45,3 +48,5 @@ jobs:
         run: node mediaplan-checker/tests/baseline-rules.test.js
       - name: Регрессионный тест стабильности по Ласке
         run: node mediaplan-checker/tests/stability-rules.test.js
+      - name: Финальный hardening-регрессионный тест
+        run: node mediaplan-checker/tests/hardening-rules.test.js
