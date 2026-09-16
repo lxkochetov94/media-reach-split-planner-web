@@ -48,16 +48,10 @@
     const status = norm(text(ws[core.encodeCell(pos.r, h.status)]));
     return /^(исправлено|ок|ok|fixed)$/iu.test(status);
   }
-  function finish(result) {
-    result.issues = (result.issues || []).filter(x=>!isHistoricalControlQuote(result.__workbook || null, x));
-    return result;
-  }
 
   core.runAllChecks = function (workbook, options) {
     const result = originalRun(workbook, options || {});
-    result.__workbook = workbook;
     result.issues = (result.issues || []).filter(x => !isHistoricalControlQuote(workbook, x));
-    delete result.__workbook;
     result.counts = {
       critical: result.issues.filter(x=>x.severity===S.CRITICAL).length,
       check: result.issues.filter(x=>x.severity===S.CHECK).length,
