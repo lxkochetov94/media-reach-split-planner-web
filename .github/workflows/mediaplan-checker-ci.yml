@@ -36,6 +36,6 @@ jobs:
       - name: Базовый smoke-тест
         run: node mediaplan-checker/tests/core.test.js
       - name: Регрессионный тест точности
-        run: node mediaplan-checker/tests/precision.test.js
+        run: node -e "require('./mediaplan-checker/lab-rules.js'); require('./mediaplan-checker/tests/precision.test.js')"
       - name: Финальный регрессионный тест
         run: node mediaplan-checker/tests/final-rules.test.js
