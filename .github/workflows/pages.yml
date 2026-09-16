@@ -50,6 +50,7 @@ jobs:
             baseline_rules="$(curl -fsSL --max-time 20 "$BASE/baseline-rules.js" || true)"
             stability_rules="$(curl -fsSL --max-time 20 "$BASE/stability-rules.js" || true)"
             hardening_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-rules.js" || true)"
+            hardening_text_rules="$(curl -fsSL --max-time 20 "$BASE/hardening-text-rules.js" || true)"
             xlsx_options="$(curl -fsSL --max-time 20 "$BASE/xlsx-options.js" || true)"
             if grep -Fq '<title>Проверка медиаплана</title>' <<<"$body" \
               && grep -Fq 'Проверить медиаплан' <<<"$body" \
@@ -57,11 +58,13 @@ jobs:
               && grep -Fq 'baseline-rules.js' <<<"$body" \
               && grep -Fq 'stability-rules.js' <<<"$body" \
               && grep -Fq 'hardening-rules.js' <<<"$body" \
+              && grep -Fq 'hardening-text-rules.js' <<<"$body" \
               && grep -Fq 'xlsx-options.js' <<<"$body" \
               && grep -Fq '__finalRulesPatched' <<<"$final_rules" \
               && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules" \
               && grep -Fq '__stabilityRulesPatched' <<<"$stability_rules" \
               && grep -Fq '__hardeningRulesPatched' <<<"$hardening_rules" \
+              && grep -Fq '__hardeningTextRulesPatched' <<<"$hardening_text_rules" \
               && grep -Fq '__mediaplanCommentsPatched' <<<"$xlsx_options"; then
               ok=1
               break
