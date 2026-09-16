@@ -2,7 +2,7 @@ name: Mediaplan Checker CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "fix/mediaplan-audit-precision"]
     paths:
       - "mediaplan-checker/**"
       - ".github/workflows/mediaplan-checker-ci.yml"
@@ -28,7 +28,10 @@ jobs:
       - name: Проверка синтаксиса
         run: |
           node --check mediaplan-checker/core.js
+          node --check mediaplan-checker/precision.js
           node --check mediaplan-checker/brands.js
           node --check mediaplan-checker/app.js
-      - name: Smoke-тест движка
+      - name: Базовый smoke-тест
         run: node mediaplan-checker/tests/core.test.js
+      - name: Регрессионный тест точности
+        run: node mediaplan-checker/tests/precision.test.js
