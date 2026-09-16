@@ -12,10 +12,10 @@ const flight = {
   CI14:c('26.10'), CI15:c('31.10'),
   D18:c('Astra Lab'), E18:c('Ж 25–44',{c:[{a:'Аналитик',t:'АУДИТ: проверить таргетинг'}]}), F18:c('Banner'), J18:c('October'),
   K18:f(0.02,'IFERROR(L18/1000,0)'), L18:f(100,'1000*K18'), M18:f(2.2,'_xlfn.IFS(K18="code",2.2,K18="pixel",2.2,K18="click",0)'),
-  CI18:c(7), CS18:f(20,'SUM(CI18:CO18)'), AF18:c(3.5),
+  CI18:c(7), CS18:f(20,'SUM(CI18:CO18)'), AF18:c(3.5), CV18:c(new Date(Date.UTC(2026,9,31)),{t:'d',w:'31.10.2026',z:'dd.mm.yyyy'}),
   D19:c('AstraLab'), E19:c('Ж 25–44'), F19:c('Banner'), J19:c('November'),
   K19:c(0.02), L19:c(100), M19:f(2.2,'_xlfn.IFS(K19="code",2.2,K19="pixel",2.2,K19="click",0)'),
-  CI19:c(6), CS19:f(30,'SUM(CI19:CO19)'),
+  CI19:c(6), CS19:f(30,'SUM(CI19:CO19)'), AF19:c(3.6),
   CV19:c(new Date(Date.UTC(2026,10,30)),{t:'d',w:'30.11.2026',z:'dd.mm.yyyy'})
 };
 
