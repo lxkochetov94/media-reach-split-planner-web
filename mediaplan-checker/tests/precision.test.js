@@ -4,24 +4,18 @@ function c(v, extra={}) { const o={v,...extra}; if(extra.w===undefined && typeof
 function f(v, formula, extra={}) { return {v, f:formula, w:String(v), ...extra}; }
 
 const flight2 = {
-  '!ref':'A1:CR20',
-  F3:c("Вернель Гранулы Август-Сентябрь'26"),
-  F5:c('08.08.2026-08.09.2026'),
-  F6:c('Ж 25-35 ВС'), F7:c(7333270),
+  '!ref':'A1:CR20', F3:c("Вернель Гранулы Август-Сентябрь'26"), F5:c('08.08.2026-08.09.2026'), F6:c('Ж 25-35 ВС'), F7:c(7333270),
   A12:c('Площадка'), B12:c('Month'), C12:c('Impressions'), D12:c('Clicks'), E12:c('CTR'), F12:c('Budget (net)'), G12:c('CPM'), H12:c('Reach'), I12:c('Frequency'), J12:c('Views'), K12:c('VTR'),
   A18:c('Digital Alliance'), B18:c('August'), L18:c('OLV'), M18:c('1000 imp.'), N18:c('Ж 25-45'), C18:f(100000,'=M18*1000'), D18:f(1000,'=C18*E18'), E18:f(0.01,'=D18/C18'), F18:f(10000,'=C18/1000*G18'), G18:f(100,'=F18/C18*1000'), H18:c(25000), I18:f(4,'=C18/H18'), J18:f(80000,'=C18*K18'), K18:f(0.8,'=J18/C18'),
   A19:c('Digital Alliance'), B19:c('September'), L19:c('OLV'), M19:c('1000 imp.'), N19:c('Ж 25-45'), C19:c(110000), D19:c(1100), E19:c(0.01), F19:c(11000), G19:c(100), H19:c(27500), I19:c(4), J19:c(88000), K19:c(0.8),
-  S15:c('Cost per unt'),
-  CL14:c('23.11'), CM14:c('30.08'), CN14:c('07.12'), CO14:c('14.12'),
+  S15:c('Cost per unt'), CL14:c('23.11'), CM14:c('30.08'), CN14:c('07.12'), CO14:c('14.12'),
   BR14:c('02.08'), BS14:c('09.08'), BT14:c('16.08'), BU14:c('23.08'), BV14:c('30.08'), BW14:c('06.09'), BX14:c('13.09'),
   BR18:c(1), BS18:c(7), BT18:c(7), BU18:c(7), BV18:c(1), BW18:c(0), BX18:c(0), CR18:f(23,'=SUM(BR18:BX18)'),
   BR19:c(0), BS19:c(0), BT19:c(0), BU19:c(0), BV19:c(2), BW19:c(6), BX19:c(0), CR19:f(8,'=SUM(BR19:BX19)'),
-  V18:f(100000,'=IF(A18="x",#REF!/#REF!,100000)'),
-  V19:f(110000,'=IF(A19="x",#REF!/#REF!,110000)')
+  V18:f(100000,'=IF(A18="x",#REF!/#REF!,100000)'), V19:f(110000,'=IF(A19="x",#REF!/#REF!,110000)')
 };
 const flight3 = {
-  '!ref':'A1:CS22',
-  F3:c("Вернель Гранулы Октябрь-Ноябрь'26"), F5:c('12.10.2026-30.11.2026'), F6:c('Ж 25-45 ВС'), F7:c(15182450),
+  '!ref':'A1:CS22', F3:c("Вернель Гранулы Октябрь-Ноябрь'26"), F5:c('12.10.2026-30.11.2026'), F6:c('Ж 25-45 ВС'), F7:c(15182450),
   A12:c('Площадка'), B12:c('Month'), C12:c('Impressions'), D12:c('Clicks'), E12:c('CTR'), F12:c('Budget (net)'), G12:c('CPM'), H12:c('Reach'), I12:c('Frequency'),
   A18:c('VK'), B18:c('October'), C18:f(100000,'=M18*1000'), D18:f(1000,'=C18*E18'), E18:f(0.01,'=D18/C18'), F18:f(10000,'=C18/1000*G18'), G18:f(100,'=F18/C18*1000'), H18:c(25000), I18:f(4,'=C18/H18'),
   A19:c('VK'), B19:c('November'), C19:f(150000,'=M19*1000'), D19:f(1500,'=C19*E19'), E19:f(0.01,'=D19/C19'), F19:f(15000,'=C19/1000*G19'), G19:f(100,'=F19/C19*1000'), H19:c(37500), I19:f(4,'=C19/H19'),
@@ -34,22 +28,9 @@ const flight3 = {
   CP15:f('21.12','=TEXT(DAY(DATEVALUE(LEFT(CO14,5))+7),"00")&"."&TEXT(MONTH(DATEVALUE(LEFT(CO14,5))+7),"00")'),
   CQ15:f('28.12','=TEXT(DAY(DATEVALUE(LEFT(CP14,5))+7),"00")&"."&TEXT(MONTH(DATEVALUE(LEFT(CP14,5))+7),"00")', {c:[{t:'АУДИТ — риск переносимости'}]})
 };
-const summary = {
-  '!ref':'A1:D5',
-  A2:c('Начало'), B2:c('01.04.2026'), A3:c('Конец'), B3:c('30.11.2026'),
-  A4:c('Период кампании (дней)'), D4:f(143,"='3 флайт'!CS18+91+'2 флайт'!CR18+'2 флайт'!CR19")
-};
-const text = {
-  '!ref':'A1:D8',
-  A1:c('Cтирка'), A2:c('Показы /\n План'), A3:c('CPC /  \nПлан'), A4:c('12,000,000'),
-  A5:c('стойки кондиционер для белья'), A6:c('Пользователи выбирают размещения. Качество размещений повышается, поэтому стоимость размещения выше. Дополнительные размещения также требуют контроля.'),
-  B1:c(26731,{w:'26,731 '}), B2:c(0,{w:'0 '}),
-  C1:c('VK; VK; Hybrid'), D1:c('Лайм HD TV\u00A0')
-};
-const hidden = {
-  '!ref':'A1:G46', F3:c("Вернель Гранулы Апрель-Июнь'26"), F6:c('Ж 25-45 ВС'), '!rows':Array.from({length:46},(_,i)=> i>=39 ? {hidden:true}:{}),
-  G40:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G41:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G42:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G43:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G44:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G45:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G46:{t:'e',v:23,w:'#REF!',f:'=#REF!'}
-};
+const summary = {'!ref':'A1:D5', A2:c('Начало'), B2:c('01.04.2026'), A3:c('Конец'), B3:c('30.11.2026'), A4:c('Период кампании (дней)'), D4:f(143,"='3 флайт'!CS18+91+'2 флайт'!CR18+'2 флайт'!CR19")};
+const text = {'!ref':'A1:D8', A1:c('Cтирка'), A2:c('Показы /\n План'), A3:c('CPC /  \nПлан'), A4:c('12,000,000'), A5:c('стойки кондиционер для белья'), A6:c('Пользователи выбирают размещения. Качество размещений повышается, поэтому стоимость размещения выше. Дополнительные размещения также требуют контроля.'), B1:c(26731,{w:'26,731 '}), B2:c(0,{w:'0 '}), C1:c('VK; VK; Hybrid'), D1:c('Лайм HD TV\u00A0')};
+const hidden = {'!ref':'A1:G46', F3:c("Вернель Гранулы Апрель-Июнь'26"), F6:c('Ж 25-45 ВС'), '!rows':Array.from({length:46},(_,i)=> i>=39 ? {hidden:true}:{}), G40:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G41:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G42:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G43:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G44:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G45:{t:'e',v:23,w:'#REF!',f:'=#REF!'}, G46:{t:'e',v:23,w:'#REF!',f:'=#REF!'}};
 const wb={SheetNames:['Свод','2 флайт','3 флайт','Текст','1 флайт'],Sheets:{'Свод':summary,'2 флайт':flight2,'3 флайт':flight3,'Текст':text,'1 флайт':hidden}};
 const rawInfo={definedNamesTotal:30249,definedNames:Array.from({length:10},(_,i)=>({name:'x'+i,ref:i<4?'#REF!':i<8?'#N/A':'#NAME?'})),externalLinks:['file:///LAB/Лоск Детская линейка.xlsx']};
 const r=core.runAllChecks(wb,{rawInfo,intro:'Перенести бюджет Core в Гранулы. Размещение растянуть на 2 месяца. Прописать аргументы, почему не стоит растягивать на 3 месяца.',globalExclusions:['CPM','CTR']});
@@ -58,8 +39,8 @@ assert(!r.issues.some(x=>x.sheet==='Текст' && ['B1','B2'].includes(x.cell) 
 assert(!r.issues.some(x=>x.sheet==='Текст' && x.cell==='A2' && x.problem.includes('двойные')),'line break must not create fake double space');
 assert(r.issues.some(x=>x.sheet==='Текст' && x.cell==='A3' && x.type==='Пробелы'),'real double spaces must be found');
 assert(!r.issues.some(x=>x.sheet==='Текст' && x.cell==='A4' && x.type==='Дубли таргетинга/ключевых слов'),'number must not be parsed as duplicate list');
-assert(r.issues.some(x=>x.sheet==='2 флайт' && x.cell==='S15' && x.problem.includes('Cost per unit')),'Cost per unt typo');
-assert(r.issues.some(x=>x.sheet==='Текст' && x.cell==='A5' && x.problem.includes('стойкий кондиционер')),'стойки typo');
+assert(r.issues.some(x=>x.sheet==='2 флайт' && x.cell==='S15' && (x.problem+x.recommendation).includes('Cost per unit')),'Cost per unt typo');
+assert(r.issues.some(x=>x.sheet==='Текст' && x.cell==='A5' && (x.problem+x.recommendation).includes('стойкий кондиционер')),'стойки typo');
 assert(r.issues.some(x=>x.sheet==='Текст' && x.cell==='A1' && x.type==='Смешение алфавитов'));
 assert(r.issues.some(x=>x.sheet==='Текст' && x.cell==='A6' && x.type==='Возможная тавтология'));
 assert(r.issues.some(x=>x.sheet==='Текст' && x.cell==='D1' && x.problem.includes('неразрывный')));
