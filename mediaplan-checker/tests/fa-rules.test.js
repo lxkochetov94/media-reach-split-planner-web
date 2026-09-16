@@ -1,5 +1,5 @@
 const assert = require('assert');
-const core = require('../fa-rules.js');
+const core = require('../fa-final-rules.js');
 function c(v, extra={}) { return {v, ...extra}; }
 function f(v, formula, extra={}) { return {v, f:formula, ...extra}; }
 
