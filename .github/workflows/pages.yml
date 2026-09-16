@@ -48,12 +48,15 @@ jobs:
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
             final_rules="$(curl -fsSL --max-time 20 "$BASE/final-rules.js" || true)"
             baseline_rules="$(curl -fsSL --max-time 20 "$BASE/baseline-rules.js" || true)"
+            stability_rules="$(curl -fsSL --max-time 20 "$BASE/stability-rules.js" || true)"
             if grep -Fq '<title>Проверка медиаплана LAB</title>' <<<"$body" \
               && grep -Fq 'Проверить медиаплан' <<<"$body" \
               && grep -Fq 'final-rules.js' <<<"$body" \
               && grep -Fq 'baseline-rules.js' <<<"$body" \
+              && grep -Fq 'stability-rules.js' <<<"$body" \
               && grep -Fq '__finalRulesPatched' <<<"$final_rules" \
-              && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules"; then
+              && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules" \
+              && grep -Fq '__stabilityRulesPatched' <<<"$stability_rules"; then
               ok=1
               break
             fi
