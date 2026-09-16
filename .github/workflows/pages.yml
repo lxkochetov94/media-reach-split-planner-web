@@ -46,11 +46,14 @@ jobs:
           ok=0
           for attempt in {1..12}; do
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
-            rules="$(curl -fsSL --max-time 20 "$BASE/final-rules.js" || true)"
+            final_rules="$(curl -fsSL --max-time 20 "$BASE/final-rules.js" || true)"
+            baseline_rules="$(curl -fsSL --max-time 20 "$BASE/baseline-rules.js" || true)"
             if grep -Fq '<title>Проверка медиаплана LAB</title>' <<<"$body" \
               && grep -Fq 'Проверить медиаплан' <<<"$body" \
               && grep -Fq 'final-rules.js' <<<"$body" \
-              && grep -Fq '__finalRulesPatched' <<<"$rules"; then
+              && grep -Fq 'baseline-rules.js' <<<"$body" \
+              && grep -Fq '__finalRulesPatched' <<<"$final_rules" \
+              && grep -Fq '__baselineRulesPatched' <<<"$baseline_rules"; then
               ok=1
               break
             fi
