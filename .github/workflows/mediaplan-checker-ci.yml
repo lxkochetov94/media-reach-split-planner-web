@@ -38,6 +38,7 @@ jobs:
           node --check mediaplan-checker/reliability-rules.js
           node --check mediaplan-checker/audit-polish-rules.js
           node --check mediaplan-checker/fa-rules.js
+          node --check mediaplan-checker/fa-final-rules.js
           node --check mediaplan-checker/xlsx-options.js
           node --check mediaplan-checker/app.js
       - name: Базовый smoke-тест
