@@ -51,6 +51,7 @@ jobs:
           python scripts/patch_budget_current_ui.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_inline_edit.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_inline_edit_fix.py budget-checker/src/app.js
+          python scripts/patch_budget_workspace_ux.py budget-checker/src/app.js budget-checker/styles.css
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
@@ -58,11 +59,17 @@ jobs:
           grep -Fq 'Настроить импорт вручную' budget-checker/src/app.js
           grep -Fq 'Итого до НДС, ₽' budget-checker/src/app.js
           grep -Fq 'data-budget-edit' budget-checker/src/app.js
-          grep -Fq 'Выгрузить актуальный бюджет' budget-checker/src/app.js
-          grep -Fq 'Выгрузить историю' budget-checker/src/app.js
+          grep -Fq 'Выгрузить весь бюджет' budget-checker/src/app.js
+          grep -Fq 'Выгрузить выделенное' budget-checker/src/app.js
+          grep -Fq 'budgetSelectedPaths' budget-checker/src/app.js
+          grep -Fq 'openBudgetNewLineModal' budget-checker/src/app.js
+          grep -Fq 'openBudgetRedistributeModal' budget-checker/src/app.js
           grep -Fq 'Комментарий <span class="required-mark">обязательно' budget-checker/src/app.js
           grep -Fq 'resultingBudget=isAdjustment?' budget-checker/src/app.js
-          grep -Fq 'Compact editable budget calendar' budget-checker/styles.css
+          grep -Fq 'Unified budget workspace UX' budget-checker/styles.css
+          ! grep -Fq "['change','Внести изменение']" budget-checker/src/app.js
+          ! grep -Fq "['redistribute','Перераспределить бюджет']" budget-checker/src/app.js
+          ! grep -Fq "['flowchart','Сверить флоучарт']" budget-checker/src/app.js
           ! grep -Fq "['save','Сохранить']" budget-checker/src/app.js
           cd budget-checker
           npm test
@@ -115,14 +122,19 @@ jobs:
               && grep -Fq 'ANNUAL_ADJUSTMENT' <<<"$core_js" \
               && grep -Fq 'HEADER_MONTH_ALIASES' <<<"$app_js" \
               && grep -Fq 'guessDataStartRow' <<<"$app_js" \
-              && grep -Fq 'guessTotalRules' <<<"$app_js" \
               && grep -Fq 'Настроить импорт вручную' <<<"$app_js" \
               && grep -Fq 'Итого до НДС, ₽' <<<"$app_js" \
               && grep -Fq 'data-budget-edit' <<<"$app_js" \
-              && grep -Fq 'Выгрузить актуальный бюджет' <<<"$app_js" \
+              && grep -Fq 'Выгрузить выделенное' <<<"$app_js" \
+              && grep -Fq 'budgetSelectedPaths' <<<"$app_js" \
+              && grep -Fq 'openBudgetNewLineModal' <<<"$app_js" \
+              && grep -Fq 'openBudgetRedistributeModal' <<<"$app_js" \
               && grep -Fq 'budget-history-popover' <<<"$app_js" \
               && grep -Fq 'resultingBudget=isAdjustment?' <<<"$app_js" \
-              && grep -Fq 'Compact editable budget calendar' <<<"$css" \
+              && grep -Fq 'Unified budget workspace UX' <<<"$css" \
+              && ! grep -Fq "['change','Внести изменение']" <<<"$app_js" \
+              && ! grep -Fq "['redistribute','Перераспределить бюджет']" <<<"$app_js" \
+              && ! grep -Fq "['flowchart','Сверить флоучарт']" <<<"$app_js" \
               && ! grep -Fq "['save','Сохранить']" <<<"$app_js"; then
               ok=1
               break
