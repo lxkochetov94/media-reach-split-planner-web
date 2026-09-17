@@ -31,23 +31,15 @@ jobs:
           cat .budget-v12pkg/part-*.b64 > /tmp/budget-v12.b64
           base64 --decode /tmp/budget-v12.b64 > /tmp/budget-v12.tar.gz
           echo "25861e3dadc7fcb77c1efb6056241e53cad4aa7322940888649694b404186a5d  /tmp/budget-v12.tar.gz" | sha256sum -c -
-          rm -rf /tmp/budget-v12 budget-checker
-          mkdir -p /tmp/budget-v12 budget-checker/src
-          tar -xzf /tmp/budget-v12.tar.gz -C /tmp/budget-v12
-          test -f /tmp/budget-v12/index.html
-          test -f /tmp/budget-v12/styles.css
-          test -f /tmp/budget-v12/src/core.js
-          test -f /tmp/budget-v12/src/importer.js
-          test -f /tmp/budget-v12/src/excel.js
-          test -f /tmp/budget-v12/src/workspace.js
-          test -f /tmp/budget-v12/src/app.js
-          cp /tmp/budget-v12/index.html budget-checker/
-          cp /tmp/budget-v12/styles.css budget-checker/
-          cp /tmp/budget-v12/src/core.js budget-checker/src/
-          cp /tmp/budget-v12/src/importer.js budget-checker/src/
-          cp /tmp/budget-v12/src/excel.js budget-checker/src/
-          cp /tmp/budget-v12/src/workspace.js budget-checker/src/
-          cp /tmp/budget-v12/src/app.js budget-checker/src/
+          mkdir -p budget-checker/src
+          tar -xzf /tmp/budget-v12.tar.gz -C budget-checker
+          test -f budget-checker/index.html
+          test -f budget-checker/styles.css
+          test -f budget-checker/src/core.js
+          test -f budget-checker/src/importer.js
+          test -f budget-checker/src/excel.js
+          test -f budget-checker/src/workspace.js
+          test -f budget-checker/src/app.js
           rm -rf .budget-v12pkg
 
       - name: Configure Pages
