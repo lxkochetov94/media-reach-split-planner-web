@@ -42,17 +42,21 @@ jobs:
           test -f budget-checker/src/workspace.js
           test -f budget-checker/src/app.js
 
-      - name: Исправить и проверить автоимпорт
+      - name: Собрать и проверить Budget Checker
         shell: bash
         run: |
           set -euo pipefail
           python scripts/patch_budget_import_autodetect.py budget-checker/src/app.js
           python scripts/patch_budget_import_ux.py budget-checker/src/app.js
+          python scripts/patch_budget_current_ui.py budget-checker/src/app.js budget-checker/styles.css
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
           grep -Fq 'guessTotalRules' budget-checker/src/app.js
           grep -Fq 'Настроить импорт вручную' budget-checker/src/app.js
+          grep -Fq 'Бюджет по месяцам' budget-checker/src/app.js
+          grep -Fq 'budget-matrix' budget-checker/styles.css
+          ! grep -Fq "['save','Сохранить']" budget-checker/src/app.js
           cd budget-checker
           npm test
 
@@ -99,12 +103,16 @@ jobs:
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
             app_js="$(curl -fsSL --max-time 20 "$BASE/src/app.js" || true)"
             core_js="$(curl -fsSL --max-time 20 "$BASE/src/core.js" || true)"
+            css="$(curl -fsSL --max-time 20 "$BASE/styles.css" || true)"
             if grep -Fq '<title>Контроль бюджетов</title>' <<<"$body" \
               && grep -Fq 'ANNUAL_ADJUSTMENT' <<<"$core_js" \
               && grep -Fq 'HEADER_MONTH_ALIASES' <<<"$app_js" \
               && grep -Fq 'guessDataStartRow' <<<"$app_js" \
               && grep -Fq 'guessTotalRules' <<<"$app_js" \
-              && grep -Fq 'Настроить импорт вручную' <<<"$app_js"; then
+              && grep -Fq 'Настроить импорт вручную' <<<"$app_js" \
+              && grep -Fq 'Бюджет по месяцам' <<<"$app_js" \
+              && grep -Fq 'budget-matrix' <<<"$css" \
+              && ! grep -Fq "['save','Сохранить']" <<<"$app_js"; then
               ok=1
               break
             fi
