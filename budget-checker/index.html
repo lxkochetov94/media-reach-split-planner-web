@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Контроль бюджетов</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">Контроль бюджетов</div>
+    <div id="sidebarProject" class="project-name">Проект не открыт</div>
+    <nav id="nav" class="nav"></nav>
+  </aside>
+  <main class="main">
+    <div class="topbar"><h1 id="pageTitle" class="title">Проект</h1><div id="projectStatus" class="status bad">Проект не открыт</div></div>
+    <div id="view"></div>
+  </main>
+</div>
+<div id="modalRoot"></div>
+<input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'"></script>
+<script src="src/core.js"></script>
+<script src="src/importer.js"></script>
+<script src="src/excel.js"></script>
+<script src="src/workspace.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
