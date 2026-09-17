@@ -23,6 +23,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Подготовить Budget Checker v1.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .budget-v12pkg/part-*.b64 > /tmp/budget-v12.b64
+          base64 --decode /tmp/budget-v12.b64 > /tmp/budget-v12.tar.gz
+          echo "25861e3dadc7fcb77c1efb6056241e53cad4aa7322940888649694b404186a5d  /tmp/budget-v12.tar.gz" | sha256sum -c -
+          rm -rf /tmp/budget-v12 budget-checker
+          mkdir -p /tmp/budget-v12 budget-checker/src
+          tar -xzf /tmp/budget-v12.tar.gz -C /tmp/budget-v12
+          test -f /tmp/budget-v12/index.html
+          test -f /tmp/budget-v12/styles.css
+          test -f /tmp/budget-v12/src/core.js
+          test -f /tmp/budget-v12/src/importer.js
+          test -f /tmp/budget-v12/src/excel.js
+          test -f /tmp/budget-v12/src/workspace.js
+          test -f /tmp/budget-v12/src/app.js
+          cp /tmp/budget-v12/index.html budget-checker/
+          cp /tmp/budget-v12/styles.css budget-checker/
+          cp /tmp/budget-v12/src/core.js budget-checker/src/
+          cp /tmp/budget-v12/src/importer.js budget-checker/src/
+          cp /tmp/budget-v12/src/excel.js budget-checker/src/
+          cp /tmp/budget-v12/src/workspace.js budget-checker/src/
+          cp /tmp/budget-v12/src/app.js budget-checker/src/
+          rm -rf .budget-v12pkg
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
@@ -66,3 +93,27 @@ jobs:
           curl -fsSI --max-time 20 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js' >/dev/null
           curl -fsSI --max-time 20 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js' >/dev/null
           echo "Smoke-test GitHub Pages пройден: $BASE/"
+
+      - name: Проверить опубликованный Budget Checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://lxkochetov94.github.io/media-reach-split-planner-web/budget-checker"
+          ok=0
+          for attempt in {1..12}; do
+            body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
+            core_js="$(curl -fsSL --max-time 20 "$BASE/src/core.js" || true)"
+            excel_js="$(curl -fsSL --max-time 20 "$BASE/src/excel.js" || true)"
+            if grep -Fq '<title>Контроль бюджетов</title>' <<<"$body" \
+              && grep -Fq 'ANNUAL_ADJUSTMENT' <<<"$core_js" \
+              && grep -Fq "'Свод'" <<<"$excel_js"; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$ok" != "1" ]]; then
+            echo "Опубликованный Budget Checker не прошёл smoke-test: $BASE/" >&2
+            exit 1
+          fi
+          echo "Smoke-test Budget Checker пройден: $BASE/"
