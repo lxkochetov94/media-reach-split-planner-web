@@ -50,6 +50,7 @@ jobs:
           python scripts/patch_budget_import_ux.py budget-checker/src/app.js
           python scripts/patch_budget_current_ui.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_inline_edit.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/patch_budget_inline_edit_fix.py budget-checker/src/app.js
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
@@ -60,6 +61,7 @@ jobs:
           grep -Fq 'Выгрузить актуальный бюджет' budget-checker/src/app.js
           grep -Fq 'Выгрузить историю' budget-checker/src/app.js
           grep -Fq 'Комментарий <span class="required-mark">обязательно' budget-checker/src/app.js
+          grep -Fq 'resultingBudget=isAdjustment?' budget-checker/src/app.js
           grep -Fq 'Compact editable budget calendar' budget-checker/styles.css
           ! grep -Fq "['save','Сохранить']" budget-checker/src/app.js
           cd budget-checker
@@ -119,6 +121,7 @@ jobs:
               && grep -Fq 'data-budget-edit' <<<"$app_js" \
               && grep -Fq 'Выгрузить актуальный бюджет' <<<"$app_js" \
               && grep -Fq 'budget-history-popover' <<<"$app_js" \
+              && grep -Fq 'resultingBudget=isAdjustment?' <<<"$app_js" \
               && grep -Fq 'Compact editable budget calendar' <<<"$css" \
               && ! grep -Fq "['save','Сохранить']" <<<"$app_js"; then
               ok=1
