@@ -42,15 +42,17 @@ jobs:
           test -f budget-checker/src/workspace.js
           test -f budget-checker/src/app.js
 
-      - name: Исправить и проверить автосопоставление
+      - name: Исправить и проверить автоимпорт
         shell: bash
         run: |
           set -euo pipefail
           python scripts/patch_budget_import_autodetect.py budget-checker/src/app.js
+          python scripts/patch_budget_import_ux.py budget-checker/src/app.js
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
           grep -Fq 'guessTotalRules' budget-checker/src/app.js
+          grep -Fq 'Настроить импорт вручную' budget-checker/src/app.js
           cd budget-checker
           npm test
 
@@ -101,7 +103,8 @@ jobs:
               && grep -Fq 'ANNUAL_ADJUSTMENT' <<<"$core_js" \
               && grep -Fq 'HEADER_MONTH_ALIASES' <<<"$app_js" \
               && grep -Fq 'guessDataStartRow' <<<"$app_js" \
-              && grep -Fq 'guessTotalRules' <<<"$app_js"; then
+              && grep -Fq 'guessTotalRules' <<<"$app_js" \
+              && grep -Fq 'Настроить импорт вручную' <<<"$app_js"; then
               ok=1
               break
             fi
