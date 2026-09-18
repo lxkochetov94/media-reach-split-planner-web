@@ -233,14 +233,18 @@
     return issues;
   }
 
+  function buyingModel(raw) {
+    const s=norm(raw);
+    if(/(?:^|\s)[cс][pр][cс](?:\s|$)/iu.test(s)||/cpc/iu.test(s)) return 'cpc';
+    if(/(?:^|\s)[cс][pр][mм](?:\s|$)/iu.test(s)||/cpm/iu.test(s)) return 'cpm';
+    return '';
+  }
   function categoryKey(raw) {
-    const s=norm(raw).replace(/\bprogrammatic\b/gu,' ').replace(/\bpaid\b/gu,' ').replace(/\s+/g,' ');
+    const s=norm(raw).replace(/\bprogrammatic\b/gu,' ').replace(/\bpaid\b/gu,' ').replace(/\s+/g,' '), model=buyingModel(s);
     if(/\bolv\b|online video|онлайн видео/iu.test(s)) return 'olv';
-    if(/rich\s*media/iu.test(s)&&/cpc/iu.test(s)) return 'rich media cpc';
-    if(/social/iu.test(s)&&/cpm/iu.test(s)) return 'social cpm';
-    if(/social/iu.test(s)&&/cpc/iu.test(s)) return 'social cpc';
-    if(/banner/iu.test(s)&&/cpm/iu.test(s)) return 'banners cpm';
-    if(/banner/iu.test(s)&&/cpc/iu.test(s)) return 'banners cpc';
+    if(/rich\s*media/iu.test(s)&&model) return 'rich media '+model;
+    if(/social/iu.test(s)&&model) return 'social '+model;
+    if(/banner/iu.test(s)&&model) return 'banners '+model;
     return null;
   }
   function activeCategories(ws) {
