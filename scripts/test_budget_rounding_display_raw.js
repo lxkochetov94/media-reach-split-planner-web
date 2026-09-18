@@ -1,0 +1,23 @@
+const fs=require('fs'),vm=require('vm');
+const app=fs.readFileSync(process.argv[2]||'budget-checker/src/app.js','utf8');
+function extract(name){const start=app.indexOf('function '+name+'(');if(start<0)throw new Error('missing '+name);let i=app.indexOf('{',start),d=0;for(;i<app.length;i++){if(app[i]==='{')d++;else if(app[i]==='}'&&--d===0){i++;break;}}return app.slice(start,i)}
+const mpResult={innerHTML:''},exportBtn={},manualBtn={};
+const document={getElementById(id){if(id==='mpResult')return mpResult;if(id==='mpExportAuto')return exportBtn;if(id==='mpManual')return manualBtn;return null;},querySelectorAll(){return[];}};
+const state={reconcile:{data:{}},lastMediaPlanComparison:null},C={MONTHS:['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']};
+const esc=x=>String(x??''),money=x=>(Number(x||0)/100).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:2})+' ₽',info=x=>String(x),mpExclusionReasonLabel=x=>String(x||''),mpSourceDetailsHtml=()=>'',mpTypeLabel=x=>x;
+const mpShowManual=()=>{},mpOpenExclusionsList=()=>{},mpOpenExclusionModal=()=>{};
+const XLSX={utils:{book_new:()=>({sheets:[]}),aoa_to_sheet:data=>({'!ref':`A1:J${data.length}`,data}),decode_range:ref=>({e:{r:Number(ref.match(/\d+$/)[0])-1}}),book_append_sheet:(wb,ws,name)=>wb.sheets.push({ws,name})},writeFile:(wb,name)=>{globalThis.written={wb,name};}};
+const budgetSafeFilePart=x=>x,budgetToday=()=> '2026-09-18';
+const sb={document,state,C,esc,money,info,mpExclusionReasonLabel,mpSourceDetailsHtml,mpTypeLabel,mpShowManual,mpOpenExclusionsList,mpOpenExclusionModal,XLSX,budgetSafeFilePart,budgetToday,console};
+vm.createContext(sb);
+vm.runInContext([extract('mpApplyExportLayout'),extract('mpRenderComparison'),extract('mpExportComparison')].join('\n')+';this.api={mpRenderComparison,mpExportComparison};',sb);
+const result={fileName:'x.xlsx',brand:'МОМЕНТ',division:'LAB КЛЕЕВЫЕ',extracted:{detectedSheets:['MP'],issues:[]},channelSummary:[{kind:'channel',channel:'ОЛВ',typeMedia:'Интернет',control:2151174336,external:2151174337,difference:0,rawDifference:1,roundingOnly:true}],rows:[{type:'ROUNDING_NOTE',roundingOnly:true,path:['LAB КЛЕЕВЫЕ','МОМЕНТ','Интернет','ОЛВ'],month:7,control:2151174336,external:2151174337,difference:0,rawDifference:1,message:'округление',sources:[]}],controlTotal:2151174336,mediaTotal:2151174337,difference:0,rawDifference:1,overallRoundingOnly:true,excludedCount:0,technicalCosts:[],technicalTotal:0,criticalMismatchCount:0,explainedMismatchCount:0,roundingNoteCount:1};
+sb.api.mpRenderComparison(result);
+if(!mpResult.innerHTML.includes('+0,01 ₽'))throw new Error('UI must show factual +0,01 ₽');
+if(/mp-rounding-value[^>]*>0 ₽</.test(mpResult.innerHTML))throw new Error('rounding cell still shows 0 ₽');
+sb.api.mpExportComparison(result);
+const wb=sb.written?.wb||globalThis.written?.wb;
+const details=wb.sheets.find(x=>x.name==='Расхождения').ws.data;
+if(details[1][6]!==0.01)throw new Error('Excel visible discrepancy must be 0.01, got '+details[1][6]);
+if(details[1][0]!=='Совпадает после округления')throw new Error('Excel status changed');
+console.log('raw rounding difference display regression: OK');
