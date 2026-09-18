@@ -52,6 +52,8 @@ jobs:
           python scripts/patch_budget_inline_edit.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_inline_edit_fix.py budget-checker/src/app.js
           python scripts/patch_budget_workspace_ux.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/patch_budget_workspace_v2.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/check_budget_workspace_v2.py budget-checker/src/app.js budget-checker/styles.css
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
@@ -67,6 +69,11 @@ jobs:
           grep -Fq 'Комментарий <span class="required-mark">обязательно' budget-checker/src/app.js
           grep -Fq 'resultingBudget=isAdjustment?' budget-checker/src/app.js
           grep -Fq 'Unified budget workspace UX' budget-checker/styles.css
+          grep -Fq 'Budget workspace UX v2' budget-checker/src/app.js
+          grep -Fq 'Выгрузить отфильтрованное' budget-checker/src/app.js
+          grep -Fq 'budgetStructuralFilters' budget-checker/src/app.js
+          grep -Fq 'data-budget-collapse' budget-checker/src/app.js
+          grep -Fq 'История ячейки' budget-checker/src/app.js
           ! grep -Fq "['change','Внести изменение']" budget-checker/src/app.js
           ! grep -Fq "['redistribute','Перераспределить бюджет']" budget-checker/src/app.js
           ! grep -Fq "['flowchart','Сверить флоучарт']" budget-checker/src/app.js
@@ -132,6 +139,11 @@ jobs:
               && grep -Fq 'budget-history-popover' <<<"$app_js" \
               && grep -Fq 'resultingBudget=isAdjustment?' <<<"$app_js" \
               && grep -Fq 'Unified budget workspace UX' <<<"$css" \
+              && grep -Fq 'Budget workspace UX v2' <<<"$app_js" \
+              && grep -Fq 'Выгрузить отфильтрованное' <<<"$app_js" \
+              && grep -Fq 'budgetStructuralFilters' <<<"$app_js" \
+              && grep -Fq 'data-budget-collapse' <<<"$app_js" \
+              && grep -Fq 'История ячейки' <<<"$app_js" \
               && ! grep -Fq "['change','Внести изменение']" <<<"$app_js" \
               && ! grep -Fq "['redistribute','Перераспределить бюджет']" <<<"$app_js" \
               && ! grep -Fq "['flowchart','Сверить флоучарт']" <<<"$app_js" \
