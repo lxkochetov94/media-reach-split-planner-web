@@ -59,11 +59,13 @@ jobs:
           python scripts/patch_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_channel_matching_fix.py budget-checker/src/app.js
           python scripts/patch_budget_exclusions_social_fix.py budget-checker/src/app.js budget-checker/src/excel.js budget-checker/styles.css
+          python scripts/patch_budget_channel_aliases_v3.py budget-checker/src/app.js
           python scripts/patch_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           python scripts/check_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js mediaplan-checker/production-rules.js
           node scripts/test_budget_channel_matching.js budget-checker/src/app.js
           python scripts/check_budget_exclusions_social.py budget-checker/src/app.js budget-checker/src/excel.js budget-checker/styles.css
           node scripts/test_budget_exclusions_social.js budget-checker/src/app.js
+          node scripts/test_budget_channel_aliases_v3.js budget-checker/src/app.js
           python scripts/check_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           node mediaplan-checker/tests/production-rules.test.js
           node --check budget-checker/src/app.js
@@ -93,6 +95,9 @@ jobs:
           grep -Fq 'Budget channel canonical matching v2' budget-checker/src/app.js
           grep -Fq 'mpCanonicalChannelKey' budget-checker/src/app.js
           grep -Fq 'Budget comparison exclusions v1' budget-checker/src/app.js
+          grep -Fq 'Deterministic LAB channel aliases v3' budget-checker/src/app.js
+          grep -Fq 'mpPlacementTarget' budget-checker/src/app.js
+          grep -Fq 'function buyingModel' mediaplan-checker/production-rules.js
           grep -Fq 'mediaPlanExclusionsJson' budget-checker/src/excel.js
           grep -Fq 'Исключения ·' budget-checker/src/app.js
           grep -Fq 'extractBudgetPlacements' mediaplan-checker/production-rules.js
@@ -183,6 +188,9 @@ jobs:
               && grep -Fq 'Budget channel canonical matching v2' <<<"$app_js" \
               && grep -Fq 'mpCanonicalChannelKey' <<<"$app_js" \
               && grep -Fq 'Budget comparison exclusions v1' <<<"$app_js" \
+              && grep -Fq 'Deterministic LAB channel aliases v3' <<<"$app_js" \
+              && grep -Fq 'mpPlacementTarget' <<<"$app_js" \
+              && grep -Fq 'function buyingModel' <<<"$production_js" \
               && grep -Fq 'Исключения ·' <<<"$app_js" \
               && grep -Fq '../mediaplan-checker/production-rules.js' <<<"$body" \
               && grep -Fq 'extractBudgetPlacements' <<<"$production_js" \
