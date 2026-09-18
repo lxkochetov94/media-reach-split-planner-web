@@ -31,7 +31,10 @@ const flight2 = {
   C26:c(3), E26:c('Hybrid'), F26:c('Ж 18-29'), G26:c('Баннеры'), H26:c('-'), I26:c('1000 imp.'), K26:c('November'),
   Q26:f(60,'M26*(1-P26)'), U26:f(300000,'R26+T26'), AA26:c(0.001), AE26:c(0.7),
   C27:c(4), E27:c('Hybrid'), F27:c('Ж 18-29'), G27:c('Баннеры'), H27:c('-'), I27:c('1000 imp.'), K27:c('December'),
-  Q27:c(60), U27:c(462834.49147), AA27:c(0.001), AE27:c(0.7)
+  Q27:c(60), U27:c(462834.49147), AA27:c(0.001), AE27:c(0.7),
+
+  C28:c('Social nets, СРС Герметики'),
+  C29:c(5), E29:c('VK'), F29:c('Ж 18-29'), G29:c('Social'), H29:c('-'), I29:c('1000 imp.'), K29:c('November'), U29:c(1007200)
 };
 
 const summary = {
@@ -109,5 +112,7 @@ assert(olvNov&&Math.abs(olvNov.amount-319534.11)<0.001,'OLV November budget must
 const bannerNov=extracted.placements.find(x=>x.sheet==='Mediaplan 2 флайт'&&x.channelKey==='banners cpm'&&x.month===10);
 assert(bannerNov&&Math.abs(bannerNov.amount-300000)<0.001,'banner November budget must prefer Total cost + adserving when present');
 assert(!extracted.issues.some(x=>x.code==='BUDGET_COLUMN_NOT_FOUND'&&x.sheet==='Mediaplan 2 флайт'),'standard LAB flight must expose a budget column');
+const socialCpcNov=extracted.placements.find(x=>x.sheet==='Mediaplan 2 флайт'&&x.channelKey==='social cpc'&&x.month===10);
+assert(socialCpcNov&&Math.abs(socialCpcNov.amount-1007200)<0.001,'mixed Cyrillic/Latin СРС must normalize to social cpc');
 
 console.log('production Taft reliability tests passed',r.counts,'issues',r.issues.length);
