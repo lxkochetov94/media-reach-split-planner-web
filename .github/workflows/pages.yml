@@ -54,6 +54,8 @@ jobs:
           python scripts/patch_budget_workspace_ux.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_workspace_v2.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/check_budget_workspace_v2.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/patch_budget_workspace_v3.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/check_budget_workspace_v3.py budget-checker/src/app.js budget-checker/styles.css
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
@@ -74,6 +76,9 @@ jobs:
           grep -Fq 'budgetStructuralFilters' budget-checker/src/app.js
           grep -Fq 'data-budget-collapse' budget-checker/src/app.js
           grep -Fq 'История ячейки' budget-checker/src/app.js
+          grep -Fq 'Budget workspace UX v3' budget-checker/src/app.js
+          grep -Fq 'budgetSeedInitialCollapse' budget-checker/src/app.js
+          grep -Fq 'budgetDraftStructuralFilters' budget-checker/src/app.js
           ! grep -Fq "['change','Внести изменение']" budget-checker/src/app.js
           ! grep -Fq "['redistribute','Перераспределить бюджет']" budget-checker/src/app.js
           ! grep -Fq "['flowchart','Сверить флоучарт']" budget-checker/src/app.js
@@ -144,6 +149,9 @@ jobs:
               && grep -Fq 'budgetStructuralFilters' <<<"$app_js" \
               && grep -Fq 'data-budget-collapse' <<<"$app_js" \
               && grep -Fq 'История ячейки' <<<"$app_js" \
+              && grep -Fq 'Budget workspace UX v3' <<<"$app_js" \
+              && grep -Fq 'budgetSeedInitialCollapse' <<<"$app_js" \
+              && grep -Fq 'budgetDraftStructuralFilters' <<<"$app_js" \
               && ! grep -Fq "['change','Внести изменение']" <<<"$app_js" \
               && ! grep -Fq "['redistribute','Перераспределить бюджет']" <<<"$app_js" \
               && ! grep -Fq "['flowchart','Сверить флоучарт']" <<<"$app_js" \
