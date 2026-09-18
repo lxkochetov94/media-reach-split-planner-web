@@ -46,6 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python scripts/patch_mediaplan_periods_technical.py mediaplan-checker/production-rules.js
           python scripts/patch_budget_import_autodetect.py budget-checker/src/app.js
           python scripts/patch_budget_import_ux.py budget-checker/src/app.js
           python scripts/patch_budget_current_ui.py budget-checker/src/app.js budget-checker/styles.css
@@ -65,6 +66,7 @@ jobs:
           python scripts/patch_budget_export_layout_runtime_fix.py budget-checker/src/app.js
           python scripts/patch_budget_rounding_display_raw.py budget-checker/src/app.js
           python scripts/patch_budget_explained_section_fonts.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/patch_budget_periods_technical.py budget-checker/src/app.js
           python scripts/patch_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           python scripts/check_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js mediaplan-checker/production-rules.js
           node scripts/test_budget_channel_matching.js budget-checker/src/app.js
@@ -81,6 +83,8 @@ jobs:
           node scripts/test_budget_rounding_display_raw.js budget-checker/src/app.js
           python scripts/check_budget_explained_section_fonts.py budget-checker/src/app.js budget-checker/styles.css
           node scripts/test_budget_explained_section_fonts.js budget-checker/src/app.js budget-checker/styles.css
+          node scripts/test_mediaplan_periods_technical.js
+          node scripts/test_budget_periods_technical.js budget-checker/src/app.js
           python scripts/check_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           node mediaplan-checker/tests/production-rules.test.js
           node --check budget-checker/src/app.js
@@ -128,6 +132,14 @@ jobs:
           grep -Fq 'Расхождений, требующих проверки, нет' budget-checker/src/app.js
           grep -Fq 'mp-explained-section' budget-checker/styles.css
           grep -Fq 'mp-source-details' budget-checker/styles.css
+          grep -Fq 'Period-aware reconciliation + signed technical adjustments v1' budget-checker/src/app.js
+          grep -Fq 'mpAllocateCentsByControl' budget-checker/src/app.js
+          grep -Fq 'periodAllocationCount' budget-checker/src/app.js
+          grep -Fq 'Распределение периодов' budget-checker/src/app.js
+          grep -Fq 'findBudgetMediaHeader' mediaplan-checker/production-rules.js
+          grep -Fq 'periodMonths' mediaplan-checker/production-rules.js
+          grep -Fq 'signedAmount' mediaplan-checker/production-rules.js
+          grep -Fq '2-periods-tech' mediaplan-checker/production-rules.js
           grep -Fq 'extractTechnicalSummaryCosts' mediaplan-checker/production-rules.js
           grep -Fq 'function buyingModel' mediaplan-checker/production-rules.js
           grep -Fq 'mediaPlanExclusionsJson' budget-checker/src/excel.js
@@ -238,6 +250,14 @@ jobs:
               && grep -Fq 'Расхождений, требующих проверки, нет' <<<"$app_js" \
               && grep -Fq 'mp-explained-section' <<<"$css" \
               && grep -Fq 'mp-source-details' <<<"$css" \
+              && grep -Fq 'Period-aware reconciliation + signed technical adjustments v1' <<<"$app_js" \
+              && grep -Fq 'mpAllocateCentsByControl' <<<"$app_js" \
+              && grep -Fq 'periodAllocationCount' <<<"$app_js" \
+              && grep -Fq 'Распределение периодов' <<<"$app_js" \
+              && grep -Fq 'findBudgetMediaHeader' <<<"$production_js" \
+              && grep -Fq 'periodMonths' <<<"$production_js" \
+              && grep -Fq 'signedAmount' <<<"$production_js" \
+              && grep -Fq '2-periods-tech' <<<"$production_js" \
               && grep -Fq 'extractTechnicalSummaryCosts' <<<"$production_js" \
               && grep -Fq 'function buyingModel' <<<"$production_js" \
               && grep -Fq 'Исключения ·' <<<"$app_js" \
