@@ -34,7 +34,8 @@ const flight2 = {
   Q27:c(60), U27:c(462834.49147), AA27:c(0.001), AE27:c(0.7),
 
   C28:c('Social nets, СРС Герметики'),
-  C29:c(5), E29:c('VK'), F29:c('Ж 18-29'), G29:c('Social'), H29:c('-'), I29:c('1000 imp.'), K29:c('November'), U29:c(1007200)
+  C29:c(5), E29:c('VK'), F29:c('Ж 18-29'), G29:c('Social'), H29:c('-'), I29:c('1000 imp.'), K29:c('November'), U29:c(1007200),
+  A30:c('Пиксель TNS'), B30:c(93653.99)
 };
 
 const summary = {
@@ -114,5 +115,7 @@ assert(bannerNov&&Math.abs(bannerNov.amount-300000)<0.001,'banner November budge
 assert(!extracted.issues.some(x=>x.code==='BUDGET_COLUMN_NOT_FOUND'&&x.sheet==='Mediaplan 2 флайт'),'standard LAB flight must expose a budget column');
 const socialCpcNov=extracted.placements.find(x=>x.sheet==='Mediaplan 2 флайт'&&x.channelKey==='social cpc'&&x.month===10);
 assert(socialCpcNov&&Math.abs(socialCpcNov.amount-1007200)<0.001,'mixed Cyrillic/Latin СРС must normalize to social cpc');
+const tns=extracted.technicalCosts.find(x=>x.kind==='tns');
+assert(tns&&Math.abs(tns.amount-93653.99)<0.001&&tns.sourceCell==='B30','TNS technical cost must be extracted from the flight summary');
 
 console.log('production Taft reliability tests passed',r.counts,'issues',r.issues.length);

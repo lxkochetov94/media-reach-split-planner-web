@@ -388,6 +388,33 @@
     if(mediaCost==null) mediaCost=headerCol(h,/total cost after discount|media net|budget|бюджет/iu);
     return {finalCost,mediaCost,adservingCost,auxiliary};
   }
+  function technicalCostKind(raw) {
+    const s=norm(raw);
+    if(/(?:^|\s)tns(?:\s|$)|пиксел.*tns|сч[её]тчик.*tns/iu.test(s)) return {kind:'tns',label:'Счётчик TNS'};
+    return null;
+  }
+  function extractTechnicalSummaryCosts(workbook) {
+    const out=[],seen=new Set();
+    for(const sheet of workbook.SheetNames||[]) {
+      const ws=workbook.Sheets&&workbook.Sheets[sheet]; if(!ws) continue;
+      const es=entries(ws),maxC=es.reduce((m,e)=>Math.max(m,e.pos.c),0);
+      for(const e of es) {
+        const raw=rawText(e.cell).trim(), kind=technicalCostKind(raw);
+        if(!kind) continue;
+        let value=null,valueCol=null;
+        for(let c=e.pos.c+1;c<=Math.min(maxC,e.pos.c+12);c++) {
+          const n=numericBudgetCell(ws[core.encodeCell(e.pos.r,c)]);
+          if(n!=null&&Math.abs(n)>0.000001){value=n;valueCol=c;break;}
+        }
+        if(value==null) continue;
+        const key=[sheet,e.pos.r,kind.kind].join('|');
+        if(seen.has(key)) continue;
+        seen.add(key);
+        out.push({sheet,row:e.pos.r+1,kind:kind.kind,label:kind.label,rawLabel:raw,amount:value,sourceCell:core.encodeCell(e.pos.r,valueCol)});
+      }
+    }
+    return out;
+  }
   function extractBudgetPlacements(workbook) {
     const placements=[],auxCosts=[],issues=[],detectedSheets=[];
     for(const sheet of workbook.SheetNames||[]) {
@@ -421,7 +448,8 @@
         }
       }
     }
-    return {placements,auxCosts,issues,detectedSheets};
+    const technicalCosts=extractTechnicalSummaryCosts(workbook);
+    return {placements,auxCosts,technicalCosts,issues,detectedSheets};
   }
 
   function refineFormulaRefText(issues) {
