@@ -59,10 +59,12 @@ jobs:
           python scripts/patch_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_channel_matching_fix.py budget-checker/src/app.js
           python scripts/patch_budget_exclusions_social_fix.py budget-checker/src/app.js budget-checker/src/excel.js budget-checker/styles.css
+          python scripts/patch_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           python scripts/check_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js mediaplan-checker/production-rules.js
           node scripts/test_budget_channel_matching.js budget-checker/src/app.js
           python scripts/check_budget_exclusions_social.py budget-checker/src/app.js budget-checker/src/excel.js budget-checker/styles.css
           node scripts/test_budget_exclusions_social.js budget-checker/src/app.js
+          python scripts/check_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           node mediaplan-checker/tests/production-rules.test.js
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
@@ -142,6 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://lxkochetov94.github.io/media-reach-split-planner-web/budget-checker"
+          BUILD_TAG="${GITHUB_SHA::12}"
           ok=0
           for attempt in {1..12}; do
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
@@ -151,6 +154,10 @@ jobs:
             excel_js="$(curl -fsSL --max-time 20 "$BASE/src/excel.js" || true)"
             production_js="$(curl -fsSL --max-time 20 "https://lxkochetov94.github.io/media-reach-split-planner-web/mediaplan-checker/production-rules.js" || true)"
             if grep -Fq '<title>Контроль бюджетов</title>' <<<"$body" \
+              && grep -Fq "src/app.js?v=$BUILD_TAG" <<<"$body" \
+              && grep -Fq "src/excel.js?v=$BUILD_TAG" <<<"$body" \
+              && grep -Fq "styles.css?v=$BUILD_TAG" <<<"$body" \
+              && grep -Fq "../mediaplan-checker/production-rules.js?v=$BUILD_TAG" <<<"$body" \
               && grep -Fq 'ANNUAL_ADJUSTMENT' <<<"$core_js" \
               && grep -Fq 'HEADER_MONTH_ALIASES' <<<"$app_js" \
               && grep -Fq 'guessDataStartRow' <<<"$app_js" \
