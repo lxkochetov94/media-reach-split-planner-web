@@ -33,7 +33,7 @@ for marker in [
 for marker in [
     'function extractBudgetPlacements',
     'core.extractBudgetPlacements=extractBudgetPlacements',
-    "__labBudgetExtractorVersion='1'",
+    "__labBudgetExtractorVersion='2-periods-tech'",
     'total cost after discount',
     'total cost \\+ adserving',
 ]:
