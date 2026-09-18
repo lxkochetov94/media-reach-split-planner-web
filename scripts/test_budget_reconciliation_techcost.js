@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm');
 const app=fs.readFileSync(process.argv[2]||'budget-checker/src/app.js','utf8');
-function extract(name){const start=app.indexOf('function '+name+'(');if(start<0)throw new Error('missing '+name);let i=app.indexOf('{',start),d=0,q=null,esc=false;for(;i<app.length;i++){const ch=app[i];if(q){if(esc)esc=false;else if(ch==='\\')esc=true;else if(ch===q)q=null;continue;}if(ch==="'"||ch==='"'||ch==='\`'){q=ch;continue;}if(ch==='{')d++;else if(ch==='}'&&--d===0){i++;break;}}return app.slice(start,i)}
+function extract(name){const start=app.indexOf('function '+name+'(');if(start<0)throw new Error('missing '+name);let i=app.indexOf('{',start),d=0;for(;i<app.length;i++){if(app[i]==='{')d++;else if(app[i]==='}'&&--d===0){i++;break;}}return app.slice(start,i)}
 const names=['mpNorm','mpBuyingModel','mpCanonicalChannelKey','mpChannelFamily','mpTokenScore','mpDeterministicChannelTarget','mpMatchChannel','mpPlacementTarget','mpAuxChannel','mpAggregateExternal','mpExclusionReasonLabel','mpExclusionKey','mpProjectExclusions','mpFindExclusion','mpIsAuxName','mpTechnicalCostGroups','mpCompare'];
 const state={project:{mediaPlanExclusions:[]}},C={MONTHS:['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']};
 const money=k=>(Number(k||0)/100).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:2})+' ₽';
