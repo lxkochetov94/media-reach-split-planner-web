@@ -336,6 +336,90 @@
     }
   }
 
+  function budgetMonthIndex(value) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getMonth();
+    const s=norm(value).replace(/\\.$/,'');
+    const map={
+      january:0,jan:0,'январь':0,'янв':0,'1':0,'01':0,
+      february:1,feb:1,'февраль':1,'фев':1,'2':1,'02':1,
+      march:2,mar:2,'март':2,'мар':2,'3':2,'03':2,
+      april:3,apr:3,'апрель':3,'апр':3,'4':3,'04':3,
+      may:4,'май':4,'5':4,'05':4,
+      june:5,jun:5,'июнь':5,'июн':5,'6':5,'06':5,
+      july:6,jul:6,'июль':6,'июл':6,'7':6,'07':6,
+      august:7,aug:7,'август':7,'авг':7,'8':7,'08':7,
+      september:8,sep:8,sept:8,'сентябрь':8,'сен':8,'сент':8,'9':8,'09':8,
+      october:9,oct:9,'октябрь':9,'окт':9,'10':9,
+      november:10,nov:10,'ноябрь':10,'ноя':10,'11':10,
+      december:11,dec:11,'декабрь':11,'дек':11,'12':11
+    };
+    if (Object.prototype.hasOwnProperty.call(map,s)) return map[s];
+    const m=s.match(/^(?:0?([1-9])|1([0-2]))[.\\/-]/u);
+    if(m) return Number(m[1]||m[2])-1;
+    return -1;
+  }
+  function numericBudgetCell(cell) {
+    if(!cell) return null;
+    if(typeof cell.v==='number'&&Number.isFinite(cell.v)) return Number(cell.v);
+    const raw=String(cell.w!=null?cell.w:(cell.v!=null?cell.v:'')).replace(/\\u00a0/g,' ').replace(/\\s+/g,'').replace(/,/g,'.').replace(/[^0-9.+-]/g,'');
+    if(!raw) return null;
+    const n=Number(raw); return Number.isFinite(n)?n:null;
+  }
+  function budgetHeaderColumns(ws,h) {
+    const maxC=Math.min(220,Math.max(h.month+1,...entries(ws).map(e=>e.pos.c)));
+    let finalCost=null,mediaCost=null,adservingCost=null;
+    const auxiliary=[];
+    for(let c=0;c<=maxC;c++) {
+      const label=headerText(ws,h,c);
+      if(!label) continue;
+      if(finalCost==null&&/(total cost\\s*\\+\\s*adserv|total cost.*incl.*adserv|итого.*(?:адсерв|adserv))/iu.test(label)) finalCost=c;
+      if(mediaCost==null&&/(total cost after discount|media net|budget net|бюджет.*(?:net|нетто)|стоимость.*после.*скид)/iu.test(label)) mediaCost=c;
+      if(adservingCost==null&&/(adserving.*total cost|total cost.*adserving|стоимость.*адсерв)/iu.test(label)) adservingCost=c;
+      let kind='';
+      if(/verification|верификац|brand safety|viewability/iu.test(label)) kind='verification';
+      else if(/support|сопровожд|monitoring|мониторинг/iu.test(label)) kind='support';
+      if(kind&&!auxiliary.some(x=>x.c===c)) auxiliary.push({c,kind,label});
+    }
+    if(finalCost==null) finalCost=headerCol(h,/total cost \\+ adserving|total cost.*adserv/iu);
+    if(mediaCost==null) mediaCost=headerCol(h,/total cost after discount|media net|budget|бюджет/iu);
+    return {finalCost,mediaCost,adservingCost,auxiliary};
+  }
+  function extractBudgetPlacements(workbook) {
+    const placements=[],auxCosts=[],issues=[],detectedSheets=[];
+    for(const sheet of workbook.SheetNames||[]) {
+      const ws=workbook.Sheets&&workbook.Sheets[sheet]; if(!ws) continue;
+      const h=findMediaHeader(ws); if(!h) continue;
+      const cols=budgetHeaderColumns(ws,h), rows=placementRows(ws,h);
+      if(!rows.length) continue;
+      if(cols.finalCost==null&&cols.mediaCost==null) {
+        issues.push({code:'BUDGET_COLUMN_NOT_FOUND',sheet,message:'Найдена таблица размещений, но не найдена колонка итоговой стоимости.'});
+        continue;
+      }
+      detectedSheets.push(sheet);
+      for(const r of rows) {
+        const monthRaw=rawText(cellAt(ws,r,h.month)).trim();
+        const month=budgetMonthIndex(monthRaw);
+        if(month<0) { issues.push({code:'MONTH_NOT_RECOGNIZED',sheet,row:r,value:monthRaw,message:'Не удалось определить месяц строки размещения.'}); continue; }
+        const section=sectionAt(ws,h,r).trim(), site=rawText(cellAt(ws,r,h.site)).trim();
+        const finalCell=cols.finalCost!=null?cellAt(ws,r,cols.finalCost):null;
+        const mediaCell=cols.mediaCost!=null?cellAt(ws,r,cols.mediaCost):null;
+        const adCell=cols.adservingCost!=null?cellAt(ws,r,cols.adservingCost):null;
+        const finalValue=numericBudgetCell(finalCell), mediaValue=numericBudgetCell(mediaCell), adValue=numericBudgetCell(adCell);
+        let amount=finalValue;
+        if(amount==null&&mediaValue!=null) amount=mediaValue+(adValue||0);
+        if(amount!=null&&Math.abs(amount)>0.000001) placements.push({
+          sheet,row:r,month,monthRaw,section,channelKey:categoryKey(section)||'',site,amount,
+          mediaCost:mediaValue,adservingCost:adValue,sourceCell:cols.finalCost!=null?colName(cols.finalCost)+r:colName(cols.mediaCost)+r
+        });
+        for(const a of cols.auxiliary) {
+          const value=numericBudgetCell(cellAt(ws,r,a.c));
+          if(value!=null&&Math.abs(value)>0.000001) auxCosts.push({sheet,row:r,month,monthRaw,section,site,kind:a.kind,label:a.label,amount:value,sourceCell:colName(a.c)+r});
+        }
+      }
+    }
+    return {placements,auxCosts,issues,detectedSheets};
+  }
+
   function refineFormulaRefText(issues) {
     for(const x of issues||[]) {
       if(x.type!=='Формула Excel'||!/#REF!/iu.test(String(x.value||''))) continue;
@@ -353,6 +437,9 @@
     result.status=result.issues.length?'Нужно исправить':'Можно отправлять клиенту';
     return result;
   }
+
+  core.extractBudgetPlacements=extractBudgetPlacements;
+  core.__labBudgetExtractorVersion='1';
 
   core.runAllChecks=function(workbook,options){
     const result=originalRun(workbook,options||{});

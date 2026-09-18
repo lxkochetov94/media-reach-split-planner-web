@@ -56,6 +56,9 @@ jobs:
           python scripts/check_budget_workspace_v2.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_workspace_v3.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/check_budget_workspace_v3.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/patch_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js budget-checker/styles.css
+          python scripts/check_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js mediaplan-checker/production-rules.js
+          node mediaplan-checker/tests/production-rules.test.js
           node --check budget-checker/src/app.js
           grep -Fq 'HEADER_MONTH_ALIASES' budget-checker/src/app.js
           grep -Fq 'guessDataStartRow' budget-checker/src/app.js
@@ -79,6 +82,9 @@ jobs:
           grep -Fq 'Budget workspace UX v3' budget-checker/src/app.js
           grep -Fq 'budgetSeedInitialCollapse' budget-checker/src/app.js
           grep -Fq 'budgetDraftStructuralFilters' budget-checker/src/app.js
+          grep -Fq 'LAB mediaplan checker reuse v1' budget-checker/src/app.js
+          grep -Fq 'extractBudgetPlacements' mediaplan-checker/production-rules.js
+          grep -Fq '../mediaplan-checker/production-rules.js' budget-checker/index.html
           ! grep -Fq "['change','Внести изменение']" budget-checker/src/app.js
           ! grep -Fq "['redistribute','Перераспределить бюджет']" budget-checker/src/app.js
           ! grep -Fq "['flowchart','Сверить флоучарт']" budget-checker/src/app.js
@@ -109,8 +115,10 @@ jobs:
           for attempt in {1..12}; do
             body="$(curl -fsSL --max-time 20 "$BASE/" || true)"
             app_js="$(curl -fsSL --max-time 20 "$BASE/app.js?v=20260916-6" || true)"
+            production_js="$(curl -fsSL --max-time 20 "$BASE/production-rules.js" || true)"
             if grep -Fq '<title>Проверка медиаплана</title>' <<<"$body" \
               && grep -Fq 'app.js?v=20260916-6' <<<"$body" \
+              && grep -Fq 'extractBudgetPlacements' <<<"$production_js" \
               && ! grep -Fq 'introText' <<<"$app_js"; then
               ok=1
               break
@@ -130,6 +138,7 @@ jobs:
             app_js="$(curl -fsSL --max-time 20 "$BASE/src/app.js" || true)"
             core_js="$(curl -fsSL --max-time 20 "$BASE/src/core.js" || true)"
             css="$(curl -fsSL --max-time 20 "$BASE/styles.css" || true)"
+            production_js="$(curl -fsSL --max-time 20 "https://lxkochetov94.github.io/media-reach-split-planner-web/mediaplan-checker/production-rules.js" || true)"
             if grep -Fq '<title>Контроль бюджетов</title>' <<<"$body" \
               && grep -Fq 'ANNUAL_ADJUSTMENT' <<<"$core_js" \
               && grep -Fq 'HEADER_MONTH_ALIASES' <<<"$app_js" \
@@ -152,6 +161,9 @@ jobs:
               && grep -Fq 'Budget workspace UX v3' <<<"$app_js" \
               && grep -Fq 'budgetSeedInitialCollapse' <<<"$app_js" \
               && grep -Fq 'budgetDraftStructuralFilters' <<<"$app_js" \
+              && grep -Fq 'LAB mediaplan checker reuse v1' <<<"$app_js" \
+              && grep -Fq '../mediaplan-checker/production-rules.js' <<<"$body" \
+              && grep -Fq 'extractBudgetPlacements' <<<"$production_js" \
               && ! grep -Fq "['change','Внести изменение']" <<<"$app_js" \
               && ! grep -Fq "['redistribute','Перераспределить бюджет']" <<<"$app_js" \
               && ! grep -Fq "['flowchart','Сверить флоучарт']" <<<"$app_js" \
