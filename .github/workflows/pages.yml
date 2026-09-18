@@ -64,6 +64,7 @@ jobs:
           python scripts/patch_budget_rounding_reconciliation.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_export_layout_runtime_fix.py budget-checker/src/app.js
           python scripts/patch_budget_rounding_display_raw.py budget-checker/src/app.js
+          python scripts/patch_budget_explained_section_fonts.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           python scripts/check_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js mediaplan-checker/production-rules.js
           node scripts/test_budget_channel_matching.js budget-checker/src/app.js
@@ -78,6 +79,8 @@ jobs:
           node scripts/test_budget_export_layout_runtime_fix.js budget-checker/src/app.js
           python scripts/check_budget_rounding_display_raw.py budget-checker/src/app.js
           node scripts/test_budget_rounding_display_raw.js budget-checker/src/app.js
+          python scripts/check_budget_explained_section_fonts.py budget-checker/src/app.js budget-checker/styles.css
+          node scripts/test_budget_explained_section_fonts.js budget-checker/src/app.js budget-checker/styles.css
           python scripts/check_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           node mediaplan-checker/tests/production-rules.test.js
           node --check budget-checker/src/app.js
@@ -120,6 +123,10 @@ jobs:
           grep -Fq 'mpApplyExportLayout' budget-checker/src/app.js
           grep -Fq 'Show raw rounding difference v1' budget-checker/src/app.js
           grep -Fq 'displayDifference=result.overallRoundingOnly' budget-checker/src/app.js
+          grep -Fq 'Explained reconciliation section + uniform weights v1' budget-checker/src/app.js
+          grep -Fq 'Объяснённые различия ·' budget-checker/src/app.js
+          grep -Fq 'Расхождений, требующих проверки, нет' budget-checker/src/app.js
+          grep -Fq 'mp-explained-section' budget-checker/styles.css
           grep -Fq 'mp-source-details' budget-checker/styles.css
           grep -Fq 'extractTechnicalSummaryCosts' mediaplan-checker/production-rules.js
           grep -Fq 'function buyingModel' mediaplan-checker/production-rules.js
@@ -226,6 +233,10 @@ jobs:
               && grep -Fq 'mpApplyExportLayout' <<<"$app_js" \
               && grep -Fq 'Show raw rounding difference v1' <<<"$app_js" \
               && grep -Fq 'displayDifference=result.overallRoundingOnly' <<<"$app_js" \
+              && grep -Fq 'Explained reconciliation section + uniform weights v1' <<<"$app_js" \
+              && grep -Fq 'Объяснённые различия ·' <<<"$app_js" \
+              && grep -Fq 'Расхождений, требующих проверки, нет' <<<"$app_js" \
+              && grep -Fq 'mp-explained-section' <<<"$css" \
               && grep -Fq 'mp-source-details' <<<"$css" \
               && grep -Fq 'extractTechnicalSummaryCosts' <<<"$production_js" \
               && grep -Fq 'function buyingModel' <<<"$production_js" \
