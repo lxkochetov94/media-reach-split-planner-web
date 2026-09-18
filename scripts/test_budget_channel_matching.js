@@ -6,7 +6,7 @@ function extract(name){
   for(;i<app.length;i++){if(app[i]==='{')depth++;else if(app[i]==='}'&&--depth===0){i++;break;}}
   return app.slice(start,i);
 }
-const names=['mpNorm','mpCanonicalChannelKey','mpChannelFamily','mpTokenScore','mpMatchChannel','mpAuxChannel','mpAggregateExternal'];
+const names=['mpNorm','mpBuyingModel','mpCanonicalChannelKey','mpChannelFamily','mpTokenScore','mpDeterministicChannelTarget','mpMatchChannel','mpPlacementTarget','mpAuxChannel','mpAggregateExternal'];
 const sandbox={};vm.createContext(sandbox);vm.runInContext(names.map(extract).join('\n')+'\nthis.api={mpMatchChannel,mpAggregateExternal};',sandbox);
 const api=sandbox.api;
 const channels=[
