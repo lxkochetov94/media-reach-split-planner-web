@@ -100,4 +100,14 @@ assert(!/AA27|AE27/.test(pair.cell), 'manual CTR/VTR inputs must not be treated 
 // Control sheet must not say Fixed while referenced formulas still contain #REF.
 assert(r.issues.some(x=>x.type==='Контрольный лист / статус' && x.sheet==='Проверка 11.08' && x.cell==='B2'), 'control sheet status contradiction must be shown');
 
+
+// Budget Checker reuses the production LAB table parser instead of maintaining a second parser.
+const extracted=core.extractBudgetPlacements(wb);
+assert(extracted.detectedSheets.includes('Mediaplan 2 флайт'),'flight sheet must be detected for budget extraction');
+const olvNov=extracted.placements.find(x=>x.sheet==='Mediaplan 2 флайт'&&x.channelKey==='olv'&&x.month===10);
+assert(olvNov&&Math.abs(olvNov.amount-319534.11)<0.001,'OLV November budget must come from the LAB placement table');
+const bannerNov=extracted.placements.find(x=>x.sheet==='Mediaplan 2 флайт'&&x.channelKey==='banners cpm'&&x.month===10);
+assert(bannerNov&&Math.abs(bannerNov.amount-300000)<0.001,'banner November budget must prefer Total cost + adserving when present');
+assert(!extracted.issues.some(x=>x.code==='BUDGET_COLUMN_NOT_FOUND'&&x.sheet==='Mediaplan 2 флайт'),'standard LAB flight must expose a budget column');
+
 console.log('production Taft reliability tests passed',r.counts,'issues',r.issues.length);
