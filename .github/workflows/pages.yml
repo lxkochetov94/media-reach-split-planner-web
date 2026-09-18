@@ -62,6 +62,7 @@ jobs:
           python scripts/patch_budget_channel_aliases_v3.py budget-checker/src/app.js
           python scripts/patch_budget_reconciliation_ux_techcost.py budget-checker/src/app.js budget-checker/styles.css
           python scripts/patch_budget_rounding_reconciliation.py budget-checker/src/app.js budget-checker/styles.css
+          python scripts/patch_budget_export_layout_runtime_fix.py budget-checker/src/app.js
           python scripts/patch_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           python scripts/check_budget_mediaplan_reuse.py budget-checker/index.html budget-checker/src/app.js mediaplan-checker/production-rules.js
           node scripts/test_budget_channel_matching.js budget-checker/src/app.js
@@ -72,6 +73,8 @@ jobs:
           node scripts/test_budget_reconciliation_techcost.js budget-checker/src/app.js
           python scripts/check_budget_rounding_reconciliation.py budget-checker/src/app.js budget-checker/styles.css
           node scripts/test_budget_rounding_reconciliation.js budget-checker/src/app.js
+          python scripts/check_budget_export_layout_runtime_fix.py budget-checker/src/app.js
+          node scripts/test_budget_export_layout_runtime_fix.js budget-checker/src/app.js
           python scripts/check_budget_asset_versions.py budget-checker/index.html "${GITHUB_SHA::12}"
           node mediaplan-checker/tests/production-rules.test.js
           node --check budget-checker/src/app.js
@@ -109,6 +112,9 @@ jobs:
           grep -Fq 'Rounding-aware reconciliation v1' budget-checker/src/app.js
           grep -Fq 'Совпадает после округления' budget-checker/src/app.js
           grep -Fq 'mpSameAfterRubleRounding' budget-checker/src/app.js
+          grep -Fq 'Export layout reference + tech runtime fix v1' budget-checker/src/app.js
+          grep -Fq 'tech=result.technicalCosts||[]' budget-checker/src/app.js
+          grep -Fq 'mpApplyExportLayout' budget-checker/src/app.js
           grep -Fq 'mp-source-details' budget-checker/styles.css
           grep -Fq 'extractTechnicalSummaryCosts' mediaplan-checker/production-rules.js
           grep -Fq 'function buyingModel' mediaplan-checker/production-rules.js
@@ -210,6 +216,9 @@ jobs:
               && grep -Fq 'Rounding-aware reconciliation v1' <<<"$app_js" \
               && grep -Fq 'Совпадает после округления' <<<"$app_js" \
               && grep -Fq 'mpSameAfterRubleRounding' <<<"$app_js" \
+              && grep -Fq 'Export layout reference + tech runtime fix v1' <<<"$app_js" \
+              && grep -Fq 'tech=result.technicalCosts||[]' <<<"$app_js" \
+              && grep -Fq 'mpApplyExportLayout' <<<"$app_js" \
               && grep -Fq 'mp-source-details' <<<"$css" \
               && grep -Fq 'extractTechnicalSummaryCosts' <<<"$production_js" \
               && grep -Fq 'function buyingModel' <<<"$production_js" \
