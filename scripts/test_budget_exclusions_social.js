@@ -1,7 +1,7 @@
 const fs=require('fs'),vm=require('vm');
 const app=fs.readFileSync(process.argv[2]||'budget-checker/src/app.js','utf8');
 function extract(name){const start=app.indexOf(`function ${name}(`);if(start<0)throw new Error('missing '+name);let i=app.indexOf('{',start),d=0;for(;i<app.length;i++){if(app[i]==='{')d++;else if(app[i]==='}'&&--d===0){i++;break;}}return app.slice(start,i)}
-const names=['mpNorm','mpBuyingModel','mpCanonicalChannelKey','mpChannelFamily','mpTokenScore','mpDeterministicChannelTarget','mpMatchChannel','mpPlacementTarget','mpAuxChannel','mpAggregateExternal','mpExclusionReasonLabel','mpExclusionKey','mpProjectExclusions','mpFindExclusion','mpIsAuxName','mpCompare'];
+const names=['mpNorm','mpBuyingModel','mpCanonicalChannelKey','mpChannelFamily','mpTokenScore','mpDeterministicChannelTarget','mpMatchChannel','mpPlacementTarget','mpAuxChannel','mpAggregateExternal','mpExclusionReasonLabel','mpExclusionKey','mpProjectExclusions','mpFindExclusion','mpIsAuxName','mpTechnicalCostGroups','mpCompare'];
 const state={project:{mediaPlanExclusions:[]}};const C={MONTHS:['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']};
 const sandbox={state,C,console};vm.createContext(sandbox);vm.runInContext(names.map(extract).join('\n')+'\nthis.api={mpCanonicalChannelKey,mpMatchChannel,mpCompare};',sandbox);
 const ctx={brand:'МОМЕНТ',division:'LAB КЛЕЕВЫЕ',channels:[
