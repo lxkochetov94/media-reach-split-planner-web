@@ -129,7 +129,6 @@ jobs:
             if grep -Fq '<title>Проверка медиаплана</title>' <<<"$body" \
               && grep -Fq 'app.js?v=20260916-6' <<<"$body" \
               && grep -Fq 'extractBudgetPlacements' <<<"$production_js" \
-              && grep -Fq 'mediaPlanExclusionsJson' <<<"$excel_js" \
               && ! grep -Fq 'introText' <<<"$app_js"; then
               ok=1
               break
@@ -180,6 +179,7 @@ jobs:
               && grep -Fq 'Исключения ·' <<<"$app_js" \
               && grep -Fq '../mediaplan-checker/production-rules.js' <<<"$body" \
               && grep -Fq 'extractBudgetPlacements' <<<"$production_js" \
+              && grep -Fq 'mediaPlanExclusionsJson' <<<"$excel_js" \
               && ! grep -Fq "['change','Внести изменение']" <<<"$app_js" \
               && ! grep -Fq "['redistribute','Перераспределить бюджет']" <<<"$app_js" \
               && ! grep -Fq "['flowchart','Сверить флоучарт']" <<<"$app_js" \
