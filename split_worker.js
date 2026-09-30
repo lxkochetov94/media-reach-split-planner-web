@@ -11,9 +11,26 @@ function jsonResult(raw){ return typeof raw === 'string' ? JSON.parse(raw) : raw
 
 async function init(payload){
   if(ready) return;
-  progress('Запускаю отдельное ядро Сплитов…');
-  importScripts(payload.pyodideUrl + 'pyodide.js');
-  pyodide = await loadPyodide({indexURL: payload.pyodideUrl});
+  progress('Запускаю отдельное ядро расчётов…');
+  const candidates = [
+    payload.pyodideUrl,
+    'https://cdn.jsdelivr.net/npm/pyodide@314.0.6/'
+  ].filter(Boolean);
+  let loadedUrl = null;
+  let lastError = null;
+  for(const base of [...new Set(candidates)]){
+    try{
+      importScripts(base + 'pyodide.js');
+      loadedUrl = base;
+      break;
+    }catch(err){
+      lastError = err;
+    }
+  }
+  if(!loadedUrl || typeof loadPyodide !== 'function'){
+    throw new Error('Не удалось загрузить бесплатное ядро Pyodide из CDN. '+(lastError?.message||''));
+  }
+  pyodide = await loadPyodide({indexURL: loadedUrl});
   try{ pyodide.FS.mkdir('/app'); }catch(e){}
   const assets = payload.assets || {};
   for(const [name, text] of Object.entries(assets)){
@@ -21,39 +38,31 @@ async function init(payload){
   }
   pyodide.runPython("import sys; sys.path.insert(0,'/app'); import web_api");
   ready = true;
-  progress('Отдельное ядро Сплитов готово');
+  progress('Отдельное ядро расчётов готово');
 }
 
 async function openFile(payload){
   if(!ready) throw new Error('Ядро Сплитов не готово');
-  progress('Читаю структуру Excel…');
+  progress('Загружаю Excel в отдельный поток…');
   const ext = payload.ext === 'xlsm' ? 'xlsm' : 'xlsx';
   splitPath = '/tmp/split_media_plan.' + ext;
   try{ pyodide.FS.unlink(splitPath); }catch(e){}
   pyodide.FS.writeFile(splitPath, new Uint8Array(payload.buffer));
   splitCache.clear();
-  const raw = (() => {
-    pyodide.globals.set('p', splitPath);
-    return pyodide.runPython('web_api.discover(p)');
-  })();
-  progress('Структура медиаплана распознана');
-  return jsonResult(raw);
+  progress('Excel загружен');
+  return {ok:true};
 }
 
-async function loadSplits(payload){
+async function loadSplits(){
   if(!ready || !splitPath) throw new Error('Сначала загрузите файл для Сплитов');
-  const sheets = payload.sheets || [];
-  const groups = payload.sheetGroups || [];
-  const cacheKey = JSON.stringify([sheets, groups]);
+  const cacheKey = 'whole-workbook';
   if(splitCache.has(cacheKey)){
     progress('Использую уже рассчитанный Сплит');
     return splitCache.get(cacheKey);
   }
-  progress('Распознаю размещения и помесячные бюджеты…');
+  progress('Распознаю весь сводник: размещения и помесячные бюджеты…');
   pyodide.globals.set('p', splitPath);
-  pyodide.globals.set('s', JSON.stringify(sheets));
-  pyodide.globals.set('g', JSON.stringify(groups));
-  const raw = pyodide.runPython('web_api.load_splits(p,s,g)');
+  const raw = pyodide.runPython('web_api.load_splits(p)');
   const data = jsonResult(raw);
   splitCache.set(cacheKey, data);
   progress('Проверяю контрольные суммы…');
