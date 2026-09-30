@@ -27,6 +27,7 @@ syntax-python:
 
 syntax-js:
 	node --check reach_v16.js
+	node --check split_worker.js
 
 test-legacy:
 	PYTHONPATH=.debug_sources:. $(PYTHON) -m unittest -v \
