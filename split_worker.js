@@ -12,25 +12,13 @@ function jsonResult(raw){ return typeof raw === 'string' ? JSON.parse(raw) : raw
 async function init(payload){
   if(ready) return;
   progress('Запускаю отдельное ядро расчётов…');
-  const candidates = [
-    payload.pyodideUrl,
-    'https://cdn.jsdelivr.net/npm/pyodide@314.0.6/'
-  ].filter(Boolean);
-  let loadedUrl = null;
-  let lastError = null;
-  for(const base of [...new Set(candidates)]){
-    try{
-      importScripts(base + 'pyodide.js');
-      loadedUrl = base;
-      break;
-    }catch(err){
-      lastError = err;
-    }
+  if(typeof loadPyodide !== 'function'){
+    const source = String(payload.pyodideLoaderText || '');
+    if(!source) throw new Error('Не получен локальный загрузчик Pyodide');
+    (0, eval)(source);
   }
-  if(!loadedUrl || typeof loadPyodide !== 'function'){
-    throw new Error('Не удалось загрузить бесплатное ядро Pyodide из CDN. '+(lastError?.message||''));
-  }
-  pyodide = await loadPyodide({indexURL: loadedUrl});
+  if(typeof loadPyodide !== 'function') throw new Error('Загрузчик Pyodide не инициализирован');
+  pyodide = await loadPyodide({indexURL: payload.pyodideUrl});
   try{ pyodide.FS.mkdir('/app'); }catch(e){}
   const assets = payload.assets || {};
   for(const [name, text] of Object.entries(assets)){
