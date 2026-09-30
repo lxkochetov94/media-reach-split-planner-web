@@ -12,13 +12,25 @@ function jsonResult(raw){ return typeof raw === 'string' ? JSON.parse(raw) : raw
 async function init(payload){
   if(ready) return;
   progress('Запускаю отдельное ядро расчётов…');
-  if(typeof loadPyodide !== 'function'){
-    const source = String(payload.pyodideLoaderText || '');
-    if(!source) throw new Error('Не получен локальный загрузчик Pyodide');
-    (0, eval)(source);
+  const candidates = [
+    payload.pyodideModuleUrl,
+    'https://cdn.jsdelivr.net/npm/pyodide@314.0.6/pyodide.mjs'
+  ].filter(Boolean);
+  let mod = null;
+  let lastError = null;
+  for(const url of [...new Set(candidates)]){
+    try{
+      mod = await import(url);
+      if(mod?.loadPyodide) break;
+    }catch(err){
+      lastError = err;
+      mod = null;
+    }
   }
-  if(typeof loadPyodide !== 'function') throw new Error('Загрузчик Pyodide не инициализирован');
-  pyodide = await loadPyodide({indexURL: payload.pyodideUrl});
+  if(!mod?.loadPyodide){
+    throw new Error('Не удалось загрузить модуль Pyodide. '+(lastError?.message||''));
+  }
+  pyodide = await mod.loadPyodide({indexURL: payload.pyodideUrl});
   try{ pyodide.FS.mkdir('/app'); }catch(e){}
   const assets = payload.assets || {};
   for(const [name, text] of Object.entries(assets)){
