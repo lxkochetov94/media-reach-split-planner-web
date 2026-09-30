@@ -231,6 +231,8 @@ async function gunzipB64(s){const bin=atob(s);const bytes=new Uint8Array(bin.len
 async function embeddedText(name){const b64=window.MRP_ASSETS[name];if(!b64)throw new Error('Нет встроенного модуля '+name);return new TextDecoder().decode(await gunzipB64(b64))}
 let pyodide=null, coreReady=false, currentFile=null, planData=null, calcData=null, groupsData=null, intersectionInitialized=false, multiReachMeta=null, multiReachData=null, multiReachSeq=0, reachInitialLabels=null, grandUniverseManual=false;
 let splitFile=null, splitGroupsData=null, splitData=null, splitLoadSeq=0;
+let splitWorker=null, splitWorkerReady=null, splitWorkerReq=0;
+const splitWorkerPending=new Map();
 const PYODIDE_URL='https://cdn.jsdelivr.net/pyodide/v314.0.6/full/';
 const $=id=>document.getElementById(id);
 const colors={OLV:'#356f9f',Banners:'#b24343','Social Nets':'#d5a322',Native:'#7b6aa6',Programmatic:'#6c8f67',Perfomance:'#4e7a8e',ORM:'#8b5e83','Статьи':'#7b6aa6','E-com':'#6f7c88',Services:'#8293a0',Other:'#8293a0'};
@@ -250,7 +252,10 @@ function switchTab(tab){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.id===`tab-${tab}`));
   if(tab==='flow')renderFlow();
-  if(tab==='splits')renderSplits();
+  if(tab==='splits'){
+    renderSplits();
+    ensureSplitWorker().catch(e=>{console.error(e);setStatus('splitStatus','Ошибка отдельного ядра Сплитов: '+esc(e.message),'err')});
+  }
 }
 document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
@@ -280,6 +285,59 @@ splitDz.addEventListener('drop',e=>{if(e.dataTransfer.files[0])openSplitFile(e.d
 splitFi.addEventListener('change',()=>{if(splitFi.files[0])openSplitFile(splitFi.files[0])});
 
 async function pyCall(expr, globals={}){await corePromise;if(!coreReady)throw new Error('Ядро не загружено');for(const [k,v] of Object.entries(globals))pyodide.globals.set(k,v);const raw=pyodide.runPython(expr);return typeof raw==='string'?JSON.parse(raw):raw}
+
+function failSplitWorker(err){
+  const error=err instanceof Error?err:new Error(String(err||'Ошибка отдельного потока Сплитов'));
+  for(const {reject} of splitWorkerPending.values())reject(error);
+  splitWorkerPending.clear();
+  if(splitWorker){try{splitWorker.terminate()}catch(e){}}
+  splitWorker=null;splitWorkerReady=null;
+}
+function ensureSplitWorker(){
+  if(splitWorkerReady)return splitWorkerReady;
+  splitWorkerReady=new Promise((resolve,reject)=>{
+    try{
+      const worker=new Worker('split_worker.js?v=20260930-1');
+      splitWorker=worker;
+      worker.onmessage=(event)=>{
+        const msg=event.data||{};
+        if(msg.type==='progress'){
+          setStatus('splitStatus','<span class="spinner"></span>'+esc(msg.message||'Обрабатываю Сплиты…'));
+          return;
+        }
+        const pending=splitWorkerPending.get(msg.id);
+        if(!pending)return;
+        splitWorkerPending.delete(msg.id);
+        if(msg.type==='error'){
+          const e=new Error(msg.message||'Ошибка отдельного потока Сплитов');
+          e.stack=msg.stack||e.stack;
+          pending.reject(e);
+        }else pending.resolve(msg.result);
+      };
+      worker.onerror=(event)=>{
+        const e=new Error(event.message||'Отдельный поток Сплитов аварийно остановлен');
+        failSplitWorker(e);reject(e);
+      };
+      Promise.all(['engine.py','xlsx_reader.py','splits.py','web_api.py','audiences.json'].map(async name=>[name,await embeddedText(name)]))
+        .then(entries=>{
+          const assets=Object.fromEntries(entries);
+          splitWorkerPending.set(0,{resolve,reject});
+          worker.postMessage({id:0,type:'init',payload:{pyodideUrl:PYODIDE_URL,assets}});
+        })
+        .catch(e=>{failSplitWorker(e);reject(e)});
+    }catch(e){splitWorkerReady=null;reject(e)}
+  });
+  return splitWorkerReady;
+}
+async function splitWorkerCall(type,payload={},transfer=[]){
+  await ensureSplitWorker();
+  const id=++splitWorkerReq;
+  return new Promise((resolve,reject)=>{
+    splitWorkerPending.set(id,{resolve,reject});
+    try{splitWorker.postMessage({id,type,payload},transfer)}
+    catch(e){splitWorkerPending.delete(id);reject(e)}
+  });
+}
 function assertReachInvariant(reach,label,universe=null){
   if(!reach||typeof reach!=='object')return;
   const u=Number(universe),hasU=Number.isFinite(u)&&u>0;
@@ -769,17 +827,17 @@ $('exportFlowPptx').onclick=exportFlowPptx;
 
 async function openSplitFile(file){
   try{
-    setStatus('splitStatus','<span class="spinner"></span>Читаю файл для Сплитов…');
-    await corePromise;if(!coreReady)throw new Error('Ядро не готово');
+    const started=performance.now();
+    setStatus('splitStatus','<span class="spinner"></span>Подготавливаю файл для Сплитов…');
     const ext=(file.name.split('.').pop()||'xlsx').toLowerCase();
-    const path='/tmp/split_media_plan.'+(ext==='xlsm'?'xlsm':'xlsx');
-    const bytes=new Uint8Array(await file.arrayBuffer());pyodide.FS.writeFile(path,bytes);
-    splitFile={file,path,name:file.name};$('splitFileName').textContent=file.name;
-    splitGroupsData=await pyCall('web_api.discover(p)',{p:path});
+    const buffer=await file.arrayBuffer();
+    splitFile={file,name:file.name,ext};$('splitFileName').textContent=file.name;
+    await ensureSplitWorker();
+    splitGroupsData=await splitWorkerCall('open',{ext,buffer},[buffer]);
     if(!splitGroupsData.groups.length)throw new Error('В файле не найден рабочий медиаплан');
     splitData=null;$('exportSplits').disabled=true;
     renderSplitPlanControls(splitGroupsData.groups);renderSplits();
-    await loadSplits();
+    await loadSplits(started);
   }catch(e){
     console.error(e);splitData=null;$('exportSplits').disabled=true;renderSplits();
     setStatus('splitStatus','Ошибка Сплитов: '+esc(e.message),'err');
@@ -804,7 +862,7 @@ function selectedSplitSheets(){
   for(const g of selectedSplitGroups())for(const name of (g.sheet_names||[])){if(!seen.has(name)){seen.add(name);sheets.push(name)}}
   return sheets;
 }
-async function loadSplits(){
+async function loadSplits(startedAt=null){
   if(!splitFile||!splitGroupsData)return;
   const groups=selectedSplitGroups();
   if(!groups.length){
@@ -813,14 +871,14 @@ async function loadSplits(){
     return;
   }
   const seq=++splitLoadSeq;
+  const started=startedAt||performance.now();
   const sheets=selectedSplitSheets(),sheetGroups=groups.map(g=>g.sheet_names||[]);
   $('exportSplits').disabled=true;
-  setStatus('splitStatus','<span class="spinner"></span>Распознаю сплиты…');
-  const data=await pyCall('web_api.load_splits(p,s,g)',{
-    p:splitFile.path,s:JSON.stringify(sheets),g:JSON.stringify(sheetGroups),
-  });
+  setStatus('splitStatus','<span class="spinner"></span>Распознаю сплиты в отдельном потоке…');
+  const data=await splitWorkerCall('load',{sheets,serverGroups:null,sheetGroups});
   if(seq!==splitLoadSeq)return;
   splitData=data;$('exportSplits').disabled=false;renderSplits();
+  const elapsed=((performance.now()-started)/1000).toFixed(1).replace('.',',');
   const fc=splitData.conservation;
   if(fc&&!fc.ok){
     const issues=[];
@@ -829,9 +887,9 @@ async function loadSplits(){
     addDiff('План · строки → Сплиты',fc.records_plan,fc.split_plan);
     addDiff('АК · исходник → распознанные строки',fc.source_ac,fc.records_ac);
     addDiff('АК · строки → Сплиты',fc.records_ac,fc.split_ac);
-    setStatus('splitStatus',`Финансовая ошибка: ${issues.length?issues.join(' · '):'контрольные суммы не сошлись'}. Подробности — в предупреждениях ниже.`,'err');
+    setStatus('splitStatus',`Финансовая ошибка: ${issues.length?issues.join(' · '):'контрольные суммы не сошлись'}. Подробности — в предупреждениях ниже. · ${elapsed} с`,'err');
   }else{
-    setStatus('splitStatus',`✓ ${groups.length} план(а/ов) · ${splitData.rows.length} строк площадка × формат · ${splitData.records} помесячных записей · контроль денег 0,00 ₽`,'ok');
+    setStatus('splitStatus',`✓ ${groups.length} план(а/ов) · ${splitData.rows.length} строк площадка × формат · ${splitData.records} помесячных записей · контроль денег 0,00 ₽ · ${elapsed} с`,'ok');
   }
 }
 $('selectAllSplitPlans').onclick=()=>{
@@ -854,6 +912,17 @@ function renderResearch(){
   h+='</tbody>';table.innerHTML=h;
 }
 function renderSplits(){if(!splitData){$('splitTable').innerHTML='<tbody><tr><td>Выберите медиапланы книги для общего Сплита.</td></tr></tbody>';$('researchBlock').classList.add('hidden');return}const metric=$('splitMetric').value;let h='<thead><tr><th>Площадка</th><th>Формат</th>'+['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'].map(m=>`<th>${m}</th>`).join('')+'<th>Итого</th></tr></thead><tbody>';const mt=Array(12).fill(0),ma=Array(12).fill(false);let grand=0,grandAvail=false;for(const row of splitData.rows){let rt=0,ra=false;h+=`<tr><td>${esc(row.platform)}</td><td>${esc(row.format)}</td>`;for(let m=1;m<=12;m++){const {available,value}=splitCell(row,m,metric);if(available){rt+=value;ra=true;mt[m-1]+=value;ma[m-1]=true;h+=`<td>${full(value)}</td>`}else h+='<td class="na">—</td>'}if(ra){grand+=rt;grandAvail=true;h+=`<td><strong>${full(rt)}</strong></td>`}else h+='<td class="na">—</td>';h+='</tr>'}h+='<tr class="total-row"><td>ИТОГО</td><td></td>'+mt.map((v,i)=>`<td>${ma[i]?full(v):'—'}</td>`).join('')+`<td>${grandAvail?full(grand):'—'}</td></tr></tbody>`;$('splitTable').innerHTML=h;renderResearch();const sw=$('splitWarnings');sw.innerHTML=(splitData.warnings||[]).map(x=>`<div class="warning">${esc(x)}</div>`).join('')}
-async function exportSplits(){if(!splitData)return;try{setStatus('splitStatus','<span class="spinner"></span>Готовлю Excel…');await pyodide.loadPackage('micropip');await pyodide.runPythonAsync("import micropip; await micropip.install('xlsxwriter')");const out='/tmp/splits_export.xlsx';pyodide.globals.set('out',out);pyodide.runPython('web_api.export_splits(out)');const bytes=pyodide.FS.readFile(out);const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Сплиты_'+(splitFile?.name||'media').replace(/\.[^.]+$/,'')+'.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);setStatus('splitStatus','✓ Excel готов','ok')}catch(e){console.error(e);setStatus('splitStatus','Ошибка Excel: '+esc(e.message),'err')}}
+async function exportSplits(){
+  if(!splitData)return;
+  try{
+    setStatus('splitStatus','<span class="spinner"></span>Готовлю Excel в отдельном потоке…');
+    const buffer=await splitWorkerCall('export');
+    const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='Сплиты_'+(splitFile?.name||'media').replace(/\.[^.]+$/,'')+'.xlsx';
+    a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    setStatus('splitStatus','✓ Excel готов','ok');
+  }catch(e){console.error(e);setStatus('splitStatus','Ошибка Excel: '+esc(e.message),'err')}
+}
 function updateDetails(){if(!planData){$('detailsPre').textContent='Файл не загружен.';return}let t=[];t.push(`Файл: ${currentFile?.name}`);t.push(`Медиаплан: ${planData.display_name||'—'}`);t.push(`Бренд: ${planData.brand||'—'}`);t.push(`Кампания: ${planData.campaign||'—'}`);t.push(`Период: ${dateRu(planData.period_start)} — ${dateRu(planData.period_end)}`);t.push(`Universe: ${num(planData.universe,0)}`);t.push(`Флайтов: ${planData.flights.length}`);t.push(`Размещений: ${planData.placement_count}`);t.push(`Каналы: ${planData.channels.join(', ')}`);t.push('');t.push('ФЛАЙТЫ');for(const f of planData.flights)t.push(`• ${f.label}: ${dateRu(f.period_start)} — ${dateRu(f.period_end)}; Universe=${num(f.universe,0)}; Reach @1+=${num(f.source_reach_people_1p,0)}${f.is_common?' [Always-on]':''}`);t.push('');t.push('ПРЕДУПРЕЖДЕНИЯ МЕДИАПЛАНА');if(planData.warnings.length)t.push(...planData.warnings.map(x=>'• '+x));else t.push('Нет.');if(calcData){const i=calcData.intersection;t.push('');t.push('ПЕРЕСЕЧЕНИЕ');t.push(`Режим: ${i.requested_mode||i.mode}; коэффициент=${Number(i.applied_product).toFixed(4)}; авто=${Number(i.auto_product).toFixed(4)}`);t.push(`Площадки: ${i.platform_detection}`);t.push(`Строки/площадка: ${i.rows_detection}`);t.push(`Каналы: ${i.channel_detection}`);if(i.detected)t.push(`Детальная база: площадок=${i.detected.platform_count}; строк=${i.detected.row_count}; флайтов=${i.detected.flight_count}; длительность=${Number(i.detected.duration_months||0).toFixed(1)} мес.; размер ЦА=${i.detected.audience_size_category}; сложность=${i.detected.complexity}`)}if(splitData){t.push('');t.push('СПЛИТЫ');const splitGroups=selectedSplitGroups();t.push(`Выбрано медиапланов для Сплитов: ${splitGroups.length}: ${splitGroups.map(x=>x.label).join(', ')}`);t.push(`Записей: ${splitData.records}; физических строк: ${splitData.physical_rows??'—'}; удалено дублей: ${splitData.duplicate_rows_removed??0}; заменено версий: ${splitData.version_rows_replaced??0}; таблиц: ${splitData.detected_tables}; листов: ${splitData.scanned_sheets}`);if(splitData.warnings.length)t.push(...splitData.warnings.map(x=>'• '+x))}$('detailsPre').textContent=t.join('\n')}
 </script><script src="reach_v16.js?v=1.6.21"></script></body></html>
