@@ -3,7 +3,7 @@ from pathlib import Path
 
 from splits import (
     SplitRecord, SplitResult, _canonical_platform, _platform_format_override,
-    _month_from_value, _is_social_special_project_text,
+    _month_from_value, _is_social_special_project_text, _warn_sheet_plan_ac_total_mismatch,
 )
 
 
@@ -70,6 +70,21 @@ class SplitsAuditTests(unittest.TestCase):
     def test_social_special_project_detector_for_bloggers(self):
         self.assertTrue(_is_social_special_project_text("Интеграция в канале блогера"))
         self.assertTrue(_is_social_special_project_text("Размещение у блогеров"))
+
+    def test_excel_total_is_control_only_and_does_not_override_rows(self):
+        result = SplitResult(path=Path("dummy.xlsx"))
+        source_finance = {
+            ("Липо Беби", 20): (100000.00, 120000.00, 220000.00),
+            ("Липо Беби", 21): (50000.00, 87770.76, 137770.76),
+        }
+        result.records = [
+            SplitRecord(sheet="Липо Беби", source_row=20, platform="A", format_group="Баннеры", month=1, year=2026, plan_budget=100000.00, plan_ac=120000.00, plan_total=220000.00),
+            SplitRecord(sheet="Липо Беби", source_row=21, platform="B", format_group="Баннеры", month=2, year=2026, plan_budget=50000.00, plan_ac=87770.76, plan_total=137770.76),
+        ]
+        _warn_sheet_plan_ac_total_mismatch(result, source_finance, "Липо Беби", 157601.07)
+        self.assertAlmostEqual(sum(v[1] for v in source_finance.values()), 207770.76, places=2)
+        self.assertAlmostEqual(sum(r.plan_ac for r in result.records), 207770.76, places=2)
+        self.assertTrue(any("ОШИБКА TOTAL" in w for w in result.warnings))
 
     def test_totals_do_not_treat_missing_fact_as_zero_comparison(self):
         result = SplitResult(path=Path("dummy.xlsx"))
