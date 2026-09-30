@@ -1,6 +1,6 @@
 # Current state
 
-Last reviewed for the Codex handoff: 2026-09-12.
+Last reviewed: 2026-09-30.
 
 ## Production
 
@@ -45,7 +45,11 @@ See `docs/REACH_ENGINE_V16.md` before changing the model.
 
 ### Сплиты
 
-Legacy split analysis remains sourced from `.debug_sources/splits.py` through the embedded Web 0.52 core.
+- split business logic remains sourced from `.debug_sources/splits.py` through the embedded Web 0.52 core;
+- heavy workbook discovery, parsing and split export run in `split_worker.js` outside the browser UI thread;
+- the worker uses browser-local Pyodide only; XLSX/XLSM files are not uploaded to a backend;
+- repeated calculations for the same workbook + selected sheet set are cached in the worker;
+- the UI reports processing stages and elapsed calculation time.
 
 ## CI / deployment state
 
