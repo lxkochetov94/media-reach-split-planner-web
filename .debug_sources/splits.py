@@ -410,6 +410,30 @@ def _platform_format_override(platform: str, format_group: str, source_format: s
         ))
         return "OLV" if video_signal or format_group == "OLV" else "Баннеры"
 
+    # Full-screen is a display creative in LAB plans unless the row explicitly
+    # contains a video signal. This fixes Matchtv.ru + Sportbox.ru Full-screen
+    # without turning their In-Stream / Pre-roll inventory into banners.
+    video_signal = bool(re.search(
+        r"\bvideo\b|видео|true\s*view|ott\s*video|in[ -]?stream|pre[ -]?roll|preroll|mid[ -]?roll|out[ -]?stream|cpcv|\bcpv\b",
+        sf + " | " + text,
+    ))
+    if re.search(r"full[ -]?screen", sf) and not video_signal:
+        return "Баннеры"
+
+    # Interpool sells both display and video. Classify by the creative itself,
+    # not by the platform name: VerticalSmart / Adsmart / display dimensions are
+    # banners, while explicit video remains OLV.
+    if compact in {"interpool", "interpol"}:
+        if video_signal or format_group == "OLV":
+            return "OLV"
+        display_signal = bool(re.search(
+            r"vertical\s*smart|verticalsmart|ad\s*smart|adsmart|"
+            r"\b\d{2,4}\s*[xх×*]\s*\d{2,4}\b|"
+            r"banner|баннер|display|rich\s*media|interstitial|fullscreen|full[ -]?screen",
+            sf + " | " + text,
+        ))
+        return "Баннеры" if display_signal else format_group
+
     return format_group
 
 FIELD_PATTERNS: Dict[str, Tuple[str, ...]] = {
