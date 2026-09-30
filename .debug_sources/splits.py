@@ -396,11 +396,11 @@ def _platform_format_override(platform: str, format_group: str, source_format: s
 
     # Avito and Baby.ru: display or OLV only.
     if re.match(r"^avito\\b", p) or compact in {"babyru", "бэбиру", "бебиру"}:
-        return "Видео" if format_group == "Видео" else "Баннеры"
+        return "OLV" if format_group == "OLV" else "Баннеры"
 
     # SlickJump: display or OLV only.
     if compact in {"slickjump", "сликджамп"}:
-        return "Видео" if format_group == "Видео" else "Баннеры"
+        return "OLV" if format_group == "OLV" else "Баннеры"
 
     # GoMobile Fullscreen / Fullscreen Banners are display, not special projects.
     if compact == "gomobile":
@@ -411,7 +411,7 @@ def _platform_format_override(platform: str, format_group: str, source_format: s
     # Hybrid includes VOX. Native/display inventory is reported as one banner line;
     # explicit video stays video.
     if compact == "hybrid":
-        return "Видео" if format_group == "Видео" else "Баннеры"
+        return "OLV" if format_group == "OLV" else "Баннеры"
 
     # Yabbi display inventory (Fullscreen, Playable, Social classification artefacts)
     # is one banner line; true video/OLV formats stay separate.
@@ -420,7 +420,7 @@ def _platform_format_override(platform: str, format_group: str, source_format: s
             r"\\bvideo\\b|видео|true\\s*view|ott\\s*video|in[ -]?stream|pre[ -]?roll|cpcv|\\bcpv\\b",
             sf + " | " + text,
         ))
-        return "Видео" if video_signal or format_group == "Видео" else "Баннеры"
+        return "OLV" if video_signal or format_group == "OLV" else "Баннеры"
 
     return format_group
 
