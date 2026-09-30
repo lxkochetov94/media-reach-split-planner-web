@@ -221,7 +221,7 @@ main{max-width:1600px;margin:18px auto;padding:0 22px 40px}.tab{display:none}.ta
   <div id="splitFileName" class="status" style="margin-top:8px">Файл для Сплитов не выбран.</div>
 </div>
 <div class="card">
-<div class="row"><div class="grow"><div class="status">Медиапланы книги для общего Сплита</div><div id="splitPlanWrap" class="flight-wrap"></div><div class="hint" style="margin-top:6px">Сплиты используют собственный файл и собственный выбор планов. Загрузка на вкладке «Охваты и KPI» на них не влияет.</div></div><button id="selectAllSplitPlans" class="btn small">Все планы</button></div>
+<div class="hint">Сплиты автоматически обрабатывают весь загруженный сводник целиком. Выбор отдельных планов не требуется.</div>
 <div class="split-tools" style="margin-top:12px"><strong>Сплиты</strong><select id="splitMetric"><option value="plan">План</option><option value="plan_ac">АК план</option><option value="plan_total">План + АК</option><option value="fact">Факт</option><option value="fact_ac">АК факт</option><option value="fact_total">Факт + АК</option><option value="delta">Дельта без АК</option><option value="delta_total">Дельта с АК</option></select><button id="exportSplits" class="btn" disabled>Скачать Excel</button><div id="splitStatus" class="status grow">Загрузите файл для Сплитов.</div></div><div class="table-wrap" style="margin-top:12px"><table id="splitTable" class="data-table split-table"></table></div><div id="researchBlock" class="hidden" style="margin-top:18px"><strong>Исследования</strong><div class="hint" style="margin:6px 0 10px">Исследование — отдельный атрибут. Платным оно считается только при собственной выделенной стоимости в медиаплане.</div><div class="table-wrap"><table id="researchTable" class="data-table"></table></div></div><div id="splitWarnings"></div></div></section>
 <section id="tab-details" class="tab"><div class="card"><strong>Диагностика распознавания</strong><pre id="detailsPre" class="details-pre">Файл не загружен.</pre></div></section>
 </main><div id="groupOverlay" class="overlay hidden"><div class="modal"><h3>В файле несколько медиапланов</h3><div class="status">Выберите один, несколько или все планы. Все планы отмечены по умолчанию. Выбранные планы сразу попадут в мультиплановый охват и флоучарт.</div><div id="groupList" class="group-list"></div><div class="row" style="margin-top:14px"><button id="groupSelectAll" class="btn small">Все планы</button><div class="grow"></div><button id="groupConfirm" class="btn primary">Продолжить</button></div><div id="groupPickerStatus" class="status" style="margin-top:8px"></div></div></div>
@@ -297,7 +297,7 @@ function ensureSplitWorker(){
   if(splitWorkerReady)return splitWorkerReady;
   splitWorkerReady=new Promise((resolve,reject)=>{
     try{
-      const worker=new Worker('split_worker.js?v=20260930-2');
+      const worker=new Worker('split_worker.js?v=20260930-3');
       splitWorker=worker;
       worker.onmessage=(event)=>{
         const msg=event.data||{};
@@ -837,49 +837,21 @@ async function openSplitFile(file){
     const buffer=await file.arrayBuffer();
     splitFile={file,name:file.name,ext};$('splitFileName').textContent=file.name;
     await ensureSplitWorker();
-    splitGroupsData=await splitWorkerCall('open',{ext,buffer},[buffer]);
-    if(!splitGroupsData.groups.length)throw new Error('В файле не найден рабочий медиаплан');
-    splitData=null;$('exportSplits').disabled=true;
-    renderSplitPlanControls(splitGroupsData.groups);renderSplits();
+    await splitWorkerCall('open',{ext,buffer},[buffer]);
+    splitData=null;$('exportSplits').disabled=true;renderSplits();
     await loadSplits(started);
   }catch(e){
     console.error(e);splitData=null;$('exportSplits').disabled=true;renderSplits();
     setStatus('splitStatus','Ошибка Сплитов: '+esc(e.message),'err');
   }
 }
-function renderSplitPlanControls(groups){
-  const w=$('splitPlanWrap');w.innerHTML='';
-  groups.forEach((g,idx)=>{
-    const lab=document.createElement('label');lab.className='flight-chip';
-    lab.title=(g.sheet_names||[]).join(', ');
-    lab.innerHTML=`<input class="split-plan-cb" type="checkbox" data-group-index="${idx}" checked> <span>${esc(g.label||('План '+(idx+1)))}</span>`;
-    w.appendChild(lab);
-  });
-  document.querySelectorAll('.split-plan-cb').forEach(x=>x.addEventListener('change',()=>loadSplits().catch(e=>{console.error(e);setStatus('splitStatus','Ошибка сплитов: '+esc(e.message),'err')})));
-}
-function selectedSplitGroups(){
-  if(!splitGroupsData?.groups)return [];
-  return [...document.querySelectorAll('.split-plan-cb:checked')].map(x=>splitGroupsData.groups[Number(x.dataset.groupIndex)]).filter(Boolean);
-}
-function selectedSplitSheets(){
-  const sheets=[];const seen=new Set();
-  for(const g of selectedSplitGroups())for(const name of (g.sheet_names||[])){if(!seen.has(name)){seen.add(name);sheets.push(name)}}
-  return sheets;
-}
 async function loadSplits(startedAt=null){
-  if(!splitFile||!splitGroupsData)return;
-  const groups=selectedSplitGroups();
-  if(!groups.length){
-    splitLoadSeq++;splitData=null;$('exportSplits').disabled=true;renderSplits();
-    setStatus('splitStatus','Выберите хотя бы один медиаплан для Сплитов.');
-    return;
-  }
+  if(!splitFile)return;
   const seq=++splitLoadSeq;
   const started=startedAt||performance.now();
-  const sheets=selectedSplitSheets(),sheetGroups=groups.map(g=>g.sheet_names||[]);
   $('exportSplits').disabled=true;
-  setStatus('splitStatus','<span class="spinner"></span>Распознаю сплиты в отдельном потоке…');
-  const data=await splitWorkerCall('load',{sheets,serverGroups:null,sheetGroups});
+  setStatus('splitStatus','<span class="spinner"></span>Распознаю весь сводник в отдельном потоке…');
+  const data=await splitWorkerCall('load');
   if(seq!==splitLoadSeq)return;
   splitData=data;$('exportSplits').disabled=false;renderSplits();
   const elapsed=((performance.now()-started)/1000).toFixed(1).replace('.',',');
@@ -893,14 +865,9 @@ async function loadSplits(startedAt=null){
     addDiff('АК · строки → Сплиты',fc.records_ac,fc.split_ac);
     setStatus('splitStatus',`Финансовая ошибка: ${issues.length?issues.join(' · '):'контрольные суммы не сошлись'}. Подробности — в предупреждениях ниже. · ${elapsed} с`,'err');
   }else{
-    setStatus('splitStatus',`✓ ${groups.length} план(а/ов) · ${splitData.rows.length} строк площадка × формат · ${splitData.records} помесячных записей · контроль денег 0,00 ₽ · ${elapsed} с`,'ok');
+    setStatus('splitStatus',`✓ Весь сводник · ${splitData.rows.length} строк площадка × формат · ${splitData.records} помесячных записей · контроль денег 0,00 ₽ · ${elapsed} с`,'ok');
   }
 }
-$('selectAllSplitPlans').onclick=()=>{
-  if(!splitGroupsData)return;
-  document.querySelectorAll('.split-plan-cb').forEach(x=>x.checked=true);
-  loadSplits().catch(e=>{console.error(e);setStatus('splitStatus','Ошибка сплитов: '+esc(e.message),'err')});
-};
 $('splitMetric').addEventListener('change',renderSplits);$('exportSplits').onclick=exportSplits;
 function splitCell(row,m,metric){const c=row.months[String(m)];if(!c)return {available:!metric.startsWith('fact')&&!metric.startsWith('delta'),value:0};const factMetric=['fact','fact_ac','fact_total','delta','delta_total'].includes(metric);return {available:!factMetric||Number(c.fact_available_count||0)>0,value:Number(c[metric]||0)}}
 function renderResearch(){
@@ -915,7 +882,7 @@ function renderResearch(){
   }
   h+='</tbody>';table.innerHTML=h;
 }
-function renderSplits(){if(!splitData){$('splitTable').innerHTML='<tbody><tr><td>Выберите медиапланы книги для общего Сплита.</td></tr></tbody>';$('researchBlock').classList.add('hidden');return}const metric=$('splitMetric').value;let h='<thead><tr><th>Площадка</th><th>Формат</th>'+['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'].map(m=>`<th>${m}</th>`).join('')+'<th>Итого</th></tr></thead><tbody>';const mt=Array(12).fill(0),ma=Array(12).fill(false);let grand=0,grandAvail=false;for(const row of splitData.rows){let rt=0,ra=false;h+=`<tr><td>${esc(row.platform)}</td><td>${esc(row.format)}</td>`;for(let m=1;m<=12;m++){const {available,value}=splitCell(row,m,metric);if(available){rt+=value;ra=true;mt[m-1]+=value;ma[m-1]=true;h+=`<td>${full(value)}</td>`}else h+='<td class="na">—</td>'}if(ra){grand+=rt;grandAvail=true;h+=`<td><strong>${full(rt)}</strong></td>`}else h+='<td class="na">—</td>';h+='</tr>'}h+='<tr class="total-row"><td>ИТОГО</td><td></td>'+mt.map((v,i)=>`<td>${ma[i]?full(v):'—'}</td>`).join('')+`<td>${grandAvail?full(grand):'—'}</td></tr></tbody>`;$('splitTable').innerHTML=h;renderResearch();const sw=$('splitWarnings');sw.innerHTML=(splitData.warnings||[]).map(x=>`<div class="warning">${esc(x)}</div>`).join('')}
+function renderSplits(){if(!splitData){$('splitTable').innerHTML='<tbody><tr><td>Загрузите сводник для расчёта Сплитов.</td></tr></tbody>';$('researchBlock').classList.add('hidden');return}const metric=$('splitMetric').value;let h='<thead><tr><th>Площадка</th><th>Формат</th>'+['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'].map(m=>`<th>${m}</th>`).join('')+'<th>Итого</th></tr></thead><tbody>';const mt=Array(12).fill(0),ma=Array(12).fill(false);let grand=0,grandAvail=false;for(const row of splitData.rows){let rt=0,ra=false;h+=`<tr><td>${esc(row.platform)}</td><td>${esc(row.format)}</td>`;for(let m=1;m<=12;m++){const {available,value}=splitCell(row,m,metric);if(available){rt+=value;ra=true;mt[m-1]+=value;ma[m-1]=true;h+=`<td>${full(value)}</td>`}else h+='<td class="na">—</td>'}if(ra){grand+=rt;grandAvail=true;h+=`<td><strong>${full(rt)}</strong></td>`}else h+='<td class="na">—</td>';h+='</tr>'}h+='<tr class="total-row"><td>ИТОГО</td><td></td>'+mt.map((v,i)=>`<td>${ma[i]?full(v):'—'}</td>`).join('')+`<td>${grandAvail?full(grand):'—'}</td></tr></tbody>`;$('splitTable').innerHTML=h;renderResearch();const sw=$('splitWarnings');sw.innerHTML=(splitData.warnings||[]).map(x=>`<div class="warning">${esc(x)}</div>`).join('')}
 async function exportSplits(){
   if(!splitData)return;
   try{
@@ -928,5 +895,5 @@ async function exportSplits(){
     setStatus('splitStatus','✓ Excel готов','ok');
   }catch(e){console.error(e);setStatus('splitStatus','Ошибка Excel: '+esc(e.message),'err')}
 }
-function updateDetails(){if(!planData){$('detailsPre').textContent='Файл не загружен.';return}let t=[];t.push(`Файл: ${currentFile?.name}`);t.push(`Медиаплан: ${planData.display_name||'—'}`);t.push(`Бренд: ${planData.brand||'—'}`);t.push(`Кампания: ${planData.campaign||'—'}`);t.push(`Период: ${dateRu(planData.period_start)} — ${dateRu(planData.period_end)}`);t.push(`Universe: ${num(planData.universe,0)}`);t.push(`Флайтов: ${planData.flights.length}`);t.push(`Размещений: ${planData.placement_count}`);t.push(`Каналы: ${planData.channels.join(', ')}`);t.push('');t.push('ФЛАЙТЫ');for(const f of planData.flights)t.push(`• ${f.label}: ${dateRu(f.period_start)} — ${dateRu(f.period_end)}; Universe=${num(f.universe,0)}; Reach @1+=${num(f.source_reach_people_1p,0)}${f.is_common?' [Always-on]':''}`);t.push('');t.push('ПРЕДУПРЕЖДЕНИЯ МЕДИАПЛАНА');if(planData.warnings.length)t.push(...planData.warnings.map(x=>'• '+x));else t.push('Нет.');if(calcData){const i=calcData.intersection;t.push('');t.push('ПЕРЕСЕЧЕНИЕ');t.push(`Режим: ${i.requested_mode||i.mode}; коэффициент=${Number(i.applied_product).toFixed(4)}; авто=${Number(i.auto_product).toFixed(4)}`);t.push(`Площадки: ${i.platform_detection}`);t.push(`Строки/площадка: ${i.rows_detection}`);t.push(`Каналы: ${i.channel_detection}`);if(i.detected)t.push(`Детальная база: площадок=${i.detected.platform_count}; строк=${i.detected.row_count}; флайтов=${i.detected.flight_count}; длительность=${Number(i.detected.duration_months||0).toFixed(1)} мес.; размер ЦА=${i.detected.audience_size_category}; сложность=${i.detected.complexity}`)}if(splitData){t.push('');t.push('СПЛИТЫ');const splitGroups=selectedSplitGroups();t.push(`Выбрано медиапланов для Сплитов: ${splitGroups.length}: ${splitGroups.map(x=>x.label).join(', ')}`);t.push(`Записей: ${splitData.records}; физических строк: ${splitData.physical_rows??'—'}; удалено дублей: ${splitData.duplicate_rows_removed??0}; заменено версий: ${splitData.version_rows_replaced??0}; таблиц: ${splitData.detected_tables}; листов: ${splitData.scanned_sheets}`);if(splitData.warnings.length)t.push(...splitData.warnings.map(x=>'• '+x))}$('detailsPre').textContent=t.join('\n')}
+function updateDetails(){if(!planData){$('detailsPre').textContent='Файл не загружен.';return}let t=[];t.push(`Файл: ${currentFile?.name}`);t.push(`Медиаплан: ${planData.display_name||'—'}`);t.push(`Бренд: ${planData.brand||'—'}`);t.push(`Кампания: ${planData.campaign||'—'}`);t.push(`Период: ${dateRu(planData.period_start)} — ${dateRu(planData.period_end)}`);t.push(`Universe: ${num(planData.universe,0)}`);t.push(`Флайтов: ${planData.flights.length}`);t.push(`Размещений: ${planData.placement_count}`);t.push(`Каналы: ${planData.channels.join(', ')}`);t.push('');t.push('ФЛАЙТЫ');for(const f of planData.flights)t.push(`• ${f.label}: ${dateRu(f.period_start)} — ${dateRu(f.period_end)}; Universe=${num(f.universe,0)}; Reach @1+=${num(f.source_reach_people_1p,0)}${f.is_common?' [Always-on]':''}`);t.push('');t.push('ПРЕДУПРЕЖДЕНИЯ МЕДИАПЛАНА');if(planData.warnings.length)t.push(...planData.warnings.map(x=>'• '+x));else t.push('Нет.');if(calcData){const i=calcData.intersection;t.push('');t.push('ПЕРЕСЕЧЕНИЕ');t.push(`Режим: ${i.requested_mode||i.mode}; коэффициент=${Number(i.applied_product).toFixed(4)}; авто=${Number(i.auto_product).toFixed(4)}`);t.push(`Площадки: ${i.platform_detection}`);t.push(`Строки/площадка: ${i.rows_detection}`);t.push(`Каналы: ${i.channel_detection}`);if(i.detected)t.push(`Детальная база: площадок=${i.detected.platform_count}; строк=${i.detected.row_count}; флайтов=${i.detected.flight_count}; длительность=${Number(i.detected.duration_months||0).toFixed(1)} мес.; размер ЦА=${i.detected.audience_size_category}; сложность=${i.detected.complexity}`)}if(splitData){t.push('');t.push('СПЛИТЫ');t.push('Сплиты: обработан весь загруженный сводник.');t.push(`Записей: ${splitData.records}; физических строк: ${splitData.physical_rows??'—'}; удалено дублей: ${splitData.duplicate_rows_removed??0}; заменено версий: ${splitData.version_rows_replaced??0}; таблиц: ${splitData.detected_tables}; листов: ${splitData.scanned_sheets}`);if(splitData.warnings.length)t.push(...splitData.warnings.map(x=>'• '+x))}$('detailsPre').textContent=t.join('\n')}
 </script><script src="reach_v16.js?v=1.6.21"></script></body></html>
