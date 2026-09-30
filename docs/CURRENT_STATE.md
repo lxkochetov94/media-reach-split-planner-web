@@ -50,6 +50,7 @@ See `docs/REACH_ENGINE_V16.md` before changing the model.
 - the worker uses browser-local Pyodide only; XLSX/XLSM files are not uploaded to a backend;
 - repeated calculations for the same workbook + selected sheet set are cached in the worker;
 - the UI reports processing stages and elapsed calculation time.
+- split format rules are creative-aware: Interpool display formats (VerticalSmart / Adsmart / display dimensions) merge into Баннеры while explicit video stays OLV; Full-screen without a video signal is treated as Баннеры.
 
 ## CI / deployment state
 
