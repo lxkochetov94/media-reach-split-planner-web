@@ -116,21 +116,23 @@ def _month_from_value(v: Any) -> Optional[int]:
     t = _norm(v)
     if not t:
         return None
+
     # Full date / date-range headers (e.g. "01.02.2026 - 28.02.2026")
-    # must resolve by the middle component. The old generic MM.YYYY regex could
-    # incorrectly read the leading day ("01") as January for every column.
-    full_date = re.search(r"(?:^|\\D)\\d{1,2}[./-](1[0-2]|0?[1-9])[./-](?:20)?\\d{2}(?:\\D|$)", t)
+    # must resolve by the middle date component. Otherwise the leading day "01"
+    # can be mistaken for January in every monthly column.
+    full_date = re.search(r"(?:^|\D)\d{1,2}[./-](1[0-2]|0?[1-9])[./-](?:20)?\d{2}(?:\D|$)", t)
     if full_date:
         return int(full_date.group(1))
+
     for m, aliases in MONTH_ALIASES.items():
         if any(a in t for a in aliases):
             return m
+
     # formats like 08.2026 / 8/2026
     mm = re.search(r"(?:^|\D)(1[0-2]|0?[1-9])[./-](?:20)?\d{2}(?:\D|$)", t)
     if mm:
         return int(mm.group(1))
     return None
-
 
 def _parse_date(v: Any) -> Optional[dt.date]:
     if isinstance(v, dt.datetime):
@@ -324,15 +326,14 @@ def _strip_bonus(platform: str) -> str:
 def _canonical_platform(platform: str) -> str:
     """Canonical platform identity used specifically by Splits.
 
-    This layer intentionally normalizes business aliases seen in LAB plans while
-    preserving materially different products (for example Yandex Direct vs RSYA).
+    This layer normalizes business aliases seen in LAB plans while preserving
+    materially different products (for example Yandex Direct vs RSYA).
     """
     raw = _strip_bonus(platform)
     t = _norm(raw)
     compact = re.sub(r"[^a-zа-я0-9]+", "", t)
 
-    # Social / general platforms.
-    if re.search(r"(^|\\b)(vk|вк|vkontakte)(\\b|$)", t):
+    if re.search(r"(^|\b)(vk|вк|vkontakte)(\b|$)", t):
         return "VK"
     if compact in {"gomobile", "гомобайл"}:
         return "GoMobile"
@@ -350,28 +351,23 @@ def _canonical_platform(platform: str) -> str:
         return "Telegram Ads"
     if compact in {"astralab", "астралаб"}:
         return "Astra Lab"
-    if re.match(r"^avito\\b", t):
+    if re.match(r"^avito\b", t):
         return "Avito"
     if compact in {"babyru", "бэбиру", "бебиру"}:
         return "Baby.ru"
     if compact in {"slickjump", "сликджамп"}:
         return "SlickJump"
-    if re.match(r"^genius\\b", t):
+    if re.match(r"^genius\b", t):
         return "Genius"
 
-    # Yandex products: keep products separate, but merge spelling/retargeting aliases.
+    # Yandex products stay separate, while spelling / retargeting variants merge.
     if (
         re.search(r"promopages?", compact)
         or "промостраниц" in compact
         or compact.startswith("япромостраниц")
     ):
         return "Яндекс ПромоСтраницы"
-    if (
-        "rsya" in compact
-        or "рся" in compact
-        or compact.startswith("yandexrsyaret")
-        or compact.startswith("яндексрсярет")
-    ):
+    if "rsya" in compact or "рся" in compact:
         return "Яндекс РСЯ"
     if (
         "yandexdirect" in compact
@@ -383,47 +379,38 @@ def _canonical_platform(platform: str) -> str:
     if "yandexvideo" in compact or "яндексвидео" in compact:
         return "Яндекс Видео"
 
-    # Normalize cosmetic differences but preserve unknown seller names.
     return raw
 
 
 def _platform_format_override(platform: str, format_group: str, source_format: str = "", raw_text: str = "") -> str:
-    """Apply hard business rules for platforms whose split taxonomy is fixed."""
+    """Apply hard LAB business rules for split format taxonomy."""
     p = _norm(platform)
     compact = re.sub(r"[^a-zа-я0-9]+", "", p)
     sf = _norm(source_format)
     text = _norm(raw_text)
 
-    # Avito and Baby.ru: display or OLV only.
-    if re.match(r"^avito\\b", p) or compact in {"babyru", "бэбиру", "бебиру"}:
+    # Avito / Baby.ru / SlickJump: display or OLV only.
+    if re.match(r"^avito\b", p) or compact in {"babyru", "бэбиру", "бебиру", "slickjump", "сликджамп"}:
         return "OLV" if format_group == "OLV" else "Баннеры"
 
-    # SlickJump: display or OLV only.
-    if compact in {"slickjump", "сликджамп"}:
-        return "OLV" if format_group == "OLV" else "Баннеры"
-
-    # GoMobile Fullscreen / Fullscreen Banners are display, not special projects.
+    # GoMobile Fullscreen / Fullscreen Banners are display.
     if compact == "gomobile":
-        if format_group == "Видео":
-            return "Видео"
-        return "Баннеры"
+        return "OLV" if format_group == "OLV" else "Баннеры"
 
-    # Hybrid includes VOX. Native/display inventory is reported as one banner line;
-    # explicit video stays video.
+    # VOX is Hybrid; Native/display inventory is one banner line.
     if compact == "hybrid":
         return "OLV" if format_group == "OLV" else "Баннеры"
 
-    # Yabbi display inventory (Fullscreen, Playable, Social classification artefacts)
-    # is one banner line; true video/OLV formats stay separate.
+    # Yabbi display inventory (Fullscreen, Playable, Social artefacts) is one
+    # banner line. Explicit video/OLV formats remain OLV.
     if compact == "yabbi":
         video_signal = bool(re.search(
-            r"\\bvideo\\b|видео|true\\s*view|ott\\s*video|in[ -]?stream|pre[ -]?roll|cpcv|\\bcpv\\b",
+            r"\bvideo\b|видео|true\s*view|ott\s*video|in[ -]?stream|pre[ -]?roll|cpcv|\bcpv\b",
             sf + " | " + text,
         ))
         return "OLV" if video_signal or format_group == "OLV" else "Баннеры"
 
     return format_group
-
 
 FIELD_PATTERNS: Dict[str, Tuple[str, ...]] = {
     "platform": ("название сайта", "название площадки", "площадка", "site", "platform", "publisher", "sales house", "seller", "ресурс", "сайт"),
