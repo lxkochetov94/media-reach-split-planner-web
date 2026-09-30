@@ -1,7 +1,10 @@
 import unittest
 from pathlib import Path
 
-from splits import (\n    SplitRecord, SplitResult, _canonical_platform, _platform_format_override,\n    _month_from_value, _is_social_special_project_text,\n)
+from splits import (
+    SplitRecord, SplitResult, _canonical_platform, _platform_format_override,
+    _month_from_value, _is_social_special_project_text,
+)
 
 
 class SplitsAuditTests(unittest.TestCase):
