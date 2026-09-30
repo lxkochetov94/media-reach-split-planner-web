@@ -57,7 +57,7 @@
         const h=norm(text(cellAt(ws,r,c)));
         if(!h) continue;
         if(site==null && /^(?:site|platform|площадка|название сайта|название площадки)$/iu.test(h)) site=c;
-        if(markup==null && /^(?:наценк\w*|markup|mark-up|коэффициент наценки)$/iu.test(h)) markup=c;
+        if(markup==null && /^(?:наценк[а-яa-z]*|markup|mark-up|коэффициент наценки)$/iu.test(h)) markup=c;
         if(format==null && /^(?:format|формат|ad size(?: \(pixels\))?|размер(?: объявления)?)$/iu.test(h)) format=c;
         if(placement==null && /^(?:ad placement(?: & targetings)?|размещение|placement)$/iu.test(h)) placement=c;
       }
