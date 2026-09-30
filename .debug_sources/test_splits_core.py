@@ -67,6 +67,42 @@ class SplitsAuditTests(unittest.TestCase):
         self.assertEqual(_platform_format_override("Yabbi", "Social", "Playable Ads"), "Баннеры")
         self.assertEqual(_platform_format_override("Yabbi", "OLV", "True View (Video Placement)"), "OLV")
 
+    def test_interpool_display_formats_merge_as_banners_but_video_stays_olv(self):
+        self.assertEqual(
+            _platform_format_override(
+                "Interpool", "Техническая строка",
+                "VerticalSmart Women\n300*600 + 240*400 + 300*250"
+            ),
+            "Баннеры",
+        )
+        self.assertEqual(
+            _platform_format_override(
+                "Interpool", "Техническая строка",
+                "Микс форматов: Adsmart + Vertical Smart 300*600 + 300*250"
+            ),
+            "Баннеры",
+        )
+        self.assertEqual(
+            _platform_format_override(
+                "Interpool", "OLV", "In-Stream Video"
+            ),
+            "OLV",
+        )
+
+    def test_full_screen_is_banner_without_video_signal(self):
+        self.assertEqual(
+            _platform_format_override(
+                "Matchtv.ru+ Sportbox.ru", "Техническая строка", "Full-screen"
+            ),
+            "Баннеры",
+        )
+        self.assertEqual(
+            _platform_format_override(
+                "Matchtv.ru+ Sportbox.ru", "OLV", "In-Stream, Pre-roll unskip"
+            ),
+            "OLV",
+        )
+
     def test_social_special_project_detector_for_bloggers(self):
         self.assertTrue(_is_social_special_project_text("Интеграция в канале блогера"))
         self.assertTrue(_is_social_special_project_text("Размещение у блогеров"))
