@@ -116,6 +116,12 @@ def _month_from_value(v: Any) -> Optional[int]:
     t = _norm(v)
     if not t:
         return None
+    # Full date / date-range headers (e.g. "01.02.2026 - 28.02.2026")
+    # must resolve by the middle component. The old generic MM.YYYY regex could
+    # incorrectly read the leading day ("01") as January for every column.
+    full_date = re.search(r"(?:^|\\D)\\d{1,2}[./-](1[0-2]|0?[1-9])[./-](?:20)?\\d{2}(?:\\D|$)", t)
+    if full_date:
+        return int(full_date.group(1))
     for m, aliases in MONTH_ALIASES.items():
         if any(a in t for a in aliases):
             return m
@@ -316,53 +322,105 @@ def _strip_bonus(platform: str) -> str:
 
 
 def _canonical_platform(platform: str) -> str:
-    """Collapse obvious naming variants that are formats/products of the same platform."""
+    """Canonical platform identity used specifically by Splits.
+
+    This layer intentionally normalizes business aliases seen in LAB plans while
+    preserving materially different products (for example Yandex Direct vs RSYA).
+    """
     raw = _strip_bonus(platform)
     t = _norm(raw)
     compact = re.sub(r"[^a-zа-я0-9]+", "", t)
-    if re.search(r"(^|\b)(vk|вк|vkontakte)(\b|$)", t):
+
+    # Social / general platforms.
+    if re.search(r"(^|\\b)(vk|вк|vkontakte)(\\b|$)", t):
         return "VK"
-    # Yandex Promopages are sometimes written as a standalone platform/product name
-    # without the word Yandex. Normalize all such aliases to the Yandex platform so
-    # that Promopages / Promo Pages / Промостраницы aggregate into one row:
-    # Яндекс | Промостраницы.
-    if re.search(r"promopages?", compact) or "промостраниц" in compact:
-        return "Яндекс"
-    if "яндекс" in t or re.search(r"(^|\b)yandex(\b|$)", t):
-        return "Яндекс"
+    if compact in {"gomobile", "гомобайл"}:
+        return "GoMobile"
+    if compact in {"mediatuner", "медиатюнер"}:
+        return "MediaTuner"
+    if compact in {"hybrid", "гибрид", "vox"}:
+        return "Hybrid"
+    if compact in {"yabbi", "yabby", "ябби"}:
+        return "Yabbi"
+    if compact.startswith("redllama") or compact.startswith("redlama"):
+        return "RedLlama"
     if compact in {"mediatoday", "медиатудей"}:
         return "Media Today"
     if compact == "telegramads":
         return "Telegram Ads"
-    if compact in {"yabbi", "ябби"}:
-        return "Yabbi"
     if compact in {"astralab", "астралаб"}:
         return "Astra Lab"
-    if re.match(r"^avito\b", t):
+    if re.match(r"^avito\\b", t):
         return "Avito"
     if compact in {"babyru", "бэбиру", "бебиру"}:
         return "Baby.ru"
     if compact in {"slickjump", "сликджамп"}:
         return "SlickJump"
-    if re.match(r"^genius\b", t):
+    if re.match(r"^genius\\b", t):
         return "Genius"
+
+    # Yandex products: keep products separate, but merge spelling/retargeting aliases.
+    if (
+        re.search(r"promopages?", compact)
+        or "промостраниц" in compact
+        or compact.startswith("япромостраниц")
+    ):
+        return "Яндекс ПромоСтраницы"
+    if (
+        "rsya" in compact
+        or "рся" in compact
+        or compact.startswith("yandexrsyaret")
+        or compact.startswith("яндексрсярет")
+    ):
+        return "Яндекс РСЯ"
+    if (
+        "yandexdirect" in compact
+        or "яндексдирект" in compact
+        or "yandexsearch" in compact
+        or "яндекспоиск" in compact
+    ):
+        return "Яндекс Директ"
+    if "yandexvideo" in compact or "яндексвидео" in compact:
+        return "Яндекс Видео"
+
     # Normalize cosmetic differences but preserve unknown seller names.
     return raw
 
 
-def _platform_format_override(platform: str, format_group: str) -> str:
-    """Apply hard business rules for platforms whose split format taxonomy is fixed."""
+def _platform_format_override(platform: str, format_group: str, source_format: str = "", raw_text: str = "") -> str:
+    """Apply hard business rules for platforms whose split taxonomy is fixed."""
     p = _norm(platform)
     compact = re.sub(r"[^a-zа-я0-9]+", "", p)
+    sf = _norm(source_format)
+    text = _norm(raw_text)
 
-    # Avito and Baby.ru are media inventory in this planner: display or OLV only.
-    # If the generic classifier found video, keep it; every other result becomes banners.
-    if re.match(r"^avito\b", p) or compact in {"babyru", "бэбиру", "бебиру"}:
+    # Avito and Baby.ru: display or OLV only.
+    if re.match(r"^avito\\b", p) or compact in {"babyru", "бэбиру", "бебиру"}:
         return "Видео" if format_group == "Видео" else "Баннеры"
 
-    # SlickJump follows the same hard rule: only display or OLV.
+    # SlickJump: display or OLV only.
     if compact in {"slickjump", "сликджамп"}:
         return "Видео" if format_group == "Видео" else "Баннеры"
+
+    # GoMobile Fullscreen / Fullscreen Banners are display, not special projects.
+    if compact == "gomobile":
+        if format_group == "Видео":
+            return "Видео"
+        return "Баннеры"
+
+    # Hybrid includes VOX. Native/display inventory is reported as one banner line;
+    # explicit video stays video.
+    if compact == "hybrid":
+        return "Видео" if format_group == "Видео" else "Баннеры"
+
+    # Yabbi display inventory (Fullscreen, Playable, Social classification artefacts)
+    # is one banner line; true video/OLV formats stay separate.
+    if compact == "yabbi":
+        video_signal = bool(re.search(
+            r"\\bvideo\\b|видео|true\\s*view|ott\\s*video|in[ -]?stream|pre[ -]?roll|cpcv|\\bcpv\\b",
+            sf + " | " + text,
+        ))
+        return "Видео" if video_signal or format_group == "Видео" else "Баннеры"
 
     return format_group
 
@@ -1193,7 +1251,7 @@ def parse_split_workbook(
                         raw_platform, source_format, raw_text, None
                     )
                     canonical, _match_reason, _conf = canonicalize_platform_name(raw_platform)
-                    platform = canonical or _canonical_platform(raw_platform)
+                    platform = _canonical_platform(canonical or raw_platform)
                     if not platform and research_is_dedicated:
                         platform = "Исследование"
                     if not platform or _norm(platform) in {"site", "platform", "площадка", "ресурс", "сайт"}:
@@ -1213,6 +1271,18 @@ def parse_split_workbook(
                         format_group = "Техническая строка"
                     else:
                         format_group = placement_class
+
+                    format_group = _platform_format_override(platform, format_group, source_format, raw_text)
+
+                    # Social-platform special projects are blogger/influencer placements
+                    # in LAB splits. Collapse Telegram / VK / TikTok combinations into
+                    # one business line instead of separate platform rows.
+                    social_platform_text = _norm(raw_platform)
+                    if format_group == "Спецпроекты" and (
+                        _is_social_special_project_text(source_format, raw_text)
+                        or re.search(r"telegram|телеграм|tiktok|тик ?ток|(^|[^a-zа-я])vk([^a-zа-я]|$)|вк", social_platform_text)
+                    ):
+                        platform = "Блогеры"
 
                     media_budget_raw = _to_number(_row_get(row, mapping, "media_budget"))
                     media_budget = media_budget_raw or 0.0
@@ -1411,13 +1481,27 @@ def parse_split_workbook(
     result.conservation_diff_plan = round(d1 + d2, 2)
     result.conservation_diff_ac = round(da1 + da2, 2)
     result.conservation_diff_total = round(dt1 + dt2, 2)
-    result.conservation_ok = all(abs(x) < 0.005 for x in (d1, d2, da1, da2, dt1, dt2))
+
+    # Plan and AC are independent source controls. Plan+AC is derived from them, so a
+    # one-kopeck cross-rounding artefact in the derived total must not create a false
+    # financial error when both independent controls reconcile to the kopeck.
+    result.conservation_ok = all(abs(x) < 0.005 for x in (d1, d2, da1, da2))
     if not result.conservation_ok:
+        failed = []
+        if abs(d1) >= 0.005:
+            failed.append(f"План: исходник→записи {d1:+.2f} руб.")
+        if abs(d2) >= 0.005:
+            failed.append(f"План: записи→Сплиты {d2:+.2f} руб.")
+        if abs(da1) >= 0.005:
+            failed.append(f"АК: исходник→записи {da1:+.2f} руб.")
+        if abs(da2) >= 0.005:
+            failed.append(f"АК: записи→Сплиты {da2:+.2f} руб.")
         result.warnings.append(
-            "ФИНАНСОВАЯ ОШИБКА: сумма исходных размещений, сумма плана и сумма Сплитов "
-            "не совпадают до копейки. "
-            f"План: source={result.source_plan_total:.2f}, records={result.records_plan_total:.2f}, split={result.split_plan_total:.2f}; "
-            f"АК: source={result.source_ac_total:.2f}, records={result.records_ac_total:.2f}, split={result.split_ac_total:.2f}."
+            "ФИНАНСОВАЯ ОШИБКА: " + "; ".join(failed) + ". "
+            f"Контрольные суммы — План: исходник {result.source_plan_total:.2f}, "
+            f"записи {result.records_plan_total:.2f}, Сплиты {result.split_plan_total:.2f}; "
+            f"АК: исходник {result.source_ac_total:.2f}, записи {result.records_ac_total:.2f}, "
+            f"Сплиты {result.split_ac_total:.2f}."
         )
 
     if not result.records:
