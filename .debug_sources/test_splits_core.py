@@ -62,7 +62,7 @@ class SplitsAuditTests(unittest.TestCase):
         self.assertEqual(_platform_format_override("Hybrid", "Спецпроекты", "Native"), "Баннеры")
         self.assertEqual(_platform_format_override("Hybrid", "Техническая строка", "In-image Premium"), "Баннеры")
         self.assertEqual(_platform_format_override("Yabbi", "Social", "Playable Ads"), "Баннеры")
-        self.assertEqual(_platform_format_override("Yabbi", "Видео", "True View (Video Placement)"), "Видео")
+        self.assertEqual(_platform_format_override("Yabbi", "OLV", "True View (Video Placement)"), "OLV")
 
     def test_social_special_project_detector_for_bloggers(self):
         self.assertTrue(_is_social_special_project_text("Интеграция в канале блогера"))
