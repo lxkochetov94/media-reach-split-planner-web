@@ -76,7 +76,7 @@
 
   function isVk(site){
     const s=norm(site).replace(/[._-]/g,' ');
-    return /^(?:vk|вк|vkontakte|вконтакте)(?:\s+(?:ads|реклама))?$/iu.test(s);
+    return /^(?:vk|вк|vkontakte|вконтакте)(?:\s+(?:com|ads|реклама))*$/iu.test(s);
   }
   function isYandexAuctionNoMarkup(site,format,placement){
     const full=norm([site,format,placement].filter(Boolean).join(' | '));
