@@ -746,11 +746,10 @@ def _authoritative_total_value(
     matrix: Sequence[Sequence[Any]], mapping: Dict[str, int], field: str,
     data_start: int, data_end: int,
 ) -> Optional[float]:
-    """Read an explicit Excel Total cell for one finance field.
+    """Read an explicit Excel Total cell for QA comparison only.
 
-    LAB plans sometimes keep row-level finance for historical/fact blocks while the
-    final Plan order total intentionally covers only the active order range. When a
-    dedicated Total cell exists, it is the source of truth for that Plan finance field.
+    Detailed placement rows are the calculation source of truth. A dedicated Total
+    cell is retained only to detect stale formulas or incomplete SUM ranges.
     """
     col = mapping.get(field)
     if col is None:
@@ -765,81 +764,29 @@ def _authoritative_total_value(
     return None
 
 
-def _reconcile_sheet_plan_ac_to_total(
+def _warn_sheet_plan_ac_total_mismatch(
     result: "SplitResult",
     source_finance: Dict[Tuple[str, int], Tuple[float, float, float]],
     sheet_name: str,
-    target_ac: float,
+    excel_total_ac: float,
 ) -> None:
-    """Reconcile Plan AC to an explicit Excel Total without mixing Plan and Fact.
+    """Use detailed placement rows as finance source of truth; Total is QA only.
 
-    Exact leading/trailing exclusions mirror formulas such as SUM(AA25:AA51).
-    Only when the Total cannot be reproduced by a clean boundary exclusion do we
-    proportionally reconcile Plan AC and emit a warning. Fact AC stays untouched.
+    A workbook Total can be stale when a formula range was not extended after rows
+    were added. Split calculations must therefore preserve the actual row values.
+    If Excel Total differs to the kopeck, report the mismatch without changing rows.
     """
     keys = sorted((k for k in source_finance if k[0] == sheet_name), key=lambda x: x[1])
     if not keys:
         return
-    current = sum(source_finance[k][1] for k in keys)
-    if round(current + 1e-9, 2) == round(target_ac + 1e-9, 2):
+    rows_ac = sum(source_finance[k][1] for k in keys)
+    if round(rows_ac + 1e-9, 2) == round(excel_total_ac + 1e-9, 2):
         return
-    if current <= 1e-12:
-        return
-
-    row_factor: Dict[int, float] = {row: 1.0 for _, row in keys}
-    method = "proportional"
-    excess = current - target_ac
-    if excess > 0:
-        prefix = 0.0
-        for _, row in keys:
-            prefix += source_finance[(sheet_name, row)][1]
-            if round(prefix + 1e-9, 2) == round(excess + 1e-9, 2):
-                for _, rr in keys:
-                    if rr <= row:
-                        row_factor[rr] = 0.0
-                method = f"leading rows through {row}"
-                break
-        if method == "proportional":
-            suffix = 0.0
-            for _, row in reversed(keys):
-                suffix += source_finance[(sheet_name, row)][1]
-                if round(suffix + 1e-9, 2) == round(excess + 1e-9, 2):
-                    for _, rr in keys:
-                        if rr >= row:
-                            row_factor[rr] = 0.0
-                    method = f"trailing rows from {row}"
-                    break
-
-    if method == "proportional":
-        factor = target_ac / current
-        for _, row in keys:
-            row_factor[row] = factor
-
-    for key in keys:
-        plan, ac, _total = source_finance[key]
-        new_ac = ac * row_factor[key[1]]
-        source_finance[key] = (plan, new_ac, plan + new_ac)
-
-    for rec in result.records:
-        if rec.sheet != sheet_name or rec.source_row not in row_factor:
-            continue
-        rec.plan_ac *= row_factor[rec.source_row]
-        rec.plan_total = rec.plan_budget + rec.plan_ac
-
-    after = sum(source_finance[k][1] for k in keys)
-    residual = target_ac - after
-    if abs(residual) >= 0.0000001:
-        last_key = next((k for k in reversed(keys) if abs(source_finance[k][1]) > 0 or target_ac == 0), keys[-1])
-        plan, ac, _total = source_finance[last_key]
-        source_finance[last_key] = (plan, ac + residual, plan + ac + residual)
-        candidates = [z for z in result.records if z.sheet == sheet_name and z.source_row == last_key[1]]
-        if candidates:
-            candidates[-1].plan_ac += residual
-            candidates[-1].plan_total = candidates[-1].plan_budget + candidates[-1].plan_ac
-
+    diff = round(rows_ac - excel_total_ac, 2)
     result.warnings.append(
-        f"{sheet_name}: План АК приведён к явному Excel Total {target_ac:.2f} руб.; "
-        f"строковая сумма была {current:.2f} руб. ({method})."
+        f"ОШИБКА TOTAL · {sheet_name}: Excel Total по План АК = {excel_total_ac:.2f} руб., "
+        f"сумма детальных строк = {rows_ac:.2f} руб. (разница {diff:+.2f} руб.). "
+        "В Сплиты взята сумма детальных строк; проверьте формулу/диапазон строки Total в исходном Excel."
     )
 
 
@@ -1171,7 +1118,7 @@ def parse_split_workbook(
     seen_physical: set[Tuple[str, int]] = set()
     cross_sheet_seen: Dict[Tuple[Any, ...], Tuple[str, int, Tuple[Any, ...], float]] = {}
     source_finance: Dict[Tuple[str, int], Tuple[float, float, float]] = {}
-    authoritative_sheet_ac: Dict[str, float] = {}
+    excel_sheet_ac_totals: Dict[str, float] = {}
 
     with XlsxWorkbook(path) as wb:
         all_names = wb.sheet_names()
@@ -1194,7 +1141,7 @@ def parse_split_workbook(
                 next_header = tables[t_index + 1][0] if t_index + 1 < len(tables) else len(matrix)
                 explicit_ac_total = _authoritative_total_value(matrix, mapping, "ac_amount", data_start, next_header)
                 if explicit_ac_total is not None:
-                    authoritative_sheet_ac[sheet_name] = authoritative_sheet_ac.get(sheet_name, 0.0) + explicit_ac_total
+                    excel_sheet_ac_totals[sheet_name] = excel_sheet_ac_totals.get(sheet_name, 0.0) + explicit_ac_total
                 month_blocks = _find_budget_month_blocks(matrix, header_start, data_start, next_header, mapping)
                 plan_block = month_blocks.get("plan")
                 fact_block = month_blocks.get("fact")
@@ -1431,11 +1378,11 @@ def parse_split_workbook(
                     )
                     result.records.extend(row_records)
 
-    for sheet_name, target_ac in authoritative_sheet_ac.items():
+    for sheet_name, excel_total_ac in excel_sheet_ac_totals.items():
         if sheet_name in version_group_token:
-            # A per-sheet Total cannot safely override a partially retained version sheet.
+            # A per-sheet Total cannot safely validate a partially retained version sheet.
             continue
-        _reconcile_sheet_plan_ac_to_total(result, source_finance, sheet_name, target_ac)
+        _warn_sheet_plan_ac_total_mismatch(result, source_finance, sheet_name, excel_total_ac)
 
     result.physical_rows = len({(z.sheet, z.source_row) for z in result.records})
 
