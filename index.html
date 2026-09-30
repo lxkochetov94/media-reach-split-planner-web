@@ -823,7 +823,13 @@ async function loadSplits(){
   splitData=data;$('exportSplits').disabled=false;renderSplits();
   const fc=splitData.conservation;
   if(fc&&!fc.ok){
-    setStatus('splitStatus',`Финансовая ошибка: исходные размещения ≠ план ≠ Сплиты. Дельта: ${money(fc.diff_plan)}`,'err');
+    const issues=[];
+    const addDiff=(label,a,b)=>{const d=Math.round((Number(a||0)-Number(b||0))*100)/100;if(Math.abs(d)>=0.005)issues.push(`${label}: ${d>0?'+':''}${money(d)}`)};
+    addDiff('План · исходник → распознанные строки',fc.source_plan,fc.records_plan);
+    addDiff('План · строки → Сплиты',fc.records_plan,fc.split_plan);
+    addDiff('АК · исходник → распознанные строки',fc.source_ac,fc.records_ac);
+    addDiff('АК · строки → Сплиты',fc.records_ac,fc.split_ac);
+    setStatus('splitStatus',`Финансовая ошибка: ${issues.length?issues.join(' · '):'контрольные суммы не сошлись'}. Подробности — в предупреждениях ниже.`,'err');
   }else{
     setStatus('splitStatus',`✓ ${groups.length} план(а/ов) · ${splitData.rows.length} строк площадка × формат · ${splitData.records} помесячных записей · контроль денег 0,00 ₽`,'ok');
   }
