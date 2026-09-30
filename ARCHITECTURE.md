@@ -24,6 +24,8 @@ The browser loads:
 
 Media-plan files are parsed locally in the browser. Do not introduce remote file upload as an incidental implementation detail.
 
+Heavy **Сплиты** parsing runs in `split_worker.js`, a dedicated Web Worker with its own Pyodide runtime. This keeps XLSX parsing off the browser UI thread, so large workbooks do not freeze the page. The worker receives the same embedded canonical legacy Python sources from `index.html`; media-plan bytes never leave the browser. Repeated split selections are cached inside the worker for the currently loaded workbook.
+
 ## Two Python cores
 
 ### 1. Legacy Web 0.52 core
