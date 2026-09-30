@@ -42,6 +42,7 @@ jobs:
           node --check mediaplan-checker/audit-policy-rules.js
           node --check mediaplan-checker/production-rules.js
           node --check mediaplan-checker/final-cleanup-rules.js
+          node --check mediaplan-checker/markup-rules.js
           node --check mediaplan-checker/xlsx-options.js
           node --check mediaplan-checker/app.js
       - name: Базовый smoke-тест
@@ -66,3 +67,5 @@ jobs:
         run: node mediaplan-checker/tests/production-rules.test.js
       - name: Финальная очистка исторических цитат контроля
         run: node mediaplan-checker/tests/final-cleanup-rules.test.js
+      - name: Проверка запрета наценки VK и аукционных форматов Яндекса
+        run: node mediaplan-checker/tests/markup-rules.test.js
