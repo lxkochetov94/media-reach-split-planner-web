@@ -46,28 +46,20 @@
   function key(x){ return [x.severity,x.type,x.sheet,x.cell,x.problem,x.related].join('|'); }
   function add(list,x){ if(!list.some(y=>key(y)===key(x))) list.push(x); }
 
-  function combinedHeader(ws,row,col){
-    const parts=[];
-    for(let r=row;r<=row+2;r++){
-      const t=text(cellAt(ws,r,col)).trim();
-      if(t) parts.push(t);
-    }
-    return norm(parts.join(' | '));
-  }
-
   function findPlacementHeader(ws){
     const es=entries(ws);
     if(!es.length) return null;
     const maxC=Math.min(220,Math.max(...es.map(e=>e.pos.c)));
-    for(let r=0;r<=Math.min(45,Math.max(...es.map(e=>e.pos.r)));r++){
+    const maxR=Math.min(45,Math.max(...es.map(e=>e.pos.r)));
+    for(let r=0;r<=maxR;r++){
       let site=null,markup=null,format=null,placement=null;
       for(let c=0;c<=maxC;c++){
-        const h=combinedHeader(ws,r,c);
+        const h=norm(text(cellAt(ws,r,c)));
         if(!h) continue;
-        if(site==null && /^(?:site|platform|площадка|название сайта|название площадки)(?:\s*\|.*)?$/iu.test(h)) site=c;
-        if(markup==null && /(?:^|\|\s*)(?:наценк\w*|markup|mark-up|коэффициент наценки)(?:\s*\||$)/iu.test(h)) markup=c;
-        if(format==null && /(?:^|\|\s*)(?:format|формат|ad size|размер)(?:\s*\||$)/iu.test(h)) format=c;
-        if(placement==null && /(?:ad placement|размещен|placement)/iu.test(h)) placement=c;
+        if(site==null && /^(?:site|platform|площадка|название сайта|название площадки)$/iu.test(h)) site=c;
+        if(markup==null && /^(?:наценк\w*|markup|mark-up|коэффициент наценки)$/iu.test(h)) markup=c;
+        if(format==null && /^(?:format|формат|ad size(?: \(pixels\))?|размер(?: объявления)?)$/iu.test(h)) format=c;
+        if(placement==null && /^(?:ad placement(?: & targetings)?|размещение|placement)$/iu.test(h)) placement=c;
       }
       if(site!=null && markup!=null) return {row:r,site,markup,format,placement};
     }
