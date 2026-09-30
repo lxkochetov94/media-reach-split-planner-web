@@ -297,7 +297,7 @@ function ensureSplitWorker(){
   if(splitWorkerReady)return splitWorkerReady;
   splitWorkerReady=new Promise((resolve,reject)=>{
     try{
-      const worker=new Worker('split_worker.js?v=20260930-4');
+      const worker=new Worker('split_worker.js?v=20260930-5',{type:'module'});
       splitWorker=worker;
       worker.onmessage=(event)=>{
         const msg=event.data||{};
@@ -318,14 +318,19 @@ function ensureSplitWorker(){
         const e=new Error(event.message||'Отдельный поток Сплитов аварийно остановлен');
         failSplitWorker(e);reject(e);
       };
-      Promise.all([
-        Promise.all(['engine.py','xlsx_reader.py','splits.py','web_api.py','audiences.json'].map(async name=>[name,await embeddedText(name)])),
-        fetch(PYODIDE_URL+'pyodide.js',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Не удалось загрузить pyodide.js: HTTP '+r.status);return r.text()})
-      ])
-        .then(([entries,pyodideLoaderText])=>{
+      Promise.all(['engine.py','xlsx_reader.py','splits.py','web_api.py','audiences.json'].map(async name=>[name,await embeddedText(name)]))
+        .then(entries=>{
           const assets=Object.fromEntries(entries);
           splitWorkerPending.set(0,{resolve,reject});
-          worker.postMessage({id:0,type:'init',payload:{pyodideUrl:PYODIDE_URL,pyodideLoaderText,assets}});
+          worker.postMessage({
+            id:0,
+            type:'init',
+            payload:{
+              pyodideUrl:PYODIDE_URL,
+              pyodideModuleUrl:PYODIDE_URL+'pyodide.mjs',
+              assets
+            }
+          });
         })
         .catch(e=>{failSplitWorker(e);reject(e)});
     }catch(e){splitWorkerReady=null;reject(e)}
